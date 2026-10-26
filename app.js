@@ -143,11 +143,10 @@ const COMPAT = {
 };
 function posFit(pl, slotPos) {
   if (pl.p === slotPos) return 1;
-  if (pl.alt && pl.alt.split(',').includes(slotPos)) return 0.97;
-  const c = COMPAT[slotPos] && COMPAT[slotPos][pl.p];
-  if (c) return c;
-  if (slotPos === 'GK' || pl.p === 'GK') return 0.35;
-  return 0.68;
+  let f;
+  if (pl.alt && pl.alt.split(',').includes(slotPos)) f = 0.97;
+  else f = (COMPAT[slotPos] && COMPAT[slotPos][pl.p]) || (slotPos === 'GK' || pl.p === 'GK' ? 0.35 : 0.68);
+  return pl.pc ? posTrainFit(pl, slotPos, f) : f; // a position being trained (18_positions.js)
 }
 
 // ---------- ratings
@@ -2927,6 +2926,7 @@ function dailyEvents() {
   }
   if (t.d === 1 && t.m === 1) contractReminders();
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
+  posChangeDaily();
   if (t.d === 15 && t.m === 3 && userLeagueZone() === 'SA') contractReminders();
   // injury returns
   if (S.user.team && !S.coach.unemployed) {
@@ -2942,6 +2942,7 @@ function fastDailyEvents() {
   const t = ymd(S.date);
   if (t.w === 1) weeklyLoans();
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
+  posChangeDaily();
   zoeiraDay();
 }
 function weeklyLoans() {
@@ -4790,6 +4791,88 @@ function finishCopinha(c, ch, ru) {
   }
 }
 
+/* ===================== position change (like EA FC's player development) ===================== */
+// The coach picks a new position; the player trains it for a time that depends on how close the two positions are
+// (a winger to the other wing in two weeks, a midfielder to centre-back in two months). Meanwhile he gets better in
+// the new position little by little; at the end it becomes his position, the old one stays as a secondary one and
+// the overall is recalculated from his attributes (like the game does when a position changes).
+
+// outfield attributes: pace, shooting, passing, dribbling, defending, physical
+const POS_WEIGHTS = {
+  ST: [0.2, 0.4, 0.05, 0.2, 0, 0.15], RW: [0.3, 0.2, 0.15, 0.3, 0, 0.05], LW: [0.3, 0.2, 0.15, 0.3, 0, 0.05],
+  RM: [0.25, 0.1, 0.25, 0.3, 0.05, 0.05], LM: [0.25, 0.1, 0.25, 0.3, 0.05, 0.05], CAM: [0.1, 0.2, 0.35, 0.3, 0, 0.05],
+  CM: [0.05, 0.1, 0.4, 0.2, 0.15, 0.1], CDM: [0.05, 0, 0.25, 0.1, 0.4, 0.2], RB: [0.25, 0, 0.15, 0.1, 0.35, 0.15],
+  LB: [0.25, 0, 0.15, 0.1, 0.35, 0.15], CB: [0.1, 0, 0.05, 0, 0.6, 0.25],
+};
+const posSimilarity = (from, to) => (COMPAT[to] && COMPAT[to][from]) || 0.68;
+function posAttrRating(p, pos) {
+  const w = POS_WEIGHTS[pos];
+  if (!w || !p.a || p.a.length < 6 || p.p === 'GK') return null;
+  return w.reduce((s, x, i) => s + x * p.a[i], 0);
+}
+// days of training for a change (younger players learn faster); a secondary position only needs a week
+function posChangeDays(p, to) {
+  if (p.alt && p.alt.split(',').includes(to)) return 7;
+  const c = posSimilarity(p.p, to);
+  const base = c >= 0.95 ? 14 : c >= 0.9 ? 28 : c >= 0.86 ? 42 : c >= 0.8 ? 63 : 90;
+  return Math.round(base * (p.age <= 21 ? 0.8 : p.age >= 30 ? 1.25 : 1));
+}
+// overall in the new position once the change is complete
+function posChangeOvr(p, to) {
+  const c = posSimilarity(p.p, to);
+  const a = posAttrRating(p, to), b = posAttrRating(p, p.p);
+  const low = -Math.round((1 - c) * 40);
+  const d = a !== null && b !== null ? clamp(Math.round(a - b), low, 3) : -Math.round((1 - c) * 20);
+  const sec = p.alt && p.alt.split(',').includes(to);
+  return clamp(p.o + (sec ? Math.max(d, -1) : d), 30, 99);
+}
+const posChangeLabel = (c) => (c >= 0.95 ? 'muito parecida' : c >= 0.88 ? 'parecida' : c >= 0.8 ? 'diferente' : 'muito diferente');
+function posChangeProgress(p) {
+  const pc = p.pc;
+  if (!pc) return 0;
+  return clamp((S.date - pc.d0) / Math.max(1, pc.days), 0, 1);
+}
+// fit for the position being trained: from the natural similarity towards a secondary position as he learns it
+function posTrainFit(pl, slotPos, base) {
+  if (!pl.pc || pl.pc.to !== slotPos) return base;
+  return Math.max(base, base + (0.97 - base) * posChangeProgress(pl));
+}
+function startPosChange(p, to) {
+  if (!POSITIONS.includes(to) || to === p.p) return { ok: false, msg: 'Escolha outra posição.' };
+  if ((to === 'GK') !== (p.p === 'GK')) return { ok: false, msg: 'Goleiro não troca de posição com jogador de linha.' };
+  const days = posChangeDays(p, to);
+  p.pc = { to, from: p.p, d0: S.date, days, o: posChangeOvr(p, to) };
+  S.pt = uniq((S.pt || []).concat(p.id));
+  return { ok: true, msg: `${p.n} começou a treinar como ${POS_LONG[to].toLowerCase()}: cerca de ${weeksTxt(days)}.` };
+}
+function cancelPosChange(p) {
+  p.pc = null;
+  S.pt = (S.pt || []).filter((x) => x !== p.id);
+}
+const weeksTxt = (days) => (days <= 7 ? '1 semana' : `${Math.round(days / 7)} semanas`);
+// daily: changes that are complete
+function posChangeDaily() {
+  if (!S.pt || !S.pt.length) return;
+  for (const id of S.pt.slice()) {
+    const p = S.players[id];
+    if (!p || !p.pc) { S.pt = S.pt.filter((x) => x !== id); continue; }
+    if (S.date < p.pc.d0 + p.pc.days) continue;
+    const { to, from } = p.pc;
+    const o0 = p.o;
+    const o1 = posChangeOvr(p, to); // with the attributes of today
+    const alt = (p.alt ? p.alt.split(',') : []).filter((x) => x && x !== to && x !== from);
+    p.alt = [from].concat(alt).slice(0, 3).join(',');
+    p.p = to;
+    p.o = o1;
+    p.pot = Math.max(p.o, p.pot + (o1 - o0));
+    p.pc = null;
+    S.pt = S.pt.filter((x) => x !== id);
+    if (isUserTeam(p.t) || (p.loan && isUserTeam(p.loan.from)))
+      addInbox('info', 'Comissão técnica', `${p.n} agora é ${POS_LONG[to].toLowerCase()}`,
+        `${p.n} concluiu o treino de posição: agora joga como ${POS_LONG[to].toLowerCase()} (overall ${o0} → ${p.o}) e ainda pode atuar como ${POS_LONG[from].toLowerCase()}.`);
+  }
+}
+
 /* ===================== UI core ===================== */
 const UI = {
   screen: 'start', tab: 'central', sub: {}, sel: null, newsIdx: 0, filters: {}, wiz: null, busy: false,
@@ -5072,6 +5155,7 @@ function statusFlags(p) {
   if (p.tl) s += ` <span class="chip" title="Lista de transferências">À VENDA</span>`;
   if (p.ll) s += ` <span class="chip" title="Lista de empréstimo">EMPR.</span>`;
   if (p.loan) s += ` <span class="chip" title="Emprestado por ${esc(teamName(p.loan.from))}">EMPRESTADO</span>`;
+  if (p.pc) s += ` <span class="chip" title="Treinando como ${esc(POS_LONG[p.pc.to].toLowerCase())}">⇄ ${POS_PT[p.pc.to]} ${Math.round(posChangeProgress(p) * 100)}%</span>`;
   return s;
 }
 function formRow(teamId, n = 5) {
@@ -6167,6 +6251,7 @@ function openPlayerModal(pid) {
         <button class="btn sm" data-a="pLL" data-id="${p.id}">${p.ll ? 'Tirar da lista de empréstimo' : 'Lista de empréstimo'}</button>
         <button class="btn sm" data-a="pRenew" data-id="${p.id}">Renovar contrato</button>
         <button class="btn sm" data-a="pNumber" data-id="${p.id}">Mudar camisa</button>
+        <button class="btn sm" data-a="pPos" data-id="${p.id}">${p.pc ? 'Treino de posição' : 'Mudar posição'}</button>
         <button class="btn sm danger" data-a="pRelease" data-id="${p.id}">Liberar</button>`;
     } else if (!yth && p.yth !== -1) {
       const short = S.tr.short.includes(p.id);
@@ -6182,6 +6267,7 @@ function openPlayerModal(pid) {
           <div class="kv" style="margin-top:10px">
             <span class="k">Clube</span><span>${t ? `<span data-a="openTeam" data-id="${t.id}" style="cursor:pointer">${crest(t, 18)} ${esc(t.n)}</span>` : yth ? 'Base (academia)' : p.natOnly ? 'Clube local' : 'Sem clube'}${p.loan ? ` <span class="muted">(emprestado ${esc(tA(p.loan.from, 'pelo'))}${p.loan.o != null ? ` · overall ${p.loan.o} → ${p.o} em ${Math.round(p.loan.g || 0)} jogos` : ''})</span>` : ''}</span>
             ${p.t || mine ? `<span class="k">Fase</span><span>${formLine(p)}</span>` : ''}
+            ${p.pc ? `<span class="k">Treino de posição</span><span>${posBadge(p.pc.to)} ${Math.round(posChangeProgress(p) * 100)}% · conclui em ${fmtDate(p.pc.d0 + p.pc.days, 'short')} · overall previsto ${p.pc.o}</span>` : ''}
             <span class="k">Nacionalidade</span><span>${natFlag(p.nat)} ${esc(natName(p.nat))}</span>
             <span class="k">Idade</span><span>${p.age} anos · ${p.h} cm · pé ${p.f === 'L' ? 'esquerdo' : 'direito'}</span>
             <span class="k">Potencial</span><span>${mine || yth ? p.pot : `${clamp(p.pot - 2, p.o, 99)}–${clamp(p.pot + 2, p.o, 99)}`}</span>
@@ -6325,6 +6411,40 @@ function sendContract() {
   render();
   toast(done.msg);
 }
+// ---------- position change
+act('pPos', (el) => {
+  const pid = +el.dataset.id;
+  openModal(() => {
+    const p = S.players[pid];
+    if (p.pc) {
+      const pr = posChangeProgress(p);
+      return modalShell(`Treino de posição · ${esc(p.n)}`, `
+        <div class="row wrap" style="gap:8px">${posBadge(p.p)} → ${posBadge(p.pc.to)} <b>${esc(POS_LONG[p.pc.to])}</b></div>
+        <div style="height:10px;border-radius:5px;background:var(--panel3);overflow:hidden;margin:14px 0 8px"><i style="display:block;height:100%;width:${Math.round(pr * 100)}%;background:var(--accent-hi)"></i></div>
+        <p class="muted" style="margin:0">${Math.round(pr * 100)}% concluído · termina em ${fmtDate(p.pc.d0 + p.pc.days, 'long')} · overall previsto na nova posição: <b>${p.pc.o}</b> (hoje ${p.o}).
+        Enquanto treina, ele já rende cada vez melhor como ${esc(POS_LONG[p.pc.to].toLowerCase())}.</p>`,
+        `<button class="btn danger" data-a="pPosCancel" data-id="${p.id}">Cancelar treino</button><button class="btn primary" data-a="closeModal">Fechar</button>`);
+    }
+    const opts = POSITIONS.filter((x) => x !== p.p && (x === 'GK') === (p.p === 'GK'));
+    const rows = opts.map((to) => {
+      const c = posSimilarity(p.p, to), sec = p.alt && p.alt.split(',').includes(to);
+      const o1 = posChangeOvr(p, to), d = o1 - p.o;
+      return { to, c: sec ? 1 : c, sec, days: posChangeDays(p, to), o1, d };
+    }).sort((a, b) => b.c - a.c || b.o1 - a.o1);
+    return modalShell(`Mudar posição · ${esc(p.n)}`, `
+      <p class="muted" style="margin-top:0">Hoje: ${posBadge(p.p)} ${esc(POS_LONG[p.p])}, overall ${p.o}. Quanto mais parecida a posição, mais rápido ele aprende. Ao terminar, a posição atual vira secundária e o overall é recalculado pelos atributos.</p>
+      <div class="col" style="gap:6px">${rows.map((r) => `<button class="pos-opt" data-a="pPosGo" data-id="${p.id}" data-to="${r.to}">
+        ${posBadge(r.to)}<span class="grow"><b>${esc(POS_LONG[r.to])}</b><span class="muted" style="font-size:12px;display:block">${r.sec ? 'já é posição secundária' : `posição ${posChangeLabel(r.c)}`} · ${weeksTxt(r.days)} de treino</span></span>
+        <span class="tnum" style="text-align:right">${ovrBadge(r.o1)}<span style="display:block;font-size:12px;color:${r.d > 0 ? 'var(--win)' : r.d < 0 ? 'var(--loss)' : 'var(--muted)'}">${r.d > 0 ? '+' : ''}${r.d}</span></span></button>`).join('')}</div>`, '');
+  }, { size: 'narrow' });
+});
+act('pPosGo', (el) => {
+  const p = S.players[+el.dataset.id];
+  const r = startPosChange(p, el.dataset.to);
+  toast(r.msg, !r.ok);
+  if (r.ok) { closeModal(); refreshModal(); render(); }
+});
+act('pPosCancel', (el) => { cancelPosChange(S.players[+el.dataset.id]); closeModal(); refreshModal(); render(); toast('Treino de posição cancelado.'); });
 
 /* ===================== transfers ===================== */
 function viewTransfers() {
