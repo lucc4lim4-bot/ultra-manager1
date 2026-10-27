@@ -7574,7 +7574,11 @@ function g2Defaults() {
   if (!G2_CAMS.some(([k]) => k === G2PREF.cam)) G2PREF.cam = 'normal';
   if (typeof G2PREF.sound !== 'boolean') G2PREF.sound = true;
   if (typeof G2PREF.replay !== 'boolean') G2PREF.replay = true;
+  if (!G2_BTN.some(([k]) => k === G2PREF.btn)) G2PREF.btn = 1;
 }
+// size of the on-screen controls (joystick and buttons)
+const G2_BTN = [[0.8, 'Pequeno'], [1, 'Normal'], [1.25, 'Grande'], [1.5, 'Enorme']];
+function applyBtnSize(root) { if (root) root.style.setProperty('--bs', G2PREF.btn || 1); }
 act('start2d', () => {
   g2Defaults();
   const seg = (k, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${String(G2PREF[k]) === String(v) ? 'on' : ''}" data-a="g2dOpt" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -7586,6 +7590,7 @@ act('start2d', () => {
       <div><div class="muted up">Câmera</div>${seg('cam', G2_CAMS)}</div>
       <div><div class="muted up">Som</div>${seg('sound', [[true, 'Ligado'], [false, 'Desligado']])}</div>
       <div><div class="muted up">Replay dos gols</div>${seg('replay', [[true, 'Ligado'], [false, 'Desligado']])}</div>
+      <div><div class="muted up">Botões na tela (toque)</div>${seg('btn', G2_BTN)}</div>
     </div>
     <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">Shift</span> corre · <span class="kbd">P</span> pausa</div>
     <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda; PASSE, CHUTE, LANÇAR e CORRER à direita. A barra azul sob o jogador é o fôlego da arrancada.</div>
@@ -7595,7 +7600,7 @@ act('start2d', () => {
 act('g2dOpt', (el) => {
   const k = el.dataset.k;
   let v = el.dataset.v;
-  if (k === 'len') v = +v;
+  if (k === 'len' || k === 'btn') v = +v;
   if (k === 'sound' || k === 'replay') v = v === 'true';
   G2PREF[k] = v;
   saveG2Pref();
@@ -9768,6 +9773,7 @@ const Game2D = (() => {
   function buildDom() {
     root = document.createElement('div');
     root.className = 'g2d';
+    applyBtnSize(root);
     const m = G.m;
     root.innerHTML = `<canvas class="g2-main" aria-label="Partida jogável"></canvas>
       <div class="g2d-hud">
@@ -9982,6 +9988,7 @@ const Game2D = (() => {
       body = `<h2>Pausa</h2><p class="muted">${esc(teamName(m.h))} ${st.score[0]} x ${st.score[1]} ${esc(teamName(m.a))} · ${inShootout ? 'pênaltis' : clockLabel()}</p>
         <div class="col" style="gap:10px;margin-top:14px"><button class="btn primary big" data-g="resume">▶ Continuar</button>${inShootout ? '' : `<button class="btn" data-g="subs">⇄ Substituições (${st.subsLeft[k]})</button>`}
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Câmera</span><div class="seg">${G2_CAMS.map(([v, l]) => `<button class="${(G2PREF.cam || 'normal') === v ? 'on' : ''}" data-cam="${v}">${l}</button>`).join('')}</div></div>
+        <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Botões</span><div class="seg">${G2_BTN.map(([v, l]) => `<button class="${(G2PREF.btn || 1) === v ? 'on' : ''}" data-btn="${v}">${l}</button>`).join('')}</div></div>
         <button class="btn" data-g="sim">⏩ ${inShootout ? 'Simular os pênaltis' : 'Simular o resto'}</button></div>`;
     }
     hud.pause.innerHTML = `<div class="card">${body}</div>`;
@@ -9989,6 +9996,7 @@ const Game2D = (() => {
     hud.pause.onclick = (e) => {
       const t = e.target.closest('button');
       if (!t || !G) return;
+      if (t.dataset.btn) { G2PREF.btn = +t.dataset.btn; saveG2Pref(); applyBtnSize(document.querySelector('.g2d')); renderPause(false); return; }
       if (t.dataset.cam) { G2PREF.cam = t.dataset.cam; saveG2Pref(); G.camZoom = G2_ZOOM[t.dataset.cam] || 1; renderPause(false); return; }
       if (t.dataset.g === 'resume') togglePause();
       else if (t.dataset.g === 'subs') { G.subOut = null; renderPause(true, fromBreak); }
