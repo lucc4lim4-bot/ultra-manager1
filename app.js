@@ -2223,7 +2223,7 @@ function youthIntakeAI(t) {
   const lvl = teamRating(t.id);
   for (let i = 0; i < n; i++) {
     const p = generatePlayer({ nat: rnd() < 0.82 ? (t.c && S.nations[t.c] ? t.c : pick(['BRA', 'ARG', 'ESP', 'FRA', 'ENG'])) : pick(['BRA', 'ARG', 'FRA', 'POR', 'NGA', 'COL', 'ESP']),
-      age: rint(17, 19), ovr: clamp(Math.round(lvl - rint(12, 20)), 45, 72), potBoost: Math.round(4 + 18 * rnd() ** 2.2) });
+      age: rint(17, 19), ovr: clamp(Math.round(lvl - rint(12, 20)), 45, 72), potBoost: Math.round(4 + 18 * rnd() ** 1.8) });
     movePlayer(p, t.id, { ct: yearOf(S.date) + 3 });
     p.w = Math.round(wageDemand(p, t) * 0.6);
   }
@@ -2259,9 +2259,9 @@ function genName(nat) {
 // generated youngsters (regens, scouted talents): the top of the potential scale is rare, 85+ is a once-in-a-while
 // find and 90+ almost never shows up
 function compressPot(v) {
-  if (v > 88) v = 88 + (v - 88) * 0.2;
-  else if (v > 84) v = 84 + (v - 84) * 0.45;
-  else if (v > 79) v = 79 + (v - 79) * 0.75;
+  if (v > 90) v = 90 + (v - 90) * 0.25;
+  else if (v > 86) v = 86 + (v - 86) * 0.6;
+  else if (v > 81) v = 81 + (v - 81) * 0.85;
   return Math.round(v);
 }
 function generatePlayer(o) {
