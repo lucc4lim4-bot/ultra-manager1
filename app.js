@@ -2090,6 +2090,7 @@ function yearlyPlayers(y) {
   if (devReport.length && !S.presim) devInbox(devReport, 'Evolução do elenco na temporada', true);
   for (const p of retired) retirePlayer(p);
   // contracts expiring this summer -> free agents (AI renews most)
+  const rankCache = {};
   for (const id in S.players) {
     const p = S.players[id];
     if (!p.t || p.natOnly) continue;
@@ -2099,9 +2100,8 @@ function yearlyPlayers(y) {
       if (isUserTeam(p.t)) {
         addInbox('contract', 'Departamento jurídico', `${p.n} deixou o clube`, `O contrato de ${p.n} terminou e ele saiu de graça.`);
         releasePlayer(p, true);
-      } else if (rnd() < 0.72 && p.age < 34) {
-        p.ct = y + rint(1, 4);
-        p.w = wageDemand(p, t);
+      } else if (rnd() < aiRenewChance(p, t, rankCache)) {
+        aiRenew(p, t, y);
       } else releasePlayer(p, true);
     }
   }
@@ -2117,6 +2117,45 @@ function yearlyPlayers(y) {
     addInbox('scout', 'Academia', 'Nova safra da base', 'Os juniores da academia subiram de categoria. Confira a aba Academia para promover jogadores.');
   }
 }
+// Clubs fight to keep the players that matter: the stars and starters renew almost always, only the fringe, the old
+// and the surplus are let go (so the free-agent market is made of leftovers, not of the big clubs' best players)
+function aiRenewChance(p, t, cache) {
+  if (!t) return 0.5;
+  let rk = cache && cache[t.id];
+  if (!rk) {
+    rk = {};
+    squadOf(t.id).sort(by((x) => x.o, -1)).forEach((x, i) => { rk[x.id] = i; });
+    if (cache) cache[t.id] = rk;
+  }
+  const rank = rk[p.id] === undefined ? 30 : rk[p.id];
+  const lvl = teamRating(t.id);
+  let pr = rank < 5 ? 0.985 : rank < 14 ? 0.94 : rank < 22 ? 0.8 : 0.55;
+  if (p.o >= lvl + 2) pr = Math.max(pr, 0.985);
+  if (p.age <= 23 && p.pot >= p.o + 5) pr = Math.max(pr, 0.95);
+  if (p.age >= 36) pr = Math.min(pr, 0.35);
+  else if (p.age >= 34) pr = Math.min(pr, rank < 11 ? 0.7 : 0.4);
+  else if (p.age >= 32) pr -= 0.05;
+  return clamp(pr, 0.05, 0.99);
+}
+function aiRenew(p, t, y) {
+  p.ct = y + rint(1, 4);
+  p.w = Math.max(wageDemand(p, t), Math.round((p.w || 0) * 0.9));
+}
+// during the season the AI also talks to the players with a contract about to end (like real clubs do): many are
+// renewed before the summer, so few good players reach the market
+function aiMidSeasonRenewals() {
+  const cache = {};
+  for (const tid of activeClubIds()) {
+    if (isUserTeam(tid)) continue;
+    const t = S.teams[tid];
+    if (!t) continue;
+    const end = S.mode === 'normal' && isSAteam(tid) ? ymd(S.date).y : seasonEndYear();
+    for (const p of squadOf(tid)) {
+      if (!p.ct || p.ct > end || p.loan) continue;
+      if (rnd() < aiRenewChance(p, t, cache) * 0.45) aiRenew(p, t, end);
+    }
+  }
+}
 function isSAteam(tid) { return S.normal && S.normal.some((l) => l.cal === 'SA' && (l.teams.includes(tid) || l.bank.includes(tid))); }
 function retirePlayer(p) {
   if (p.t) { const t = S.teams[p.t]; if (t) t.sq = t.sq.filter((x) => x !== p.id); removeFromLineups(p.id); }
@@ -2128,7 +2167,8 @@ function retirePlayer(p) {
 function releasePlayer(p, free) {
   if (p.t) { const t = S.teams[p.t]; if (t) t.sq = t.sq.filter((x) => x !== p.id); removeFromLineups(p.id); }
   p.t = 0; p.tl = 0; p.ll = 0; p.loan = null;
-  p.ct = 0;
+  p.ct = 0; p.fd = S.date;
+  _faCache = null;
 }
 function removeFromLineups(pid) {
   for (const id in S.teams) {
@@ -2141,6 +2181,7 @@ function removeFromLineups(pid) {
 function movePlayer(p, toTeam, opts = {}) {
   if (p.t) { const t = S.teams[p.t]; if (t) t.sq = t.sq.filter((x) => x !== p.id); removeFromLineups(p.id); }
   p.t = toTeam;
+  if (toTeam) p.fd = 0;
   p.tl = 0; p.ll = 0;
   p.sus = 0;
   if (toTeam) {
@@ -2310,8 +2351,13 @@ function executeTransfer(p, toTeam, fee, opts = {}) {
   if (S.tr.log.length > 400) S.tr.log.length = 400;
   const big = fee >= 50e6 || p.o > 85;
   if (big && !S.presim) {
-    const T = teamName(toTeam), F = teamName(from);
+    const T = teamName(toTeam), F = from ? teamName(from) : '';
     const bomb = fee >= 80e6 || p.o >= 88;
+    if (!from) {
+      addNews(`${T} contrata ${p.n} de graça`, `${TA(toTeam)} assinou com ${p.n} (${POS_LONG[p.p].toLowerCase()}, ${p.age} anos, ${p.o} de overall), que estava livre no mercado.`,
+        'transfer', [toTeam], { cat: 'Mercado da bola', hot: bomb, fee: 0 });
+      return rec;
+    }
     const head = opts.loanFrom ? `${p.n} é emprestado ${tA(toTeam, 'ao')}`
       : pick(bomb ? [`Bomba no mercado: ${p.n} acerta com ${tA(toTeam)}`, `${T} fecha a contratação de ${p.n}`] : [`${p.n} é o novo reforço ${tA(toTeam, 'do')}`, `${T} anuncia ${p.n}`, `Mercado: ${T} fecha com ${p.n}`]);
     addNews(head, `${TA(toTeam)} ${opts.loanFrom ? 'recebe por empréstimo' : 'acertou a contratação de'} ${p.n} (${POS_LONG[p.p].toLowerCase()}, ${p.age} anos, ${p.o} de overall), que estava ${tA(from, 'no')}${fee ? `. A operação gira em torno de ${fmtMoney(fee)}` : ''}.`,
@@ -2341,12 +2387,18 @@ function activeClubIds() {
   return [];
 }
 function aiTransferDay(fast) {
-  if (!isWindowOpen() || S.mode === 'national') return;
-  const ids = activeClubIds().filter((id) => !isUserTeam(id));
+  if (S.mode === 'national') return;
   const t = ymd(S.date);
+  const open = isWindowOpen();
+  // free agents can sign at any time of the year (more in the windows)
+  aiFreeAgentDay(open ? 0.05 : 0.02, open && ((t.m === 8 && t.d >= 24) || (t.m === 1 && t.d >= 24)));
+  if (!open) return;
+  const ids = activeClubIds().filter((id) => !isUserTeam(id));
   const closing = (t.m === 8 && t.d >= 24) || (t.m === 1 && t.d >= 24);
   const last = (t.m === 1 && t.d >= 28);
-  const per = closing ? 0.12 : 0.035;
+  // busier market: the summer opens with a rush, and the deadline days are hectic
+  const rush = (t.m === 6 || t.m === 7) && t.d <= 25 || (t.m === 1 && t.d <= 12);
+  const per = closing ? 0.2 : rush ? 0.1 : 0.07;
   for (const tid of ids) {
     const lacking = teamCount(tid) < 3;
     if (rnd() > per && !(closing && lacking && rnd() < (last ? 1 : 0.35))) continue;
@@ -2355,6 +2407,75 @@ function aiTransferDay(fast) {
   }
   // AI offers to the user
   if (!fast && S.user.team && !S.coach.unemployed) aiOffersForUser();
+}
+
+// ---------------------------------------------------------------- free agents
+let _faCache = null;
+function freeAgentPool() {
+  if (_faCache && S.date - _faCache.d < 7 && _faCache.s === S) return _faCache.list;
+  const list = [];
+  for (const id in S.players) {
+    const p = S.players[id];
+    if (p.t || p.natOnly || p.ret || p.yth) continue;
+    list.push(p);
+  }
+  list.sort(by((p) => p.o, -1));
+  _faCache = { d: S.date, s: S, list };
+  return list;
+}
+function aiSignFree(p, t) {
+  const wage = wageDemand(p, t);
+  executeTransfer(p, t.id, 0, { w: wage, ct: seasonEndYear() + rint(1, 3) });
+}
+// each day a few clubs look at the free agents: they sign those who really improve the team (and are affordable)
+function aiFreeAgentDay(prob, closing) {
+  const pool = freeAgentPool();
+  if (!pool.length) return;
+  for (const tid of activeClubIds()) {
+    if (isUserTeam(tid)) continue;
+    const t = S.teams[tid];
+    if (!t || t.ext || t.isNat) continue;
+    if (rnd() > prob && !(closing && teamCount(tid) < 3 && rnd() < 0.3)) continue;
+    const n = squadOf(tid).length;
+    if (n >= 30) continue;
+    const need = aiNeed(t);
+    if (!need) continue;
+    const lvl = teamRating(tid);
+    const posList = [need.pos].concat(Object.keys(COMPAT[need.pos] || {}).filter((x) => x !== need.pos).slice(0, 2));
+    const minO = need.depth ? lvl - 12 : Math.max(need.cur + 1, lvl - 7);
+    let best = null, bs = -1e9;
+    let seen = 0;
+    for (const p of pool) {
+      if (p.t) continue; // signed meanwhile
+      if (p.o > lvl + 7) continue; // too good for this club
+      if (p.o < minO) break; // list is sorted by overall
+      if (p.age > 35 || !posList.includes(p.p)) continue;
+      if (++seen > 40) break;
+      const w = wageDemand(p, t);
+      if (t.wb && wageBill(tid) + w > t.wb * 1.05) continue;
+      const s = (p.o - (need.cur || lvl)) * 3 - Math.max(0, p.age - 30) * 1.5 + (p.age <= 24 ? 2 : 0) + rnd() * 2;
+      if (s > bs) { bs = s; best = p; }
+    }
+    if (best) aiSignFree(best, t);
+  }
+}
+// weekly: good players do not stay long without a club; old/weak ones fade away
+function freeAgentWeek() {
+  const pool = freeAgentPool();
+  const clubs = activeClubIds().filter((id) => !isUserTeam(id) && S.teams[id] && !S.teams[id].ext);
+  for (const p of pool.slice()) {
+    if (p.t) continue;
+    if (!p.fd) p.fd = S.date;
+    const free = S.date - p.fd;
+    if (p.o >= 70 && free >= 21 && clubs.length) {
+      // a club comparable to him takes him (he does not pick a much weaker club)
+      const cand = clubs.filter((id) => { const r = teamRating(id); return r <= p.o + 3 && r >= p.o - 5 && squadOf(id).length < 31; });
+      if (cand.length) { aiSignFree(p, S.teams[pick(cand)]); continue; }
+      if (free >= 70) { const c2 = clubs.filter((id) => teamRating(id) <= p.o + 6 && squadOf(id).length < 32); if (c2.length) { aiSignFree(p, S.teams[pick(c2)]); continue; } }
+    }
+    if (p.age >= 34 && p.o < 78 && free >= 120) { retirePlayer(p); continue; }
+    if (free >= 330 && p.o < 66) retirePlayer(p);
+  }
 }
 function aiNeed(t) {
   const sq = squadOf(t.id);
@@ -2926,6 +3047,8 @@ function dailyEvents() {
   }
   if (t.d === 1 && t.m === 1) contractReminders();
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
+  if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
+  if (t.w === 1) freeAgentWeek();
   posChangeDaily();
   if (t.d === 15 && t.m === 3 && userLeagueZone() === 'SA') contractReminders();
   // injury returns
@@ -2940,8 +3063,9 @@ function dailyEvents() {
 function fastDailyEvents() {
   aiTransferDay(true);
   const t = ymd(S.date);
-  if (t.w === 1) weeklyLoans();
+  if (t.w === 1) { weeklyLoans(); freeAgentWeek(); }
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
+  if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
   posChangeDaily();
   zoeiraDay();
 }
