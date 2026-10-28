@@ -1287,7 +1287,7 @@ function finishRegulation(st, m) {
   if (matchNeedsDecider(m)) {
     const [bh, ba] = tieAggregateBefore(m);
     const aggH = bh + st.score[0], aggA = ba + st.score[1];
-    if (aggH === aggA && S.comps[m.c] && S.comps[m.c].noET) st.pen = penaltyShootout(st);
+    if (aggH === aggA && S.comps[m.c] && S.comps[m.c].noET) st.pen = decidePens(st);
     else if (aggH === aggA) {
       st.et = true;
       st.min = 90; st.half = 3;
@@ -1297,10 +1297,15 @@ function finishRegulation(st, m) {
       simulateRange(st, m, 120);
       st.xg = saveXg;
       const aggH2 = bh + st.score[0], aggA2 = ba + st.score[1];
-      if (aggH2 === aggA2) st.pen = penaltyShootout(st);
+      if (aggH2 === aggA2) st.pen = decidePens(st);
     }
   }
   st.done = true;
+}
+// in matches of the user the shoot-out can be played (st.deferPens): it is left pending until he chooses
+function decidePens(st) {
+  if (st.deferPens) { st.pendPens = true; return null; }
+  return penaltyShootout(st);
 }
 function penaltyShootout(st) {
   const takers = st.sides.map((s) => s.on.filter(Boolean).map((pid) => S.players[pid]).sort(by((p) => (p.a ? p.a[1] : p.o), -1)));
@@ -2031,14 +2036,14 @@ function devDelta(p, minutesFactor) {
   if (d > 0) d *= clamp(gap / 5, 0.25, 1.3) * (0.6 + 0.6 * minutesFactor) * (p.loan && minutesFactor > 0.5 ? 1.15 : 1) * highDamp(p.o);
   return d;
 }
-const highDamp = (o) => (o >= 85 ? 0.45 : o >= 82 ? 0.55 : o >= 79 ? 0.6 : o >= 76 ? 0.8 : 1);
+const highDamp = (o) => (o >= 88 ? 0.3 : o >= 85 ? 0.45 : o >= 82 ? 0.55 : o >= 79 ? 0.6 : o >= 76 ? 0.8 : 1);
 // dynamic potential (July, 19 to 24 years old): a youngster who hardly plays loses some of it, one who plays well
 // every week can raise it
 function potentialChange(p, mf) {
   if (p.age < 19 || p.age > 24 || p.natOnly) return 0;
   const avgR = p.an ? p.ar / p.an : 0;
   if (mf < 0.25 && p.pot - p.o > 3) return -rint(p.age >= 22 ? 1 : 0, 2);
-  if (mf >= 0.8 && avgR >= 7.2 && p.pot < 94) return rnd() < 0.6 ? 1 : 0;
+  if (mf >= 0.8 && avgR >= 7.2 && p.pot < 88) return rnd() < 0.5 ? 1 : 0;
   return 0;
 }
 // games played in the development year (p.ay counts every match, the season stats are wiped when competitions end)
@@ -2218,7 +2223,7 @@ function youthIntakeAI(t) {
   const lvl = teamRating(t.id);
   for (let i = 0; i < n; i++) {
     const p = generatePlayer({ nat: rnd() < 0.82 ? (t.c && S.nations[t.c] ? t.c : pick(['BRA', 'ARG', 'ESP', 'FRA', 'ENG'])) : pick(['BRA', 'ARG', 'FRA', 'POR', 'NGA', 'COL', 'ESP']),
-      age: rint(17, 19), ovr: clamp(Math.round(lvl - rint(12, 20)), 45, 72), potBoost: rint(6, 24) });
+      age: rint(17, 19), ovr: clamp(Math.round(lvl - rint(12, 20)), 45, 72), potBoost: Math.round(4 + 18 * rnd() ** 2.2) });
     movePlayer(p, t.id, { ct: yearOf(S.date) + 3 });
     p.w = Math.round(wageDemand(p, t) * 0.6);
   }
@@ -2251,12 +2256,20 @@ function genName(nat) {
   }
   return `${pick(pool.f)} ${pick(pool.l)}`;
 }
+// generated youngsters (regens, scouted talents): the top of the potential scale is rare, 85+ is a once-in-a-while
+// find and 90+ almost never shows up
+function compressPot(v) {
+  if (v > 88) v = 88 + (v - 88) * 0.2;
+  else if (v > 84) v = 84 + (v - 84) * 0.45;
+  else if (v > 79) v = 79 + (v - 79) * 0.75;
+  return Math.round(v);
+}
 function generatePlayer(o) {
   const id = S.seq.p++;
   const pos = o.pos || pick(GEN_POS);
   const ovrV = Math.round(o.ovr);
   const n = genName(o.nat);
-  const pot = clamp(ovrV + (o.potBoost ?? rint(4, 18)), ovrV, 95);
+  const pot = clamp(Math.max(ovrV, compressPot(ovrV + (o.potBoost ?? rint(4, 18)))), ovrV, 92);
   const prof = { GK: [0, 0, 0, 0, 0, 0], CB: [-12, -25, -12, -14, 2, 0], RB: [2, -18, -6, -6, -4, -6], LB: [2, -18, -6, -6, -4, -6], CDM: [-10, -14, -2, -6, 0, 0], CM: [-6, -6, 1, -2, -10, -6], CAM: [-2, -2, 1, 2, -30, -14], RM: [4, -6, -2, 0, -28, -12], LM: [4, -6, -2, 0, -28, -12], RW: [6, -4, -4, 2, -34, -14], LW: [6, -4, -4, 2, -34, -14], ST: [2, 2, -10, -3, -40, -4] }[pos];
   const a = pos === 'GK' ? [ovrV + rint(-3, 3), ovrV + rint(-3, 3), ovrV + rint(-6, 2), ovrV + rint(-3, 3), 40 + rint(0, 20), ovrV + rint(-3, 3)]
     : prof.map((d) => clamp(ovrV + d + rint(-5, 5), 20, 99));
@@ -7293,20 +7306,45 @@ act('simNow', () => {
   const m = S.matches[UI.match.mid];
   const st = startMatchState(m, { user: S.user.team });
   st.autoUser = true;
+  st.deferPens = true;
   simulateRange(st, m, 45 + st.stoppage[0]);
   st.min = 45; st.half = 2;
   simulateRange(st, m, 90 + st.stoppage[1]);
   finishRegulation(st, m);
-  applyMatchResult(m, st);
   UI.match.st = st;
+  if (st.pendPens) { askPens(m, st); return; }
+  applyMatchResult(m, st);
   UI.match.phase = 'post';
   render();
+});
+// the tie goes to penalties: the user chooses between playing them (2D) and simulating them
+function askPens(m, st) {
+  UI.match.st = st;
+  openModal(() => modalShell('🎯 Disputa de pênaltis', `<p style="margin:0 0 10px">${esc(teamName(m.h))} ${st.score[0]} x ${st.score[1]} ${esc(teamName(m.a))}. O confronto está empatado${st.et ? ' mesmo depois da prorrogação' : ' e não tem prorrogação'}: a decisão é nos pênaltis.</p><p class="muted" style="margin:0">Você pode bater e defender os pênaltis na partida jogável, ou deixar o jogo simular.</p>`,
+    '<button class="btn" data-a="pensSim">⏩ Simular pênaltis</button><button class="btn gold" data-a="pensPlay">🎯 Disputar pênaltis</button>'), { size: 'narrow' });
+}
+act('pensSim', () => {
+  const M = UI.match, m = S.matches[M.mid], st = M.st;
+  closeAllModals();
+  st.pendPens = false; st.deferPens = false;
+  st.pen = penaltyShootout(st);
+  evAdd(st, { min: st.et ? 120 : st.min, t: 'pen', s: -1, txt: `Pênaltis: ${teamName(m.h)} ${st.pen[0]} x ${st.pen[1]} ${teamName(m.a)}.`, h: st.et ? 3 : 2 });
+  finishLive();
+});
+act('pensPlay', () => {
+  const M = UI.match, m = S.matches[M.mid], st = M.st;
+  closeAllModals();
+  g2Defaults();
+  st.pendPens = false; st.deferPens = false;
+  M.phase = 'playing';
+  Game2D.startShootoutOnly(m, st, { minutes: G2PREF.len, diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: G2PREF.replay }, () => { UI.match.st = st; finishLive(); });
 });
 // ---------- live minute-by-minute
 act('startLive', () => {
   const m = S.matches[UI.match.mid];
   const st = startMatchState(m, { user: S.user.team });
   st.half = 1;
+  st.deferPens = true;
   UI.match.st = st;
   UI.match.phase = 'live';
   UI.match.speed = UI.match.speed || 2;
@@ -7346,8 +7384,8 @@ function liveLoop() {
         // extra time / penalties if needed
         const needs = matchNeedsDecider(m) && (() => { const [bh, ba] = tieAggregateBefore(m); return bh + st.score[0] === ba + st.score[1]; })();
         if (needs && S.comps[m.c] && S.comps[m.c].noET) {
-          st.pen = penaltyShootout(st);
-          evAdd(st, { min: st.min, t: 'pen', s: -1, txt: `Sem prorrogação: pênaltis! ${teamName(m.h)} ${st.pen[0]} x ${st.pen[1]} ${teamName(m.a)}.`, h: 2 });
+          st.pen = decidePens(st);
+          if (st.pen) evAdd(st, { min: st.min, t: 'pen', s: -1, txt: `Sem prorrogação: pênaltis! ${teamName(m.h)} ${st.pen[0]} x ${st.pen[1]} ${teamName(m.a)}.`, h: 2 });
           finishLive(); return;
         }
         if (needs) { M.stage = 'et'; st.half = 3; st.min = 90; st.xg = st.xg.map((x) => x * 0.95); evAdd(st, { min: 90, t: 'ht', s: -1, txt: 'Empate no agregado: vamos para a prorrogação!', h: 2 }); }
@@ -7357,7 +7395,7 @@ function liveLoop() {
       if (st.min < 120) simulateRange(st, m, st.min + 1);
       if (st.min >= 120) {
         const [bh, ba] = tieAggregateBefore(m);
-        if (bh + st.score[0] === ba + st.score[1]) { st.pen = penaltyShootout(st); st.et = true; evAdd(st, { min: 120, t: 'pen', s: -1, txt: `Pênaltis: ${teamName(m.h)} ${st.pen[0]} x ${st.pen[1]} ${teamName(m.a)}.`, h: 3 }); }
+        if (bh + st.score[0] === ba + st.score[1]) { st.pen = decidePens(st); st.et = true; if (st.pen) evAdd(st, { min: 120, t: 'pen', s: -1, txt: `Pênaltis: ${teamName(m.h)} ${st.pen[0]} x ${st.pen[1]} ${teamName(m.a)}.`, h: 3 }); }
         st.et = true;
         finishLive(); return;
       }
@@ -7461,6 +7499,7 @@ function liveLabel(M, m) {
 function finishLive() {
   const M = UI.match;
   const m = S.matches[M.mid];
+  if (M.st.pendPens) { askPens(m, M.st); return; }
   M.st.done = true;
   evAdd(M.st, { min: M.st.min, t: 'ft', s: -1, txt: `Fim de jogo: ${teamName(m.h)} ${M.st.score[0]} x ${M.st.score[1]} ${teamName(m.a)}.`, h: M.st.half });
   applyMatchResult(m, M.st);
@@ -7539,9 +7578,11 @@ act('liveSkip', () => {
   const M = UI.match; const m = S.matches[M.mid]; const st = M.st;
   clearTimeout(liveTimer);
   st.autoUser = true;
+  st.deferPens = true;
   if (M.stage === 'h1' || M.stage === 'ht') { simulateRange(st, m, 45 + st.stoppage[0]); st.min = 45; st.half = 2; }
   if (M.stage !== 'et') simulateRange(st, m, 90 + st.stoppage[1]);
   finishRegulation(st, m);
+  if (st.pendPens) { askPens(m, st); return; }
   applyMatchResult(m, st);
   M.phase = 'post';
   render();
@@ -8005,7 +8046,7 @@ const Game2D = (() => {
       if (!G.auto && team === 1) G.ctrl = nearestTo(0, PW / 2, y < PL / 2 ? 6 : PL - 6, true);
     } else if (kind === 'free') {
       const gy = team === 0 ? 0 : PL;
-      if (Math.hypot(PW / 2 - x, gy - y) < 30) { buildWall(team, x, y); if (team === 0 && !G.auto) hint('Falta perigosa: CHUTE bate direto no gol (segure para mais força).'); }
+      if (Math.hypot(PW / 2 - x, gy - y) < 30) { buildWall(team, x, y); G.fk = { taker, t: G.time }; if (team === 0 && !G.auto) hint('Falta perigosa: CHUTE bate direto no gol, por cima da barreira (segure para mais força).'); }
     }
     // the computer side changes players during stoppages in the second half
     if (!G.auto && G.half === 2 && minuteNow() > 58 && minuteNow() < 88 && Math.random() < 0.25) cpuSub(minuteInt());
@@ -8704,11 +8745,14 @@ const Game2D = (() => {
     }
     const spread = (0.03 + (1 - skill) * 0.15 + pressureOn(p) * 0.045 + Math.max(0, power - 0.8) * 0.12 + Math.max(0, d - 20) * 0.003) * (p.team === 1 ? G.D.shootErr : 1);
     const ang = Math.atan2(dy, dx) + grand() * spread;
-    const hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
+    let hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
+    // direct free kick: the ball is lifted over the wall and comes down towards the goal (it used to stop in the wall)
+    const fk = !!(G.fk && G.fk.taker === p && G.time - G.fk.t < 10 && d > 14);
+    if (fk) { hg = clamp(1.85 + Math.random() * 0.3 + (power - 0.7) * 0.5 + grand() * (1 - skill) * 0.5, 1.6, 2.3); G.fk = null; }
     const vz = clamp((hg + 4.9 * t * t) / t, 0.3, 14);
     kick(p, Math.cos(ang) * vh, Math.sin(ang) * vh, vz);
     b.curve = curve;
-    b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null };
+    b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, fk };
     st.stats.sh[sideOf(p.team)]++;
     if (power > 0.8 && !G.auto) G.shake = 0.35;
     burst(b.x, b.y, 6, '#7fbf4a');
@@ -9465,6 +9509,7 @@ const Game2D = (() => {
         const hands = p.gk && inBoxOf(p.team, p.x, p.y);
         if (hands && b.shot && b.shot.team !== p.team) continue; // shots are decided by the save check
         if (p.dv) continue;
+        if (b.shot && b.shot.fk && !p.gk && p.team !== b.shot.team && b.z > 1.5) continue; // the wall cannot reach a lifted free kick
         const d = Math.hypot(p.x - b.x, p.y - b.y);
         const rXY = hands ? 1.35 : b.z >= 1.4 ? 1.05 : 1.0;
         const rZ = hands ? 2.72 + clamp((p.hgt - 185) * 0.01, -0.1, 0.12) : 2.5 + clamp((p.hgt - 180) * 0.006, -0.12, 0.1);
@@ -9887,6 +9932,18 @@ const Game2D = (() => {
     showIntro();
     G.last = performance.now();
     rafId = requestAnimationFrame(loop);
+  }
+  // only the shoot-out (minute-by-minute / quick-sim matches that end level): the user takes and saves the kicks
+  function startShootoutOnly(m, st, opts, done) {
+    onDone = done;
+    const nEv = st.ev.length, half = st.half;
+    create(m, st, opts);
+    st.ev.length = nEv; st.half = half;
+    buildDom();
+    sfxInit(opts.sound);
+    G.last = performance.now();
+    rafId = requestAnimationFrame(loop);
+    startShootout();
   }
   function setMsg(t) { if (hud.msg && root) hud.msg.textContent = t; }
   function banner(t, secs = 1.4) { if (!G) return; G.msg = t; G.msgT = secs; setMsg(t); }
@@ -10659,7 +10716,7 @@ const Game2D = (() => {
     dot(G.ball.x, G.ball.y, r * 0.85, '#ffffff');
   }
 
-  return { start, _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _setPiece: (t, x, y, k) => setPiece(t, x, y, k), get _G() { return G; } };
+  return { start, startShootoutOnly, _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _setPiece: (t, x, y, k) => setPiece(t, x, y, k), get _G() { return G; } };
 })();
 // test hook: the browser tests open the page with ?debug=1 to drive the match directly
 try { if (/[?&]debug=1\b/.test(location.search)) window.__g2d = Game2D; } catch (e) { /* no location outside the browser */ }
@@ -10967,6 +11024,6 @@ window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); 
   render();
 })();
 // test hook: the browser tests open the page with ?debug=1 to move the calendar on directly
-try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs }; } catch (e) { /* no location outside the browser */ }
+try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState }; } catch (e) { /* no location outside the browser */ }
 
 })();
