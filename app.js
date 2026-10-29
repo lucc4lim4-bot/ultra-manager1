@@ -1446,7 +1446,7 @@ function emptyState(opts) {
     user: { team: 0 }, teams: {}, players: {}, nations: {}, comps: {}, active: [], matches: {}, days: {}, tm: {},
     inbox: [], news: [], hist: [], titles: {}, lastTables: {}, board: { conf: 65, obj: '', objRank: 10 },
     tr: { offers: [], neg: [], log: [], short: [], counts: {} }, youth: { scouts: [], reports: [], squad: [], lastReport: 0 },
-    ultra: null, normal: null, flags: { potV2: 1 }, seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
+    ultra: null, normal: null, flags: { potV2: 1, potV3: 1 }, seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
   };
 }
 
@@ -2260,7 +2260,12 @@ function genName(nat) {
 // the young talents that come in the game data (and saves made before this rule) get a higher ceiling:
 // the younger and the better, the bigger the bump
 function boostYoungPot(p) {
-  if (p.age > 22 || p.natOnly || (p.pot || 0) - p.o < 2) return;
+  if (p.age > 22 || p.natOnly) return;
+  if ((p.pot || 0) - p.o >= 2) bumpYoungPot(p);
+  if (p.pot < YOUNG_POT_MIN) p.pot = YOUNG_POT_MIN; // every youngster has at least 80 of potential
+}
+const YOUNG_POT_MIN = 80;
+function bumpYoungPot(p) {
   const hi = p.pot >= 80, mid = p.pot >= 74;
   const b = p.age <= 19 ? (hi ? 5 : mid ? 4 : p.pot >= 68 ? 3 : 2) : p.age <= 21 ? (hi ? 4 : mid ? 3 : 2) : (hi ? 2 : 1);
   p.pot = Math.min(95, p.pot + b);
@@ -3721,8 +3726,11 @@ function adoptState(obj) {
   RNG.seed(S.rng || 1);
   purgeWomen2026(); // careers saved before the 2026 database fix
   if (S.flags && !S.flags.potV2) { // higher ceiling for the young talents of older careers (once)
-    S.flags.potV2 = 1;
+    S.flags.potV2 = 1; S.flags.potV3 = 1;
     for (const id in S.players) { const p = S.players[id]; if (!p.yth) boostYoungPot(p); }
+  } else if (S.flags && !S.flags.potV3) { // minimum of 80 of potential for the youngsters (once)
+    S.flags.potV3 = 1;
+    for (const id in S.players) { const p = S.players[id]; if (!p.yth && !p.natOnly && p.age <= 22 && p.pot < YOUNG_POT_MIN) p.pot = YOUNG_POT_MIN; }
   }
 }
 async function exportSaveBlob() { return new Blob([serializeState()], { type: 'application/json' }); } // .json is on the download allowlist
