@@ -8153,7 +8153,7 @@ act('start2d', () => {
       <div><div class="muted up">Botões na tela (toque)</div>${seg('btn', G2_BTN)}</div>
       <div><div class="muted up">Corrida</div>${seg('autoRun', [[true, 'Automática'], [false, 'Manual (botão)']])}</div>
     </div>
-    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta (varia com as estrelas: finta 1★, carretilha 2★, caneta 3★, elástico 4★, chapéu 5★) · <span class="kbd">O</span> giro (2★) · <span class="kbd">Q</span> ou <span class="kbd">E</span> troca de jogador (com o direcional, escolhe quem está naquela direção) · <span class="kbd">Shift</span> corre devagar na corrida automática (ou corre, se a corrida for manual) · <span class="kbd">P</span> pausa</div>
+    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta (varia com as estrelas: finta 1★, carretilha 2★, caneta 3★, elástico 4★, chapéu 5★) · <span class="kbd">U</span> SUPER CHUTE (segure e solte na faixa verde da barra: bomba rasteira, gasta fôlego e recarrega em 7s) · <span class="kbd">O</span> giro (2★) · <span class="kbd">Q</span> ou <span class="kbd">E</span> troca de jogador (com o direcional, escolhe quem está naquela direção) · <span class="kbd">Shift</span> corre devagar na corrida automática (ou corre, se a corrida for manual) · <span class="kbd">P</span> pausa</div>
     <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda (empurre até a borda para correr, mais leve para andar); PASSE, CHUTE e LANÇAR à direita (e o botão verde TROCAR muda o jogador que você controla; sempre passa para o companheiro mais perto da bola), e FINTA (o drible muda conforme as estrelas) e GIRO (liberados pelas estrelas de finta do jogador, que aparecem ao lado do nome dele) ao lado. Com a corrida manual, aparece o botão CORRER. A barra azul sob o jogador é o fôlego da corrida.</div>
     <div class="help-keys" style="margin-top:8px"><b>Pênaltis:</b> mire com o direcional e segure CHUTE para dar força (força demais vai por cima). Quando o adversário bate, escolha o canto do goleiro antes do chute. No mata-mata, se o empate persistir, a prorrogação é simulada e você disputa os pênaltis.</div>`,
   '<button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="g2dGo">Começar</button>'), { size: 'narrow' });
@@ -8206,6 +8206,7 @@ function g2DefaultPos(root, el, W, H) {
   if (k === 'swap') return [colX(0), rowY(0)];
   if (k === 'call') return [colX(0), rowY(0) - (pw + gap)];
   if (k === 'lob') return [colX(1), rowY(0)];
+  if (k === 'super') return [colX(1), rowY(0) - (pw + gap)];
   if (k === 'pass') return [colX(0), rowY(1)];
   if (k === 'shoot') return [colX(1), rowY(1)];
   const skX = W - safeR - (2 * pw + gap) - 12 * bs - w / 2;
@@ -8449,7 +8450,7 @@ const Game2D = (() => {
       ball: { x: PW / 2, y: PL / 2, z: 0, vx: 0, vy: 0, vz: 0, owner: null, last: null, lastTeam: 0, shot: null, passer: null, target: null, assist: null, spin: 0, inGoal: false, postT: 0, curve: 0 },
       half: 1, clock: 0, time: 0, state: 'kickoff', stateT: 1, restartHold: true, setKind: 'kickoff', restartTeam: 0, nextKick: 1,
       ctrl: null, cam: { x: PW / 2, y: PL / 2 }, msg: '', msgT: 0, chasers: [[], []], think: 0, previewT: 0, preview: null, idleT: 0,
-      input: { jx: 0, jy: 0, sprint: false, skill: null, pass: false, lob: false, shoot: false, shootDown: false, hold: 0, buf: null },
+      input: { jx: 0, jy: 0, sprint: false, skill: null, pass: false, lob: false, shoot: false, shootDown: false, hold: 0, supDown: false, supHold: 0, supShot: false, buf: null },
       possT: [0, 0], landscape: false, paused: false, over: false, celebr: null, pk: null, subOut: null, shootout: null,
       drops: w.kind === 'rain' || w.kind === 'snow' ? Array.from({ length: w.kind === 'rain' ? 150 : 90 }, () => ({ x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8 })) : null,
       ufo: S.zoeira && Math.random() < 0.5 ? { half: Math.random() < 0.5 ? 1 : 2, at: 0, done: false, t: 0 } : null,
@@ -9316,6 +9317,9 @@ const Game2D = (() => {
     else { c.sprint = false; c.sta = Math.min(1, c.sta + dt * 0.11); }
     for (const p of G.players) if (p !== c && p.team === 0 && p.sta < 1) p.sta = Math.min(1, p.sta + dt * 0.12);
     if (I.shootDown) I.hold = Math.min(1, I.hold + dt / 0.85);
+    c.supCD = Math.max(0, (c.supCD || 0) - dt);
+    if (root) root.classList.toggle('supcd', c.supCD > 0 || c.sta < 0.3);
+    if (I.supDown) { if (b.owner === c && G.state === 'play') I.supHold = Math.min(1.25, I.supHold + dt / 0.9); else { I.supDown = false; I.supHold = 0; } }
     const has = b.owner === c;
     const canKick = has && G.state === 'play';
     if (has && G.restartHold && (w.x || w.y)) { const n = nrm(w.x, w.y); c.dx = n.x; c.dy = n.y; if (G.setKind === 'corner') G.cornerAim = zoneFromStick(c, w); }
@@ -9355,6 +9359,11 @@ const Game2D = (() => {
       const kind = I.skill;
       I.skill = null;
       if (has && G.state === 'play' && !G.restartHold && c.skCD <= 0 && !c.sk) doSkill(c, w, kind);
+    }
+    if (I.supShot) {
+      I.supShot = false;
+      const sh = I.supHold; I.supHold = 0;
+      if (canKick && superReady(c, true)) doSuperShoot(c, sh);
     }
     if (I.shoot) {
       I.shoot = false;
@@ -9449,6 +9458,28 @@ const Game2D = (() => {
     }
     if (best) { G.ctrl = best; G.manualT = 1.4; G.swapFlash = 0.9; hint(`Agora você controla ${nameOf(best)}.`); setTimeout(() => { if (G && /^Agora você controla/.test(hud.hint ? hud.hint.textContent : '')) hint(''); }, 1600); }
   }
+  // SUPER CHUTE: its own button; charge it (sweet spot in the middle of the bar) for a rocket that costs stamina and needs a few seconds to recharge
+  function superReady(c, say_) {
+    if (!c || G.tr && G.tr.kind === 'pass') return false;
+    const has = G.ball.owner === c && G.state === 'play';
+    if (!has) { if (say_) hint('O SUPER CHUTE precisa da bola nos pés.'); return false; }
+    if (G.restartHold && G.setKind !== 'free') { if (say_) hint('O SUPER CHUTE só vale com a bola rolando (ou em falta).'); return false; }
+    if ((c.supCD || 0) > 0) { if (say_) hint(`SUPER CHUTE recarregando: ${Math.ceil(c.supCD)}s.`); return false; }
+    if (c.sta < 0.3) { if (say_) hint('Sem fôlego para o SUPER CHUTE: espere a barra azul encher.'); return false; }
+    return true;
+  }
+  function doSuperShoot(c, h) {
+    hint('');
+    const I = G.input, kd = keyDir();
+    const w = screenToWorld(I.jx + kd.x, I.jy + kd.y);
+    c.sta = Math.max(0, c.sta - 0.3); c.supCD = 7;
+    shoot(c, w.x, 1, h);
+    const b = G.ball;
+    b.supEnd = G.time + 1.4;
+    banner(h > 1.02 ? 'SUPER CHUTE... DEMAIS!' : 'SUPER CHUTE!', 1.2);
+    G.shake = 0.7;
+    sfx('kick', 1);
+  }
   function doUserShoot(c, w, pw) {
     hint('');
     if (G.restartHold && (G.setKind === 'throw' || G.setKind === 'kickoff')) { userPass(c, w, false); return; }
@@ -9528,7 +9559,7 @@ const Game2D = (() => {
     if (q) q.runT = Math.max(q.runT, through ? 1.4 : 0);
     if (!G.auto && q && p.team === 0 && (through || d > 28)) say(through ? `${nameOf(p)} enfia para ${nameOf(q)}!` : `${nameOf(p)} lança para ${nameOf(q)}.`, 0);
   }
-  function shoot(p, ax, power) {
+  function shoot(p, ax, power, sup) {
     const b = G.ball, st = G.st;
     const up = p.team === 0;
     const gy = up ? 0 : PL;
@@ -9539,30 +9570,34 @@ const Game2D = (() => {
     let dx = aimX - b.x;
     const dy = gy - b.y, d = Math.hypot(dx, dy);
     const skill = p.sho / 100;
-    const vh = 13 + power * 17 + (p.sho - 70) * 0.05;
+    let vh = 13 + power * 17 + (p.sho - 70) * 0.05;
+    if (sup != null) vh *= 1.2 + 0.16 * Math.min(1, sup); // super shot: a rocket
     const t = d / vh;
     // placed (not blasted) shots to a corner bend back inside the post: start them a little wide
     let curve = 0;
     const side = Math.sign(aimX - PW / 2) || 1;
-    if (Math.abs(aimX - PW / 2) > 2 && power < 0.85 && d > 9) {
+    if (sup == null && Math.abs(aimX - PW / 2) > 2 && power < 0.85 && d > 9) {
       const mag = 2 + Math.random() * 2.5, kd = 2.2;
       dx += side * (mag / kd) * (t - (1 - Math.exp(-kd * t)) / kd);
       curve = -side * mag * (up ? 1 : -1);
     }
-    const spread = (0.03 + (1 - skill) * 0.15 + pressureOn(p) * 0.045 + Math.max(0, power - 0.8) * 0.12 + Math.max(0, d - 20) * 0.003) * (p.team === 1 ? G.D.shootErr : 1);
+    let spread = (0.03 + (1 - skill) * 0.15 + pressureOn(p) * 0.045 + Math.max(0, power - 0.8) * 0.12 + Math.max(0, d - 20) * 0.003) * (p.team === 1 ? G.D.shootErr : 1);
+    if (sup != null) spread *= sup < 0.45 ? 1.5 : sup > 1.02 ? 2.6 : sup > 0.95 ? 1.4 : 0.55; // sweet spot: accurate; too early or too late: wild
     const ang = Math.atan2(dy, dx) + grand() * spread;
     let hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
+    if (sup != null) hg = sup > 1.02 ? 2.6 + Math.random() * 1.6 : 0.2 + Math.random() * 0.9; // low and hard, unless it was held too long
     // direct free kick: the ball is lifted over the wall and comes down towards the goal (it used to stop in the wall)
     const fk = !!(G.fk && G.fk.taker === p && G.time - G.fk.t < 10 && d > 14);
     if (fk) { hg = clamp(1.85 + Math.random() * 0.3 + (power - 0.7) * 0.5 + grand() * (1 - skill) * 0.5, 1.6, 2.3); G.fk = null; }
     const vz = clamp((hg + 4.9 * t * t) / t, 0.3, 14);
     kick(p, Math.cos(ang) * vh, Math.sin(ang) * vh, vz);
     b.curve = curve;
-    b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, fk };
+    b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, fk, sup: sup != null };
     st.stats.sh[sideOf(p.team)]++;
     if (power > 0.8 && !G.auto) G.shake = 0.35;
     burst(b.x, b.y, 6, '#7fbf4a');
-    say(d > 22 ? `${nameOf(p)} arrisca de longe!` : curve ? `${nameOf(p)} bate colocado!` : `Chute de ${nameOf(p)}!`, 1);
+    if (sup != null) say(`${nameOf(p)} solta uma bomba!`, 1);
+    else say(d > 22 ? `${nameOf(p)} arrisca de longe!` : curve ? `${nameOf(p)} bate colocado!` : `Chute de ${nameOf(p)}!`, 1);
   }
   function chip(p) {
     const b = G.ball;
@@ -10888,7 +10923,7 @@ const Game2D = (() => {
       <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
       <div class="g2d-controls"><div class="joy" id="g2-joy" data-k="joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
-        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad swap" data-k="swap">TROCAR</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
+        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
       <div class="g2-laybar" id="g2-laybar" hidden><div class="t">Arraste os botões para onde quiser · toque num botão e use − / + para o tamanho</div><div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn sm" data-l="minus">−</button><button class="btn sm" data-l="plus">+</button><button class="btn sm" data-l="reset">Padrão</button><button class="btn sm gold" data-l="done">Pronto</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
@@ -11046,6 +11081,10 @@ const Game2D = (() => {
     else if (k === 'feint' || k === 'spin') { if (down) I.skill = k; }
     else if (k === 'swap') { if (down) I.swap = true; }
     else if (k === 'call') { if (down) callForBall(); }
+    else if (k === 'super') {
+      if (down) { if (superReady(G.ctrl, true)) { I.supDown = true; I.supHold = 0; } }
+      else if (I.supDown) { I.supDown = false; I.supShot = true; }
+    }
     else if (k === 'shoot') {
       if (down) { I.shootDown = true; I.hold = 0; }
       else if (I.shootDown) { I.shootDown = false; I.shoot = true; }
@@ -11069,10 +11108,11 @@ const Game2D = (() => {
     if (k === 'i' && down) G.input.skill = 'feint';
     if (k === 'o' && down) G.input.skill = 'spin';
     if (k === 'k' || k === ' ') press('shoot', down);
+    if (k === 'u') press('super', down);
   }
   function onBlur() {
     for (const k in KEYS) KEYS[k] = false;
-    if (G) { G.input.sprint = false; G.input.shootDown = false; G.input.hold = 0; G.input.jx = 0; G.input.jy = 0; }
+    if (G) { G.input.sprint = false; G.input.shootDown = false; G.input.supDown = false; G.input.supHold = 0; G.input.hold = 0; G.input.jx = 0; G.input.jy = 0; }
   }
   function onVis() { if (document.hidden && G && !G.paused && !G.over) togglePause(); }
   function togglePause() {
@@ -11358,6 +11398,13 @@ const Game2D = (() => {
     if (!G.auto && G.ctrl && !G.pk && !replaying && !G.shootout) {
       const c = G.ctrl, X = PX(c.x, c.y) - s * 1.1;
       let Y = PY(c.x, c.y) + s * 0.55;
+      if (G.input.supDown && b.owner === c) {
+        const sh = G.input.supHold, pw = clamp(sh / 1.25, 0, 1);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(X, Y, s * 2.2, s * 0.34);
+        ctx.fillStyle = 'rgba(80,220,120,0.55)'; ctx.fillRect(X + s * 2.2 * (0.55 / 1.25), Y, s * 2.2 * (0.4 / 1.25), s * 0.34); // sweet spot
+        ctx.fillStyle = sh > 1.02 ? '#ff4d4d' : sh >= 0.55 && sh <= 0.95 ? '#ffb02e' : '#ffe14d'; ctx.fillRect(X, Y, s * 2.2 * pw, s * 0.34);
+        Y += s * 0.44;
+      }
       if (G.input.shootDown && b.owner === c) {
         const pw = clamp(0.3 + G.input.hold * 0.7, 0.3, 1);
         ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(X, Y, s * 2.2, s * 0.32);
@@ -11465,6 +11512,18 @@ const Game2D = (() => {
     // the chapéu leaves a rainbow trail
     if (G.time < (b.rbEnd || 0) && G.state !== 'replay') {
       (G.btrail = G.btrail || []).push({ wx: b.x, wy: b.y, z: b.z, t: G.time });
+    }
+    if (G.time < (b.supEnd || 0) && G.state !== 'replay') (G.sTrail = G.sTrail || []).push({ wx: b.x, wy: b.y, z: b.z, t: G.time });
+    if (G.sTrail && G.sTrail.length) {
+      G.sTrail = G.sTrail.filter((q) => G.time - q.t < 0.45);
+      ctx.lineCap = 'round';
+      for (const [col, w, a0] of [['#ff7a1a', 0.3, 0.55], ['#ffd24d', 0.15, 0.9]]) {
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, s * w);
+        ctx.beginPath();
+        G.sTrail.forEach((q, i) => { ctx.globalAlpha = Math.max(0, 1 - (G.time - q.t) / 0.45) * a0; const xx = PX(q.wx, q.wy), yy = PY(q.wx, q.wy) - r - q.z * s * 0.6; if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy); });
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1; ctx.lineCap = 'butt';
     }
     if (G.btrail && G.btrail.length) {
       G.btrail = G.btrail.filter((q) => G.time - q.t < 0.7);
