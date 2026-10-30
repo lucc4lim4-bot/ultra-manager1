@@ -7780,8 +7780,8 @@ act('start2d', () => {
       <div><div class="muted up">Replay dos gols</div>${seg('replay', [[true, 'Ligado'], [false, 'Desligado']])}</div>
       <div><div class="muted up">Botões na tela (toque)</div>${seg('btn', G2_BTN)}</div>
     </div>
-    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">Shift</span> corre · <span class="kbd">P</span> pausa</div>
-    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda; PASSE, CHUTE, LANÇAR e CORRER à direita. A barra azul sob o jogador é o fôlego da arrancada.</div>
+    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta · <span class="kbd">O</span> giro (dribles: confundem o marcador mais próximo; ajuda ter bom drible) · <span class="kbd">Shift</span> corre · <span class="kbd">P</span> pausa</div>
+    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda; PASSE, CHUTE, LANÇAR e CORRER à direita, e FINTA e GIRO (dribles) logo acima deles. A barra azul sob o jogador é o fôlego da arrancada.</div>
     <div class="help-keys" style="margin-top:8px"><b>Pênaltis:</b> mire com o direcional e segure CHUTE para dar força (força demais vai por cima). Quando o adversário bate, escolha o canto do goleiro antes do chute. No mata-mata, se o empate persistir, a prorrogação é simulada e você disputa os pênaltis.</div>`,
   '<button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="g2dGo">Começar</button>'), { size: 'narrow' });
 });
@@ -7921,7 +7921,7 @@ const Game2D = (() => {
       team, side: k, pos, gk: pos === 'GK', slot, fx, fy,
       x: PW / 2, y: PL / 2, vx: 0, vy: 0, wx: 0, wy: 0, tx: PW / 2, ty: PL / 2, run: 0.7, dx: 0, dy: team === 0 ? -1 : 1,
       anim: Math.random() * 6, cool: 0, slide: 0, sx: 0, sy: 0, slideDone: false, fall: 0, tackT: 0, decT: 0, runT: 0, holdT: 0,
-      out: false, inX: 0, inY: 0, sprint: false, cornerSpot: null, dive: null, kickT: 0, feintT: 0, fdx: 0, fdy: 0, diveT: 0, diveDir: 0, wall: false,
+      out: false, inX: 0, inY: 0, sprint: false, cornerSpot: null, dive: null, kickT: 0, feintT: 0, fdx: 0, fdy: 0, diveT: 0, diveDir: 0, wall: false, sk: null, skCD: 0,
       dv: null, gz: 0, plan: null, cr: null, claim: null, setT: 0,
     };
     applyPlayer(sp, p);
@@ -7975,7 +7975,7 @@ const Game2D = (() => {
       ball: { x: PW / 2, y: PL / 2, z: 0, vx: 0, vy: 0, vz: 0, owner: null, last: null, lastTeam: 0, shot: null, passer: null, target: null, assist: null, spin: 0, inGoal: false, postT: 0, curve: 0 },
       half: 1, clock: 0, time: 0, state: 'kickoff', stateT: 1, restartHold: true, setKind: 'kickoff', restartTeam: 0, nextKick: 1,
       ctrl: null, cam: { x: PW / 2, y: PL / 2 }, msg: '', msgT: 0, chasers: [[], []], think: 0, previewT: 0, preview: null, idleT: 0,
-      input: { jx: 0, jy: 0, sprint: false, pass: false, lob: false, shoot: false, shootDown: false, hold: 0, buf: null },
+      input: { jx: 0, jy: 0, sprint: false, skill: null, pass: false, lob: false, shoot: false, shootDown: false, hold: 0, buf: null },
       possT: [0, 0], landscape: false, paused: false, over: false, celebr: null, pk: null, subOut: null, shootout: null,
       drops: w.kind === 'rain' || w.kind === 'snow' ? Array.from({ length: w.kind === 'rain' ? 150 : 90 }, () => ({ x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8 })) : null,
       ufo: S.zoeira && Math.random() < 0.5 ? { half: Math.random() < 0.5 ? 1 : 2, at: 0, done: false, t: 0 } : null,
@@ -8012,7 +8012,7 @@ const Game2D = (() => {
         const d = Math.hypot(p.x - PW / 2, p.y - PL / 2);
         if (d < 9.6) { const n = nrm(p.x - PW / 2, (p.y - PL / 2) || (p.team === 0 ? 1 : -1)); p.x = PW / 2 + n.x * 9.6; p.y = PL / 2 + n.y * 9.6; }
       }
-      Object.assign(p, { vx: 0, vy: 0, wx: 0, wy: 0, slide: 0, fall: 0, cool: 0, runT: 0, tx: p.x, ty: p.y, dx: 0, dy: p.team === 0 ? -1 : 1, cornerSpot: null, dive: null, diveT: 0, feintT: 0, wall: false, kickT: 0, dv: null, gz: 0, plan: null, cr: null, claim: null });
+      Object.assign(p, { vx: 0, vy: 0, wx: 0, wy: 0, slide: 0, fall: 0, cool: 0, runT: 0, tx: p.x, ty: p.y, dx: 0, dy: p.team === 0 ? -1 : 1, cornerSpot: null, dive: null, diveT: 0, feintT: 0, wall: false, kickT: 0, dv: null, gz: 0, plan: null, cr: null, claim: null, sk: null, skCD: 0 });
     }
     const ks = G.players.filter((p) => !p.out && p.team === team && !p.gk).sort((a, c) => c.fy - a.fy || Math.abs(a.fx - 0.5) - Math.abs(c.fx - 0.5));
     const k1 = ks[0], k2 = ks[1];
@@ -8037,7 +8037,7 @@ const Game2D = (() => {
     if (!taker) taker = nearestTo(team, x, y, true);
     if (!taker) { resetKickoff(team); return; }
     const fwd = team === 0 ? -1 : 1;
-    for (const p of G.players) Object.assign(p, { wall: false, cornerSpot: null, cr: null, dv: null, gz: 0, plan: null, claim: null, diveT: 0 });
+    for (const p of G.players) Object.assign(p, { wall: false, cornerSpot: null, cr: null, dv: null, gz: 0, plan: null, claim: null, diveT: 0, sk: null });
     G.cornerPlay = null;
     if (kind === 'throw') { taker.x = x < PW / 2 ? -0.35 : PW + 0.35; taker.y = y; taker.dx = x < PW / 2 ? 1 : -1; taker.dy = 0; }
     else if (kind === 'corner') { const n = nrm(PW / 2 - x, (y < PL / 2 ? 11 : PL - 11) - y); taker.x = x - n.x * 0.75; taker.y = y - n.y * 0.75; taker.dx = n.x; taker.dy = n.y; }
@@ -8654,6 +8654,11 @@ const Game2D = (() => {
       if (canKick) userPass(c, w, true);
       else if (looseNear) I.buf = { k: 'lob', t: G.time };
     }
+    if (I.skill) {
+      const kind = I.skill;
+      I.skill = null;
+      if (has && G.state === 'play' && !G.restartHold && c.skCD <= 0 && !c.sk) doSkill(c, w, kind);
+    }
     if (I.shoot) {
       I.shoot = false;
       const pw = clamp(0.3 + I.hold * 0.7, 0.3, 1);
@@ -8665,6 +8670,34 @@ const Game2D = (() => {
         if (w.x || w.y) startSlide(c, w.x, w.y); else startSlide(c, t.x - c.x, t.y - c.y);
       }
     }
+  }
+  // dribbling moves: FINTA (step-over and a sharp cut away from the closest defender) and GIRO (a roulette spin that
+  // carries the ball past him). Both fool the defenders around (more so with a good dribbler) and make tackles harder
+  function doSkill(c, w, kind) {
+    let d = (w.x || w.y) ? nrm(w.x, w.y) : { x: c.dx, y: c.dy };
+    if (!d.x && !d.y) d = { x: 0, y: c.team === 0 ? -1 : 1 };
+    let opp = null, od = 1e9;
+    for (const o of G.players) { if (o.out || o.team === c.team || o.gk) continue; const dd = Math.hypot(o.x - c.x, o.y - c.y); if (dd < od) { od = dd; opp = o; } }
+    c.skCD = 0.95; c.sta = Math.max(0, c.sta - 0.07);
+    let T, sp, dir;
+    if (kind === 'spin') { T = 0.62; sp = 1.04; dir = d; }
+    else {
+      T = 0.5; sp = 1.2;
+      // cut to the side away from the defender, still moving forward
+      const perp = { x: -d.y, y: d.x };
+      let side = opp ? (((opp.x - c.x) * perp.x + (opp.y - c.y) * perp.y) > 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
+      dir = nrm(d.x * 0.5 + perp.x * side * 0.9, d.y * 0.5 + perp.y * side * 0.9);
+    }
+    c.sk = { kind, t: T, T, dx: dir.x, dy: dir.y, sp };
+    if (opp && od < (kind === 'spin' ? 2.2 : 2.6)) {
+      const pr = clamp(0.4 + (c.dri - opp.def) / 110 + (kind === 'spin' ? 0.1 : 0), 0.15, 0.85);
+      if (Math.random() < pr) {
+        opp.cool = Math.max(opp.cool, kind === 'spin' ? 0.8 : 0.6);
+        if (Math.random() < 0.3) opp.fall = Math.max(opp.fall, 0.4);
+        say(kind === 'spin' ? `${nameOf(c)} gira em cima de ${nameOf(opp)}!` : `${nameOf(c)} passa a finta em ${nameOf(opp)}!`, 1);
+      }
+    }
+    sfx('kick', 0.25);
   }
   function doUserShoot(c, w, pw) {
     hint('');
@@ -8843,7 +8876,7 @@ const Game2D = (() => {
   }
   function tryTackle(d, c, bonus) {
     if (c.gk) return false;
-    const feint = c.feintT > 0 ? 0.12 : 0;
+    const feint = (c.feintT > 0 ? 0.12 : 0) + (c.sk ? (c.sk.kind === 'spin' ? 0.3 : 0.2) * clamp(c.dri / 80, 0.7, 1.25) : 0);
     const pr = clamp(0.25 + (d.def - c.dri) / 170 + bonus + (d.team === 1 ? G.D.tackle : 0) - feint, 0.05, 0.7);
     d.tackT = 0.5;
     if (Math.random() < pr) {
@@ -8919,6 +8952,8 @@ const Game2D = (() => {
     p.tackT = Math.max(0, p.tackT - dt);
     p.kickT = Math.max(0, p.kickT - dt);
     if (p.feintT > 0) p.feintT -= dt;
+    if (p.skCD > 0) p.skCD -= dt;
+    if (p.sk) { p.sk.t -= dt; if (p.sk.t <= 0) p.sk = null; }
     if (p.wall) { if (G.restartHold) { p.wx = 0; p.wy = 0; return; } p.wall = false; }
     if (p.fall > 0) { p.fall -= dt; p.wx = 0; p.wy = 0; return; }
     if (p.slide > 0) return;
@@ -8927,6 +8962,7 @@ const Game2D = (() => {
       if (has && G.restartHold) { p.wx = 0; p.wy = 0; return; }
       const s = p.speed * (p.sprint ? 1 : 0.8) * (has ? 0.92 : 1) * (p.sta < 0.15 ? 0.94 : 1);
       p.wx = p.inX * s; p.wy = p.inY * s;
+      if (p.sk) { p.wx = p.sk.dx * p.speed * p.sk.sp; p.wy = p.sk.dy * p.speed * p.sk.sp; }
       if (G.restartHold && b.owner && b.owner.team === 1) keepDistance(p);
       if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.3) tryTackle(p, b.owner, 0.08);
       return;
@@ -9992,7 +10028,7 @@ const Game2D = (() => {
       <div class="g2-hint" id="g2-hint" hidden></div>
       <div class="g2-tag" id="g2-tag" hidden>REPLAY</div>
       <div class="g2d-controls"><div class="joy" id="g2-joy"><i></i></div>
-        <div class="pads"><button class="pad" data-k="lob">LANÇAR</button><button class="pad" data-k="sprint">CORRER</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
+        <div class="pads"><button class="pad sk" data-k="feint">FINTA</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad" data-k="sprint">CORRER</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
     document.body.style.overflow = 'hidden';
@@ -10144,6 +10180,7 @@ const Game2D = (() => {
     if (k === 'sprint') I.sprint = down;
     else if (k === 'pass') { if (down) I.pass = true; }
     else if (k === 'lob') { if (down) I.lob = true; }
+    else if (k === 'feint' || k === 'spin') { if (down) I.skill = k; }
     else if (k === 'shoot') {
       if (down) { I.shootDown = true; I.hold = 0; }
       else if (I.shootDown) { I.shootDown = false; I.shoot = true; }
@@ -10162,6 +10199,8 @@ const Game2D = (() => {
     if (k === 'shift') G.input.sprint = down;
     if (k === 'j' && down) G.input.pass = true;
     if (k === 'l' && down) G.input.lob = true;
+    if (k === 'i' && down) G.input.skill = 'feint';
+    if (k === 'o' && down) G.input.skill = 'spin';
     if (k === 'k' || k === ' ') press('shoot', down);
   }
   function onBlur() {
@@ -10236,7 +10275,7 @@ const Game2D = (() => {
   }
   function loop(now) {
     if (!G || G.paused) return;
-    const dt = Math.min(0.05, Math.max(0, (now - G.last) / 1000));
+    const dt = Math.min(0.05, Math.max(0, (now - G.last) / 1000)) * (G.slow || 1); // G.slow: slow motion for the browser tests
     G.last = now;
     if (!G.over) {
       const n = Math.max(1, Math.ceil(dt / (1 / 60)));
@@ -10570,7 +10609,9 @@ const Game2D = (() => {
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath(); ctx.ellipse(X + s * 0.12, Y + s * 0.06, s * 0.55, s * 0.24, 0, 0, Math.PI * 2); ctx.fill();
     Y -= lift;
-    const sd = sdir(p.dx, p.dy);
+    let hdx = p.dx, hdy = p.dy;
+    if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
+    const sd = sdir(hdx, hdy);
     // goalkeeper in the air or on the ground after a dive: stretched out, gloves first
     if (diving && p.gk && !lift) {
       const gz = rp ? p.rGz || 0 : p.gz || 0;
@@ -10603,82 +10644,141 @@ const Game2D = (() => {
       ctx.restore(); ctx.globalAlpha = 1;
       return;
     }
-    const moving = Math.hypot(p.vx, p.vy) > 0.5;
-    const ph = Math.sin(p.anim * 3.2);
-    const sw = moving ? ph * s * 0.2 : 0;
+    const spd = Math.hypot(p.vx, p.vy);
+    const moving = spd > 0.5;
+    const run = clamp(spd / 6, 0, 1.25); // 0 standing .. 1 sprint
+    const tt = p.anim * 3.2;
+    const sk = !rp && p.sk ? p.sk : null;
+    const skP = sk ? 1 - sk.t / sk.T : 0; // progress of a dribble move
+    const spin = sk && sk.kind === 'spin';
+    const feint = sk && sk.kind === 'feint';
     const celebrating = G.state === 'goal' && G.celebr && p.team === G.celebr.scorer.team && !p.gk;
-    const kickOff = kicking ? s * 0.22 : 0;
-    // legs, socks, boots (one leg swings through when kicking)
-    ctx.fillStyle = p.skin;
-    ctx.fillRect(X - s * 0.27, Y - s * 0.55 + sw * 0.4, s * 0.17, s * 0.32);
-    ctx.fillRect(X + s * 0.1, Y - s * 0.55 - sw * 0.4 + kickOff * 0.3, s * 0.17, s * 0.32 + kickOff * 0.4);
-    ctx.fillStyle = kit.socks;
-    ctx.fillRect(X - s * 0.28, Y - s * 0.3 + sw * 0.4, s * 0.19, s * 0.22);
-    ctx.fillRect(X + s * 0.09, Y - s * 0.3 - sw * 0.4 + kickOff * 0.7, s * 0.19, s * 0.22);
-    ctx.fillStyle = kit.trim;
-    ctx.fillRect(X - s * 0.28, Y - s * 0.3 + sw * 0.4, s * 0.19, s * 0.05);
-    ctx.fillRect(X + s * 0.09, Y - s * 0.3 - sw * 0.4 + kickOff * 0.7, s * 0.19, s * 0.05);
-    ctx.fillStyle = '#151515';
-    ctx.fillRect(X - s * 0.3, Y - s * 0.1 + sw * 0.4, s * 0.23, s * 0.11);
-    ctx.fillRect(X + s * 0.07, Y - s * 0.1 - sw * 0.4 + kickOff * 0.7, s * 0.23, s * 0.11);
-    // shorts
-    ctx.fillStyle = kit.shorts;
-    rr(X - s * 0.35, Y - s * 0.8, s * 0.7, s * 0.32, s * 0.08); ctx.fill();
-    ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
-    // arms, raised when celebrating
-    const asw = moving ? -ph * s * 0.14 : 0;
-    ctx.fillStyle = kit.shirt;
-    if (celebrating) {
-      rr(X - s * 0.62, Y - s * 1.75, s * 0.17, s * 0.5, s * 0.06); ctx.fill();
-      rr(X + s * 0.45, Y - s * 1.75, s * 0.17, s * 0.5, s * 0.06); ctx.fill();
-      ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin;
-      ctx.beginPath(); ctx.arc(X - s * 0.54, Y - s * 1.8, s * 0.1, 0, Math.PI * 2); ctx.arc(X + s * 0.54, Y - s * 1.8, s * 0.1, 0, Math.PI * 2); ctx.fill();
-    } else {
-      rr(X - s * 0.55, Y - s * 1.32 + asw, s * 0.17, s * 0.34, s * 0.06); ctx.fill();
-      rr(X + s * 0.38, Y - s * 1.32 - asw, s * 0.17, s * 0.34, s * 0.06); ctx.fill();
-      ctx.fillStyle = kit.trim;
-      ctx.fillRect(X - s * 0.55, Y - s * 1.02 + asw, s * 0.17, s * 0.04);
-      ctx.fillRect(X + s * 0.38, Y - s * 1.02 - asw, s * 0.17, s * 0.04);
-      ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin;
-      ctx.fillRect(X - s * 0.54, Y - s * 0.98 + asw, s * 0.15, s * 0.18);
-      ctx.fillRect(X + s * 0.39, Y - s * 0.98 - asw, s * 0.15, s * 0.18);
+    const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
+    // kick leg: back-swing, strike, follow-through (positive = forward)
+    const kr = !kicking ? 0 : q < 0.3 ? -(q / 0.3) * 0.8 : q < 0.6 ? -0.8 + ((q - 0.3) / 0.3) * 2.2 : 1.4 - ((q - 0.6) / 0.4) * 0.9;
+    const bob = moving ? Math.abs(Math.sin(tt)) * s * 0.06 * run : Math.sin(G.time * 2 + (p.num || 0)) * s * 0.012;
+    const jump = spin ? Math.sin(skP * Math.PI) * s * 0.14 : 0;
+    let lean = sd.x * s * 0.1 * run + (kicking ? sd.x * s * 0.06 * Math.max(0, kr) : 0);
+    if (feint) {
+      const bd = sdir(sk.dx, sk.dy);
+      lean += bd.x * s * 0.22 * (skP < 0.35 ? -0.7 * (skP / 0.35) : -0.7 + 1.7 * ((skP - 0.35) / 0.65));
     }
-    // torso with a little shading
+    ctx.save();
+    if (spin) { const ca = Math.abs(Math.cos(skP * Math.PI * 2 + Math.atan2(sk.dy, sk.dx))); ctx.translate(X, Y); ctx.scale(0.62 + 0.38 * ca, 1); ctx.translate(-X, -Y); }
+    const hipY = Y - s * 0.68 - jump;
+    const lw2 = Math.max(1, s * 0.03);
+    // a leg: thigh (skin), shin (sock with a band) and boot; swings with the run cycle, kicks, or circles over the ball
+    const leg = (hx, phase, kickLeg, footLeg) => {
+      const st = moving ? Math.sin(tt + phase) : 0;
+      const lf = moving ? Math.max(0, Math.cos(tt + phase)) : 0;
+      let fx = hx + sd.x * s * 0.32 * st * run, fy = Y - jump - lf * s * 0.17 * run + sd.y * s * 0.1 * st * run;
+      let kneeF = 0.1 + lf * 0.12;
+      if (kickLeg && kicking) { fx = hx + sd.x * s * 0.55 * kr; fy = Y - jump - s * 0.05 - Math.max(0, kr) * s * 0.15 + sd.y * s * 0.2 * kr; kneeF = 0.16; }
+      else if (feint && footLeg) { // step-over: the foot circles over the ball
+        const a = skP * Math.PI * 2.4;
+        fx = hx + sd.x * s * 0.3 + Math.cos(a) * s * 0.42; fy = Y - jump - Math.max(0, Math.sin(a)) * s * 0.3; kneeF = 0.2;
+      } else if (!moving && !kicking) fx += (hx < X ? -1 : 1) * s * 0.03;
+      const kx = (hx + lean * 0.4 + fx) / 2 + sd.x * s * kneeF, ky = (hipY + fy) / 2 - s * 0.03 * (1 + lf);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = p.skin; ctx.lineWidth = s * 0.2;
+      ctx.beginPath(); ctx.moveTo(hx + lean * 0.4, hipY); ctx.lineTo(kx, ky); ctx.stroke();
+      ctx.strokeStyle = kit.socks; ctx.lineWidth = s * 0.19;
+      ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(fx, fy - s * 0.1); ctx.stroke();
+      ctx.strokeStyle = kit.trim; ctx.lineWidth = s * 0.19;
+      const bx = kx + (fx - kx) * 0.3, by = ky + (fy - s * 0.1 - ky) * 0.3;
+      ctx.beginPath(); ctx.moveTo(bx - s * 0.005, by); ctx.lineTo(bx + (fx - kx) * 0.12, by + (fy - s * 0.1 - ky) * 0.12); ctx.stroke();
+      // boot, pointing the way he is heading
+      ctx.fillStyle = '#16181a';
+      ctx.beginPath(); ctx.ellipse(fx + sd.x * s * 0.07, fy - s * 0.04, s * 0.15 + Math.abs(sd.x) * s * 0.05, s * 0.09, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.ellipse(fx + sd.x * s * 0.09, fy - s * 0.07, s * 0.07, s * 0.025, 0, 0, Math.PI * 2); ctx.fill();
+    };
+    const legs = [[X - s * 0.17, 0, false, false], [X + s * 0.17, Math.PI, true, true]];
+    if (sd.y < 0) legs.reverse();
+    for (const l of legs) leg(l[0], l[1], l[2], l[3]);
+    ctx.lineCap = 'butt';
+    // shorts with a side stripe
+    ctx.fillStyle = kit.shorts;
+    rr(X - s * 0.38 + lean * 0.4, hipY - s * 0.2, s * 0.76, s * 0.4, s * 0.1); ctx.fill();
+    ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+    ctx.fillStyle = kit.trim;
+    ctx.fillRect(X - s * 0.38 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
+    ctx.fillRect(X + s * 0.33 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
+    // torso (leans into the run) with shoulders and a collar
+    const tx = X + lean * 0.7, ty = Y - s * 1.46 - jump - bob;
     ctx.fillStyle = kit.shirt;
-    rr(X - s * 0.4, Y - s * 1.42, s * 0.8, s * 0.7, s * 0.2); ctx.fill();
+    rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.14)';
-    rr(X + s * 0.12, Y - s * 1.38, s * 0.26, s * 0.62, s * 0.12); ctx.fill();
+    rr(tx + s * 0.12, ty + s * 0.05, s * 0.28, s * 0.68, s * 0.12); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    rr(tx - s * 0.36, ty + s * 0.04, s * 0.2, s * 0.4, s * 0.1); ctx.fill();
     ctx.strokeStyle = ol; ctx.lineWidth = lw;
-    rr(X - s * 0.4, Y - s * 1.42, s * 0.8, s * 0.7, s * 0.2); ctx.stroke();
+    rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.stroke();
+    // arms swing against the legs; sleeves, forearms and hands
+    const arm = (sx, phase) => {
+      const shx = tx + sx * s * 0.42, shy = ty + s * 0.14;
+      const st = moving ? Math.sin(tt + phase) : 0;
+      let hx = shx + sx * s * 0.1 + sd.x * s * 0.22 * st * run, hy2 = shy + s * 0.58 - Math.max(0, st) * s * 0.18 * run;
+      let ex = shx + sx * s * 0.16 + sd.x * s * 0.1 * st * run, ey = shy + s * 0.3;
+      if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
+      else if (p.gk && !moving) { hx = shx + sx * s * 0.3; hy2 = shy + s * 0.34; ex = shx + sx * s * 0.2; ey = shy + s * 0.22; }
+      else if (kicking) { hx = shx + sx * s * 0.34 - sd.x * s * 0.15 * kr; hy2 = shy + s * 0.4; ex = shx + sx * s * 0.28; ey = shy + s * 0.22; }
+      else if (feint) { hx = shx + sx * s * 0.36; hy2 = shy + s * 0.44; ex = shx + sx * s * 0.26; ey = shy + s * 0.22; }
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = p.skin; ctx.lineWidth = s * 0.13;
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx, hy2); ctx.stroke();
+      ctx.strokeStyle = kit.shirt; ctx.lineWidth = s * 0.2;
+      ctx.beginPath(); ctx.moveTo(shx, shy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.strokeStyle = kit.trim; ctx.lineWidth = s * 0.2;
+      ctx.beginPath(); ctx.moveTo(ex - (ex - shx) * 0.12, ey - (ey - shy) * 0.12); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin;
+      ctx.beginPath(); ctx.arc(hx, hy2, s * (p.gk ? 0.13 : 0.1), 0, Math.PI * 2); ctx.fill();
+      ctx.lineCap = 'butt';
+    };
+    arm(-1, Math.PI); arm(1, 0);
     if (sd.y < -0.35) {
       ctx.fillStyle = lum(kit.shirt) > 0.6 ? '#111111' : kit.trim && cdist(kit.trim, kit.shirt) > 90 ? kit.trim : '#ffffff';
       ctx.font = `800 ${Math.round(s * 0.42)}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(p.num), X, Y - s * 1.08);
+      ctx.fillText(String(p.num), tx, ty + s * 0.4);
     } else {
       ctx.fillStyle = kit.trim;
-      ctx.beginPath(); ctx.arc(X, Y - s * 1.4, s * 0.13, 0, Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(tx - s * 0.18, ty); ctx.lineTo(tx + s * 0.18, ty); ctx.lineTo(tx, ty + s * 0.2); ctx.closePath(); ctx.fill();
     }
-    // head (big, cartoon)
-    const hy = Y - s * 1.82;
+    // neck and head (big, cartoon) that follows the lean
+    const hx0 = X + lean * 1.1;
     ctx.fillStyle = p.skin;
-    ctx.beginPath(); ctx.arc(X, hy, s * 0.46, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(hx0 - s * 0.1, ty - s * 0.12, s * 0.2, s * 0.2);
+    const hy = Y - s * 1.9 - jump - bob * 1.2;
+    ctx.fillStyle = p.skin;
+    ctx.beginPath(); ctx.arc(hx0, hy, s * 0.44, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+    if (sd.y >= -0.35) { // ears
+      ctx.fillStyle = p.skin;
+      ctx.beginPath(); ctx.arc(hx0 - s * 0.43, hy + s * 0.05, s * 0.08, 0, Math.PI * 2); ctx.arc(hx0 + s * 0.43, hy + s * 0.05, s * 0.08, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.fillStyle = p.hair;
-    if (sd.y < -0.35) { ctx.beginPath(); ctx.arc(X, hy - s * 0.02, s * 0.44, 0, Math.PI * 2); ctx.fill(); }
-    else if (p.hs === 0) { ctx.beginPath(); ctx.arc(X, hy - s * 0.06, s * 0.46, Math.PI * 1.02, Math.PI * 1.98); ctx.fill(); }
-    else if (p.hs === 1) { ctx.beginPath(); ctx.ellipse(X, hy - s * 0.3, s * 0.42, s * 0.2, 0, 0, Math.PI * 2); ctx.fill(); }
-    else if (p.hs === 2) { ctx.beginPath(); ctx.arc(X, hy - s * 0.12, s * 0.48, Math.PI * 0.95, Math.PI * 2.05); ctx.fill(); }
-    else if (p.hs === 3) { ctx.beginPath(); ctx.arc(X, hy - s * 0.2, s * 0.36, Math.PI, 2 * Math.PI); ctx.fill(); }
-    else { for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(X + i * s * 0.17, hy - s * 0.36 + Math.abs(i) * s * 0.06, s * 0.15, 0, Math.PI * 2); ctx.fill(); } }
+    if (sd.y < -0.35) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.02, s * 0.44, 0, Math.PI * 2); ctx.fill(); }
+    else if (p.hs === 0) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.06, s * 0.45, Math.PI * 1.02, Math.PI * 1.98); ctx.fill(); }
+    else if (p.hs === 1) { ctx.beginPath(); ctx.ellipse(hx0, hy - s * 0.3, s * 0.41, s * 0.2, 0, 0, Math.PI * 2); ctx.fill(); }
+    else if (p.hs === 2) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.12, s * 0.47, Math.PI * 0.95, Math.PI * 2.05); ctx.fill(); }
+    else if (p.hs === 3) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.2, s * 0.35, Math.PI, 2 * Math.PI); ctx.fill(); }
+    else { for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(hx0 + i * s * 0.17, hy - s * 0.36 + Math.abs(i) * s * 0.06, s * 0.15, 0, Math.PI * 2); ctx.fill(); } }
     if (sd.y >= -0.35) {
       const ex = sd.x * s * 0.12;
       ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(X - s * 0.16 + ex, hy + s * 0.04, s * 0.1, 0, Math.PI * 2); ctx.arc(X + s * 0.16 + ex, hy + s * 0.04, s * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(hx0 - s * 0.16 + ex, hy + s * 0.04, s * 0.1, s * 0.11, 0, 0, Math.PI * 2); ctx.ellipse(hx0 + s * 0.16 + ex, hy + s * 0.04, s * 0.1, s * 0.11, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath(); ctx.arc(X - s * 0.15 + ex * 1.3, hy + s * 0.05, s * 0.055, 0, Math.PI * 2); ctx.arc(X + s * 0.17 + ex * 1.3, hy + s * 0.05, s * 0.055, 0, Math.PI * 2); ctx.fill();
-      if (celebrating) { ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.beginPath(); ctx.arc(X + ex, hy + s * 0.18, s * 0.14, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); }
+      ctx.beginPath(); ctx.arc(hx0 - s * 0.15 + ex * 1.4, hy + s * 0.05, s * 0.055, 0, Math.PI * 2); ctx.arc(hx0 + s * 0.17 + ex * 1.4, hy + s * 0.05, s * 0.055, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(40,20,10,0.7)'; ctx.lineWidth = Math.max(1, s * 0.035);
+      const eb = feint || spin || (moving && run > 0.9) ? -0.03 : 0; // focused face when sprinting or dribbling
+      ctx.beginPath(); ctx.moveTo(hx0 - s * 0.26 + ex, hy - s * 0.12 + eb * s); ctx.lineTo(hx0 - s * 0.07 + ex, hy - s * 0.09); ctx.moveTo(hx0 + s * 0.07 + ex, hy - s * 0.09); ctx.lineTo(hx0 + s * 0.26 + ex, hy - s * 0.12 + eb * s); ctx.stroke();
+      if (celebrating) { ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.beginPath(); ctx.arc(hx0 + ex, hy + s * 0.18, s * 0.14, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); }
+      else if (kicking && kr > 0.4) { ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = Math.max(1, s * 0.04); ctx.beginPath(); ctx.moveTo(hx0 - s * 0.08 + ex, hy + s * 0.22); ctx.lineTo(hx0 + s * 0.08 + ex, hy + s * 0.22); ctx.stroke(); }
     }
+    ctx.restore();
+    // a skill move leaves a little trail
+    if (sk && !rp) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - skP)) + ')'; ctx.lineWidth = s * 0.12; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(X - sdir(sk.dx, sk.dy).x * s * 0.9, Y - s * 0.1 - sdir(sk.dx, sk.dy).y * s * 0.4); ctx.lineTo(X, Y - s * 0.1); ctx.stroke(); ctx.lineCap = 'butt'; }
     ctx.globalAlpha = 1;
     // name tag over the controlled player, the ball carrier and the penalty duel
     if (!G.auto && !rp && (p === G.ctrl || p === G.ball.owner || (G.pk && (p === G.pk.taker || p === G.pk.gk)))) {
