@@ -7782,8 +7782,8 @@ act('start2d', () => {
       <div><div class="muted up">Replay dos gols</div>${seg('replay', [[true, 'Ligado'], [false, 'Desligado']])}</div>
       <div><div class="muted up">Botões na tela (toque)</div>${seg('btn', G2_BTN)}</div>
     </div>
-    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta (1★) · <span class="kbd">O</span> giro (2★) · <span class="kbd">U</span> drible especial: caneta (3★), elástico (4★) e chapéu (5★) · <span class="kbd">Shift</span> corre devagar (a corrida é automática ao empurrar o direcional) · <span class="kbd">P</span> pausa</div>
-    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda (empurre até a borda para correr, mais leve para andar); PASSE, CHUTE e LANÇAR à direita, e FINTA, GIRO e ESPECIAL (dribles, liberados pelas estrelas de finta do jogador, que aparecem ao lado do nome dele) ao lado. A barra azul sob o jogador é o fôlego da corrida.</div>
+    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta (varia com as estrelas: finta 1★, carretilha 2★, caneta 3★, elástico 4★, chapéu 5★) · <span class="kbd">O</span> giro (2★) · <span class="kbd">Shift</span> corre devagar (a corrida é automática ao empurrar o direcional) · <span class="kbd">P</span> pausa</div>
+    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda (empurre até a borda para correr, mais leve para andar); PASSE, CHUTE e LANÇAR à direita, e FINTA (o drible muda conforme as estrelas) e GIRO (liberados pelas estrelas de finta do jogador, que aparecem ao lado do nome dele) ao lado. A barra azul sob o jogador é o fôlego da corrida.</div>
     <div class="help-keys" style="margin-top:8px"><b>Pênaltis:</b> mire com o direcional e segure CHUTE para dar força (força demais vai por cima). Quando o adversário bate, escolha o canto do goleiro antes do chute. No mata-mata, se o empate persistir, a prorrogação é simulada e você disputa os pênaltis.</div>`,
   '<button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="g2dGo">Começar</button>'), { size: 'narrow' });
 });
@@ -7921,8 +7921,9 @@ const Game2D = (() => {
   }
   // skill-move stars (like FIFA): the better the dribbling, the more moves he can do
   function skillStars(dri) { return dri >= 84 ? 5 : dri >= 77 ? 4 : dri >= 70 ? 3 : dri >= 62 ? 2 : 1; }
-  const SKILL_NEED = { feint: 1, spin: 2, special: 3 };
-  const SPECIALS = [['nutmeg', 3], ['elastico', 4], ['rainbow', 5]];
+  const SKILL_NEED = { feint: 1, spin: 2 };
+  // the FINTA button picks a move among those unlocked by the stars
+  const FEINTS = [['feint', 1], ['roll', 2], ['nutmeg', 3], ['elastico', 4], ['rainbow', 5]];
   function makeSprite(p, team, k, pos, fx, fy, slot) {
     const sp = {
       team, side: k, pos, gk: pos === 'GK', slot, fx, fy,
@@ -8682,14 +8683,17 @@ const Game2D = (() => {
   // GIRO (2★: a roulette spin), and the specials from 3★: CANETA (nutmeg through the defender's legs), ELÁSTICO (4★, a
   // flick out and in) and CHAPÉU (5★, the ball lifted over the defender). They fool the defenders around (more so with a
   // good dribbler) and make tackles harder for a moment
-  const SK_NAME = { feint: 'finta', spin: 'giro', nutmeg: 'caneta', elastico: 'elástico', rainbow: 'chapéu' };
+  const SK_NAME = { feint: 'finta', roll: 'carretilha', spin: 'giro', nutmeg: 'caneta', elastico: 'elástico', rainbow: 'chapéu' };
   function doSkill(c, w, btn) {
     const need = SKILL_NEED[btn] || 1;
     if (c.stars < need) { hint(`${nameOf(c)} tem ${c.stars}★ de finta e este drible pede ${need}★.`); return; }
     let kind = btn;
-    if (btn === 'special') {
-      const ok = SPECIALS.filter((x) => c.stars >= x[1]);
-      kind = ok[Math.floor(Math.random() * ok.length)][0];
+    if (btn === 'feint') {
+      const ok = FEINTS.filter((x) => c.stars >= x[1]);
+      // avoid repeating the last move when there is a choice
+      const pool = ok.length > 1 ? ok.filter((x) => x[0] !== c.lastFeint) : ok;
+      kind = pool[Math.floor(Math.random() * pool.length)][0];
+      c.lastFeint = kind;
     }
     let d = (w.x || w.y) ? nrm(w.x, w.y) : { x: c.dx, y: c.dy };
     if (!d.x && !d.y) d = { x: 0, y: c.team === 0 ? -1 : 1 };
@@ -8706,6 +8710,12 @@ const Game2D = (() => {
     const sk = { kind, t: 0.5, T: 0.5, dx: d.x, dy: d.y, sp: 1.1 };
     if (kind === 'spin') { sk.t = sk.T = 0.62; sk.sp = 1.04; }
     else if (kind === 'feint') { const dir = nrm(d.x * 0.5 + perp.x * side * 0.9, d.y * 0.5 + perp.y * side * 0.9); sk.dx = dir.x; sk.dy = dir.y; sk.sp = 1.2; }
+    else if (kind === 'roll') { // carretilha: drags the ball across with the sole, then cuts forward
+      sk.t = sk.T = 0.52; sk.sp = 1.18;
+      const out = nrm(d.x * 0.25 + perp.x * side * 0.95, d.y * 0.25 + perp.y * side * 0.95);
+      const fwd = nrm(d.x * 0.9 + perp.x * side * 0.3, d.y * 0.9 + perp.y * side * 0.3);
+      sk.dx = out.x; sk.dy = out.y; sk.dx2 = fwd.x; sk.dy2 = fwd.y;
+    }
     else if (kind === 'nutmeg') { sk.t = sk.T = 0.55; sk.sp = 1.28; }
     else if (kind === 'elastico') { // out to one side, then sharply back across
       sk.t = sk.T = 0.58; sk.sp = 1.22;
@@ -8724,12 +8734,12 @@ const Game2D = (() => {
     const bonus = (c.stars - 3) * 0.04;
     if (opp && od < reach) {
       const base = kind === 'nutmeg' ? 0.34 : kind === 'rainbow' ? 0.5 : 0.4;
-      const pr = clamp(base + (c.dri - opp.def) / 110 + (kind === 'spin' || kind === 'elastico' ? 0.1 : 0) + bonus, 0.15, 0.88);
+      const pr = clamp(base + (c.dri - opp.def) / 110 + (kind === 'spin' || kind === 'elastico' || kind === 'roll' ? 0.1 : 0) + bonus, 0.15, 0.88);
       if (Math.random() < pr) {
         opp.cool = Math.max(opp.cool, kind === 'feint' ? 0.6 : 0.85);
         if (Math.random() < 0.3 || kind === 'elastico') opp.fall = Math.max(opp.fall, 0.4);
-        if (kind !== 'rainbow') say(`${nameOf(c)} ${kind === 'spin' ? 'gira em cima de' : kind === 'nutmeg' ? 'dá uma caneta em' : kind === 'elastico' ? 'deixa no chão' : 'passa a finta em'} ${nameOf(opp)}!`, 1);
-        if (kind === 'elastico' || kind === 'nutmeg') banner(kind === 'nutmeg' ? 'CANETA!' : 'ELÁSTICO!', 0.9);
+        if (kind !== 'rainbow') say(`${nameOf(c)} ${kind === 'spin' ? 'gira em cima de' : kind === 'roll' ? 'faz uma carretilha em' : kind === 'nutmeg' ? 'dá uma caneta em' : kind === 'elastico' ? 'deixa no chão' : 'passa a finta em'} ${nameOf(opp)}!`, 1);
+        if (kind === 'elastico' || kind === 'nutmeg' || kind === 'roll') banner(kind === 'nutmeg' ? 'CANETA!' : kind === 'roll' ? 'CARRETILHA!' : 'ELÁSTICO!', 0.9);
       } else if (kind === 'nutmeg' && od < 2) {
         // the nutmeg is read: he closes the legs and takes the ball
         opp.cool = 0; opp.tackT = 0;
@@ -10068,7 +10078,7 @@ const Game2D = (() => {
       <div class="g2-hint" id="g2-hint" hidden></div>
       <div class="g2-tag" id="g2-tag" hidden>REPLAY</div>
       <div class="g2d-controls"><div class="joy" id="g2-joy"><i></i></div>
-        <div class="skpads"><button class="pad sk" data-k="special">ESPECIAL</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
+        <div class="skpads"><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
         <div class="pads"><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
@@ -10221,7 +10231,7 @@ const Game2D = (() => {
     if (k === 'sprint') I.sprint = down;
     else if (k === 'pass') { if (down) I.pass = true; }
     else if (k === 'lob') { if (down) I.lob = true; }
-    else if (k === 'feint' || k === 'spin' || k === 'special') { if (down) I.skill = k; }
+    else if (k === 'feint' || k === 'spin') { if (down) I.skill = k; }
     else if (k === 'shoot') {
       if (down) { I.shootDown = true; I.hold = 0; }
       else if (I.shootDown) { I.shootDown = false; I.shoot = true; }
@@ -10242,7 +10252,6 @@ const Game2D = (() => {
     if (k === 'l' && down) G.input.lob = true;
     if (k === 'i' && down) G.input.skill = 'feint';
     if (k === 'o' && down) G.input.skill = 'spin';
-    if (k === 'u' && down) G.input.skill = 'special';
     if (k === 'k' || k === ' ') press('shoot', down);
   }
   function onBlur() {
@@ -10700,7 +10709,7 @@ const Game2D = (() => {
     const sk = !rp && p.sk ? p.sk : null;
     const skP = sk ? 1 - sk.t / sk.T : 0; // progress of a dribble move
     const spin = sk && sk.kind === 'spin';
-    const feint = sk && (sk.kind === 'feint' || sk.kind === 'nutmeg' || sk.kind === 'elastico');
+    const feint = sk && (sk.kind === 'feint' || sk.kind === 'roll' || sk.kind === 'nutmeg' || sk.kind === 'elastico');
     const rainbow = sk && sk.kind === 'rainbow';
     const celebrating = G.state === 'goal' && G.celebr && p.team === G.celebr.scorer.team && !p.gk;
     const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
