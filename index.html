@@ -457,7 +457,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .g2-stats .r span { font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
 .g2-stats .r i { display: block; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.16); overflow: hidden; }
 .g2-stats .r u { display: block; height: 100%; background: #f2c230; text-decoration: none; }
-.g2d-controls { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; pointer-events: none; }
+.g2d-controls { position: absolute; inset: 0; pointer-events: none; }
 .g2d .joy { position: absolute; left: max(18px, env(safe-area-inset-left, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.18); pointer-events: auto; touch-action: none; }
 .g2d .joy i { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: rgba(255,255,255,0.35); }
 .g2d .pads { position: absolute; right: max(18px, env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(2, 76px); gap: 12px; pointer-events: auto; }
@@ -503,6 +503,19 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .g2d .pads .pad[data-k="swap"] { grid-column: 1; grid-row: 1; }
 .g2d .pads .pad[data-k="lob"] { grid-row: 1; }
 .g2d .g2-savebtn { position: absolute; left: 50%; transform: translateX(-50%); top: calc(64px + env(safe-area-inset-top, 0px)); z-index: 6; pointer-events: auto; background: rgba(255,200,60,0.92); color: #1a1a1a; font-weight: 800; padding: 8px 14px; }
+
+/* movable controls: every control is placed by left/top (centre) from JS; size = global button size × the control's own size */
+.g2d .joy, .g2d .pad { position: absolute; translate: -50% -50%; scale: calc(var(--bs, 1) * var(--ps, 1)); transform: none; margin: 0; right: auto; bottom: auto; grid-column: auto; grid-row: auto; }
+.g2d .pads, .g2d .skpads { display: contents; }
+.g2d .pad.on { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) { .g2d .joy, .g2d .pad { display: none; } .g2d.editlay .joy, .g2d.editlay .pad { display: block; } .g2d.editlay .pad.run { display: block; } }
+.g2d.editlay .pad.run { display: block; }
+.g2d.editlay .joy, .g2d.editlay .pad { outline: 2px dashed rgba(255,255,255,0.6); outline-offset: 3px; cursor: grab; }
+.g2d.editlay .pad.sel, .g2d.editlay .joy.sel { outline: 3px solid #ffc54d; }
+.g2d .g2-laybar { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 7; width: min(560px, calc(100% - 24px)); background: rgba(8,24,30,0.92); border: 1px solid var(--line2); border-radius: 14px; padding: 10px 12px; text-align: center; pointer-events: auto; }
+.g2d .g2-laybar[hidden] { display: none; }
+.g2d .g2-laybar .t { font-size: 13px; margin-bottom: 8px; color: var(--muted); }
+.g2d.editlay .g2-intro { display: none; }
 
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>

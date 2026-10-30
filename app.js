@@ -7773,7 +7773,7 @@ function g2Defaults() {
 }
 // size of the on-screen controls (joystick and buttons)
 const G2_BTN = [[0.8, 'Pequeno'], [1, 'Normal'], [1.25, 'Grande'], [1.5, 'Enorme']];
-function applyBtnSize(root) { if (root) { root.style.setProperty('--bs', G2PREF.btn || 1); root.classList.toggle('manualrun', G2PREF.autoRun === false); } }
+function applyBtnSize(root) { if (root) { root.style.setProperty('--bs', G2PREF.btn || 1); root.classList.toggle('manualrun', G2PREF.autoRun === false); if (root.isConnected && typeof g2ApplyLayout === 'function') g2ApplyLayout(root); } }
 act('start2d', () => {
   g2Defaults();
   const seg = (k, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${String(G2PREF[k]) === String(v) ? 'on' : ''}" data-a="g2dOpt" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -7825,6 +7825,97 @@ function finish2D(m, st) {
   window.scrollTo(0, 0);
   if (st.pen && !st.penPlayed) toast(st.et ? 'Empate no agregado: prorrogação e pênaltis foram simulados.' : 'Empate no agregado: os pênaltis foram simulados (sem prorrogação).');
   else if (st.et && !st.decided && !st.penPlayed) toast('Empate no agregado: a prorrogação foi simulada.');
+}
+
+
+// ---- movable on-screen controls (like Brawl Stars): each control's centre is stored as a fraction of the screen (separately for landscape and portrait) plus its own size
+function g2Orient(root) { return root.clientWidth > root.clientHeight ? 'l' : 'p'; }
+function g2DefaultPos(root, el, W, H) {
+  const k = el.dataset.k, bs = G2PREF.btn || 1, safeR = 18, safeB = 22, w = el.offsetWidth * bs, h = el.offsetHeight * bs;
+  const small = el.offsetWidth <= 70 && k !== 'joy' && !el.classList.contains('sk');
+  const pw = (small ? 68 : 76) * bs, gap = (small ? 10 : 12) * bs;
+  const rowY = (r) => H - safeB - pw / 2 - (1 - r) * (pw + gap); // r: 0 = top row, 1 = bottom row
+  const colX = (c) => W - safeR - pw / 2 - (1 - c) * (pw + gap);
+  if (k === 'joy') return [safeR + w / 2, H - safeB - h / 2];
+  if (k === 'swap') return [colX(0), rowY(0)];
+  if (k === 'lob') return [colX(1), rowY(0)];
+  if (k === 'pass') return [colX(0), rowY(1)];
+  if (k === 'shoot') return [colX(1), rowY(1)];
+  const skX = W - safeR - (2 * pw + gap) - 12 * bs - w / 2;
+  const order = ['feint', 'spin', 'sprint'];
+  const i = Math.max(0, order.indexOf(k));
+  return [skX, H - safeB - h / 2 - i * (h + 10 * bs)];
+}
+function g2ApplyLayout(root) {
+  const ctl = root.querySelector('.g2d-controls');
+  if (!ctl) return;
+  const W = ctl.clientWidth, H = ctl.clientHeight;
+  if (!W || !H) return;
+  const lay = (G2PREF.lay && G2PREF.lay[g2Orient(root)]) || {};
+  ctl.querySelectorAll('[data-k]').forEach((el) => {
+    const c = lay[el.dataset.k];
+    let x, y, sc = 1;
+    if (c) { x = c[0] * W; y = c[1] * H; sc = c[2] || 1; } else [x, y] = g2DefaultPos(root, el, W, H);
+    el.style.left = Math.round(x) + 'px'; el.style.top = Math.round(y) + 'px';
+    el.style.setProperty('--ps', sc);
+  });
+}
+function g2LayoutEdit(root, onDone) {
+  const ctl = root.querySelector('.g2d-controls'), bar = root.querySelector('#g2-laybar');
+  root.classList.add('editlay'); bar.hidden = false;
+  g2ApplyLayout(root);
+  let sel = null, drag = null;
+  const orient = () => g2Orient(root);
+  const cur = (el) => {
+    const W = ctl.clientWidth, H = ctl.clientHeight, k = el.dataset.k;
+    const l = ((G2PREF.lay || {})[orient()] || {})[k];
+    return l ? l.slice() : [(parseFloat(el.style.left) || 0) / W, (parseFloat(el.style.top) || 0) / H, 1];
+  };
+  const store = (el, v) => {
+    G2PREF.lay = G2PREF.lay || {}; G2PREF.lay[orient()] = G2PREF.lay[orient()] || {};
+    // moving one control also freezes the others at their current spot, so nothing jumps around
+    ctl.querySelectorAll('[data-k]').forEach((o) => { if (!G2PREF.lay[orient()][o.dataset.k]) G2PREF.lay[orient()][o.dataset.k] = cur(o); });
+    G2PREF.lay[orient()][el.dataset.k] = v;
+    g2ApplyLayout(root);
+  };
+  const select = (el) => { ctl.querySelectorAll('.sel').forEach((o) => o.classList.remove('sel')); sel = el; if (el) el.classList.add('sel'); };
+  const down = (e) => {
+    e.stopPropagation(); e.preventDefault();
+    const el = e.target.closest('[data-k]');
+    if (!el) return;
+    select(el);
+    const v = cur(el);
+    drag = { el, id: e.pointerId, ox: e.clientX, oy: e.clientY, v };
+    try { ctl.setPointerCapture(e.pointerId); } catch (_) { /* not capturable */ }
+  };
+  const move = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    e.stopPropagation();
+    const r = ctl.getBoundingClientRect();
+    const fx = Math.min(0.97, Math.max(0.03, drag.v[0] + (e.clientX - drag.ox) / r.width));
+    const fy = Math.min(0.97, Math.max(0.05, drag.v[1] + (e.clientY - drag.oy) / r.height));
+    store(drag.el, [fx, fy, drag.v[2] || 1]);
+  };
+  const up = (e) => { if (drag && e.pointerId === drag.id) { drag = null; saveG2Pref(); } };
+  ctl.addEventListener('pointerdown', down, true);
+  ctl.addEventListener('pointermove', move, true);
+  ctl.addEventListener('pointerup', up, true);
+  ctl.addEventListener('pointercancel', up, true);
+  const size = (d) => { if (!sel) return; const v = cur(sel); v[2] = Math.min(2, Math.max(0.5, +((v[2] || 1) + d).toFixed(2))); store(sel, v); saveG2Pref(); };
+  const onBar = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.l === 'plus') size(0.15);
+    else if (b.dataset.l === 'minus') size(-0.15);
+    else if (b.dataset.l === 'reset') { if (G2PREF.lay) delete G2PREF.lay[orient()]; saveG2Pref(); select(null); g2ApplyLayout(root); }
+    else if (b.dataset.l === 'done') {
+      ctl.removeEventListener('pointerdown', down, true); ctl.removeEventListener('pointermove', move, true);
+      ctl.removeEventListener('pointerup', up, true); ctl.removeEventListener('pointercancel', up, true);
+      bar.removeEventListener('click', onBar);
+      select(null); root.classList.remove('editlay'); bar.hidden = true; saveG2Pref(); g2ApplyLayout(root);
+      onDone();
+    }
+  };
+  bar.addEventListener('click', onBar);
 }
 
 const Game2D = (() => {
@@ -10236,9 +10327,10 @@ const Game2D = (() => {
       <div class="g2-hint" id="g2-hint" hidden></div>
       <div class="g2-tag" id="g2-tag" hidden>REPLAY</div>
       <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
-      <div class="g2d-controls"><div class="joy" id="g2-joy"><i></i></div>
+      <div class="g2d-controls"><div class="joy" id="g2-joy" data-k="joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
         <div class="pads"><button class="pad swap" data-k="swap">TROCAR</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
+      <div class="g2-laybar" id="g2-laybar" hidden><div class="t">Arraste os botões para onde quiser · toque num botão e use − / + para o tamanho</div><div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn sm" data-l="minus">−</button><button class="btn sm" data-l="plus">+</button><button class="btn sm" data-l="reset">Padrão</button><button class="btn sm gold" data-l="done">Pronto</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
     document.body.style.overflow = 'hidden';
@@ -10373,6 +10465,7 @@ const Game2D = (() => {
   function resize() {
     if (!cv) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (root) g2ApplyLayout(root);
     cv.width = Math.max(1, Math.round(cv.clientWidth * dpr));
     cv.height = Math.max(1, Math.round(cv.clientHeight * dpr));
     if (radar) {
@@ -10446,6 +10539,7 @@ const Game2D = (() => {
         <div class="col" style="gap:10px;margin-top:14px"><button class="btn primary big" data-g="resume">▶ Continuar</button>${inShootout ? '' : `<button class="btn" data-g="subs">⇄ Substituições (${st.subsLeft[k]})</button>`}
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Câmera</span><div class="seg">${G2_CAMS.map(([v, l]) => `<button class="${(G2PREF.cam || 'normal') === v ? 'on' : ''}" data-cam="${v}">${l}</button>`).join('')}</div></div>
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Botões</span><div class="seg">${G2_BTN.map(([v, l]) => `<button class="${(G2PREF.btn || 1) === v ? 'on' : ''}" data-btn="${v}">${l}</button>`).join('')}</div></div>
+        <button class="btn" data-g="lay">✥ Mover botões da tela</button>
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Corrida</span><div class="seg"><button class="${G2PREF.autoRun !== false ? 'on' : ''}" data-run="1">Automática</button><button class="${G2PREF.autoRun === false ? 'on' : ''}" data-run="0">Manual (botão)</button></div></div>
         <button class="btn" data-g="sim">⏩ ${inShootout ? 'Simular os pênaltis' : 'Simular o resto'}</button></div>`;
     }
@@ -10458,6 +10552,7 @@ const Game2D = (() => {
       if (t.dataset.run !== undefined) { G2PREF.autoRun = t.dataset.run === '1'; saveG2Pref(); applyBtnSize(document.querySelector('.g2d')); renderPause(false); return; }
       if (t.dataset.btn) { G2PREF.btn = +t.dataset.btn; saveG2Pref(); applyBtnSize(document.querySelector('.g2d')); renderPause(false); return; }
       if (t.dataset.cam) { G2PREF.cam = t.dataset.cam; saveG2Pref(); G.camZoom = G2_ZOOM[t.dataset.cam] || 1; renderPause(false); return; }
+      if (t.dataset.g === 'lay') { hud.pause.hidden = true; g2LayoutEdit(root, () => { renderPause(false); hud.pause.hidden = false; }); return; }
       if (t.dataset.g === 'resume') togglePause();
       else if (t.dataset.g === 'subs') { G.subOut = null; renderPause(true, fromBreak); }
       else if (t.dataset.g === 'back') { if (fromBreak) showBreak(hud.breakKind || 'half'); else renderPause(false); }
