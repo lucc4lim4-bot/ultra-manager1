@@ -6169,6 +6169,7 @@ act('openMenu', () => {
     <button class="menu-btn" data-a="openCrestsInGame"><span class="ic">🛡</span><span>Escudos dos times<small>Use imagens suas, uma a uma ou em lote</small></span></button>
     <button class="menu-btn" data-a="openStoreInGame"><span class="ic">🛒</span><span>Loja de times<small>${INFINITE_COINS ? 'FutCoins infinitas' : WALLET.coins + ' FutCoins disponíveis'}</small></span></button>
     <button class="menu-btn" data-a="howTo"><span class="ic">?</span><span>Como jogar</span></button>
+    <button class="menu-btn" data-a="adminOpen"><span class="ic">🔐</span><span>Admin<small>Injetar dinheiro no clube (pede código)</small></span></button>
     <button class="menu-btn" data-a="exitToStart"><span class="ic">⏏</span><span>Sair para o menu<small>Salva antes de sair</small></span></button>
   </div>`), { size: 'narrow' });
 });
@@ -13659,6 +13660,35 @@ act('lkSave', () => {
     toast('Perfil do técnico salvo.');
   }
   closeAllModals(); render();
+});
+
+// ------------------------------------------------------------------ admin: inject money with a code
+const ADMIN_CODE = '120712';
+const ADMIN_AMOUNTS = [[1e6, '€1 mi'], [10e6, '€10 mi'], [50e6, '€50 mi'], [100e6, '€100 mi'], [500e6, '€500 mi'], [1e9, '€1 bi']];
+act('adminOpen', () => {
+  closeAllModals();
+  UI.adm = { ok: false, amt: 50e6 };
+  openModal(() => {
+    const A = UI.adm, t = S.teams[S.user.team];
+    if (!A.ok) return modalShell('🔐 Admin', `<p class="muted" style="margin:0 0 12px">Digite o código para liberar o painel.</p><div class="field"><label for="adm-code">Código</label><input id="adm-code" class="input" type="password" inputmode="numeric" autocomplete="off" maxlength="12" data-a="admCode" data-live="1"></div><div id="adm-msg" class="muted" style="color:var(--loss);min-height:20px;margin-top:6px"></div>`, '<button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="admCheck">Entrar</button>');
+    return modalShell('🔐 Admin', `<p style="margin:0 0 4px">Caixa de <b>${esc(t.n)}</b>: <b>${money(t.budget)}</b></p><p class="muted" style="margin:0 0 12px">Escolha o valor a injetar.</p>
+      <div class="row wrap" style="gap:8px">${ADMIN_AMOUNTS.map(([v, l]) => `<button class="btn ${A.amt === v ? 'gold' : ''}" data-a="admAmt" data-v="${v}">${l}</button>`).join('')}</div>`,
+    '<button class="btn" data-a="closeModal">Fechar</button><button class="btn gold" data-a="admInject">💰 Injetar</button>');
+  }, { size: 'narrow' });
+});
+act('admCode', (el) => { UI.adm.code = el.value; });
+act('admCheck', () => {
+  const v = ($('#adm-code').value || '').trim();
+  if (v === ADMIN_CODE) { UI.adm.ok = true; refreshModal(); } else { const m = $('#adm-msg'); if (m) m.textContent = 'Código incorreto.'; }
+});
+act('admAmt', (el) => { UI.adm.amt = +el.dataset.v; refreshModal(); });
+act('admInject', async () => {
+  if (!UI.adm || !UI.adm.ok) return;
+  const t = S.teams[S.user.team];
+  t.budget += UI.adm.amt;
+  await saveGame(S.id);
+  toast(`${money(UI.adm.amt)} injetados. Caixa: ${money(t.budget)}.`);
+  refreshModal(); render();
 });
 
 /* ===================== boot ===================== */
