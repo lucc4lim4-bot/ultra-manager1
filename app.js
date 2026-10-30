@@ -5048,6 +5048,7 @@ function render() {
   try {
     if (UI.screen === 'start') html = viewStart();
     else if (UI.screen === 'wizard') html = viewWizard();
+    else if (UI.screen === 'friendly') html = viewFriendly();
     else if (UI.screen === 'career') html = viewCareer();
     else if (UI.screen === 'match') html = viewMatch();
     else if (UI.screen === 'loading') html = viewLoading();
@@ -5389,6 +5390,7 @@ function viewStart() {
       <div class="menu-list">
         <button class="menu-btn primary" data-a="newCareer"><span class="ic">⚽</span><span>Nova carreira<small>Crie seu treinador e escolha a proposta</small></span></button>
         ${has ? `<button class="menu-btn" data-a="openSaves"><span class="ic">▶</span><span>Continuar<small>${SAVES.length} ${SAVES.length === 1 ? 'save salvo' : 'saves salvos'} · último: ${esc(SAVES[0].team)}</small></span></button>` : ''}
+        <button class="menu-btn" data-a="openFriendly"><span class="ic">🎮</span><span>Amistoso<small>Partida 2D contra o computador com qualquer time do jogo</small></span></button>
         <button class="menu-btn" data-a="openStore"><span class="ic">🛒</span><span>Comprar times<small>${INFINITE_COINS ? 'FutCoins infinitas: escolha qualquer clube' : 'Use FutCoins ganhos em títulos'}</small></span></button>
         <button class="menu-btn" data-a="openCrests"><span class="ic">🛡</span><span>Escudos dos times<small>Troque por imagens suas, uma a uma ou em lote</small></span></button>
         <label class="menu-btn" style="cursor:pointer"><span class="ic">⤓</span><span>Importar save<small>Arquivo .json exportado antes</small></span><input type="file" accept=".umsave,.json,.gz,application/json" data-a="importSave" class="hide"></label>
@@ -7780,8 +7782,8 @@ act('start2d', () => {
       <div><div class="muted up">Replay dos gols</div>${seg('replay', [[true, 'Ligado'], [false, 'Desligado']])}</div>
       <div><div class="muted up">Botões na tela (toque)</div>${seg('btn', G2_BTN)}</div>
     </div>
-    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta · <span class="kbd">O</span> giro (dribles: confundem o marcador mais próximo; ajuda ter bom drible) · <span class="kbd">Shift</span> corre · <span class="kbd">P</span> pausa</div>
-    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda; PASSE, CHUTE, LANÇAR e CORRER à direita, e FINTA e GIRO (dribles) logo acima deles. A barra azul sob o jogador é o fôlego da arrancada.</div>
+    <div class="help-keys" style="margin-top:14px"><b>Teclado:</b> <span class="kbd">WASD</span> ou <span class="kbd">setas</span> movem · <span class="kbd">J</span> passe (sem a bola: troca de jogador) · <span class="kbd">K</span> chute, segure para mais força (sem a bola: carrinho) · <span class="kbd">L</span> enfiada no espaço (na cara do gol com o goleiro adiantado: cavadinha) · <span class="kbd">I</span> finta (1★) · <span class="kbd">O</span> giro (2★) · <span class="kbd">U</span> drible especial: caneta (3★), elástico (4★) e chapéu (5★) · <span class="kbd">Shift</span> corre devagar (a corrida é automática ao empurrar o direcional) · <span class="kbd">P</span> pausa</div>
+    <div class="help-keys" style="margin-top:8px"><b>Toque:</b> joystick à esquerda (empurre até a borda para correr, mais leve para andar); PASSE, CHUTE e LANÇAR à direita, e FINTA, GIRO e ESPECIAL (dribles, liberados pelas estrelas de finta do jogador, que aparecem ao lado do nome dele) ao lado. A barra azul sob o jogador é o fôlego da corrida.</div>
     <div class="help-keys" style="margin-top:8px"><b>Pênaltis:</b> mire com o direcional e segure CHUTE para dar força (força demais vai por cima). Quando o adversário bate, escolha o canto do goleiro antes do chute. No mata-mata, se o empate persistir, a prorrogação é simulada e você disputa os pênaltis.</div>`,
   '<button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="g2dGo">Começar</button>'), { size: 'narrow' });
 });
@@ -7914,8 +7916,13 @@ const Game2D = (() => {
       skin: SKINS[si], hair: HAIRS[(h >> 6) % HAIRS.length], hs: (h >> 11) % 5, num: p.num || sp.slot + 1,
       label: p.s || p.n, sta: 1,
     });
+    sp.stars = sp.gk ? 1 : skillStars(sp.dri);
     if (natGK) Object.assign(sp, { pas: sp.gkKic, sho: 40, dri: 40, def: 45 });
   }
+  // skill-move stars (like FIFA): the better the dribbling, the more moves he can do
+  function skillStars(dri) { return dri >= 84 ? 5 : dri >= 77 ? 4 : dri >= 70 ? 3 : dri >= 62 ? 2 : 1; }
+  const SKILL_NEED = { feint: 1, spin: 2, special: 3 };
+  const SPECIALS = [['nutmeg', 3], ['elastico', 4], ['rainbow', 5]];
   function makeSprite(p, team, k, pos, fx, fy, slot) {
     const sp = {
       team, side: k, pos, gk: pos === 'GK', slot, fx, fy,
@@ -8619,7 +8626,7 @@ const Game2D = (() => {
     const c = G.ctrl;
     if (!c) return;
     c.inX = w.x; c.inY = w.y;
-    const wantSprint = I.sprint || !!KEYS.shift;
+    const wantSprint = mag > 0.6 && !KEYS.shift; // automatic sprint when the stick is pushed; Shift jogs
     // sprint stamina: roughly 7 seconds of flat-out running, recovers while jogging
     if (wantSprint && (w.x || w.y) && c.sta > 0.02) { c.sta = Math.max(0, c.sta - dt / (6 + c.phy / 40)); c.sprint = c.sta > 0.1; }
     else { c.sprint = false; c.sta = Math.min(1, c.sta + dt * 0.11); }
@@ -8671,30 +8678,62 @@ const Game2D = (() => {
       }
     }
   }
-  // dribbling moves: FINTA (step-over and a sharp cut away from the closest defender) and GIRO (a roulette spin that
-  // carries the ball past him). Both fool the defenders around (more so with a good dribbler) and make tackles harder
-  function doSkill(c, w, kind) {
+  // dribbling moves, unlocked by skill stars: FINTA (1★: step-over and a sharp cut away from the closest defender),
+  // GIRO (2★: a roulette spin), and the specials from 3★: CANETA (nutmeg through the defender's legs), ELÁSTICO (4★, a
+  // flick out and in) and CHAPÉU (5★, the ball lifted over the defender). They fool the defenders around (more so with a
+  // good dribbler) and make tackles harder for a moment
+  const SK_NAME = { feint: 'finta', spin: 'giro', nutmeg: 'caneta', elastico: 'elástico', rainbow: 'chapéu' };
+  function doSkill(c, w, btn) {
+    const need = SKILL_NEED[btn] || 1;
+    if (c.stars < need) { hint(`${nameOf(c)} tem ${c.stars}★ de finta e este drible pede ${need}★.`); return; }
+    let kind = btn;
+    if (btn === 'special') {
+      const ok = SPECIALS.filter((x) => c.stars >= x[1]);
+      kind = ok[Math.floor(Math.random() * ok.length)][0];
+    }
     let d = (w.x || w.y) ? nrm(w.x, w.y) : { x: c.dx, y: c.dy };
     if (!d.x && !d.y) d = { x: 0, y: c.team === 0 ? -1 : 1 };
+    // the closest defender, preferring the ones in front
     let opp = null, od = 1e9;
-    for (const o of G.players) { if (o.out || o.team === c.team || o.gk) continue; const dd = Math.hypot(o.x - c.x, o.y - c.y); if (dd < od) { od = dd; opp = o; } }
-    c.skCD = 0.95; c.sta = Math.max(0, c.sta - 0.07);
-    let T, sp, dir;
-    if (kind === 'spin') { T = 0.62; sp = 1.04; dir = d; }
-    else {
-      T = 0.5; sp = 1.2;
-      // cut to the side away from the defender, still moving forward
-      const perp = { x: -d.y, y: d.x };
-      let side = opp ? (((opp.x - c.x) * perp.x + (opp.y - c.y) * perp.y) > 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
-      dir = nrm(d.x * 0.5 + perp.x * side * 0.9, d.y * 0.5 + perp.y * side * 0.9);
+    for (const o of G.players) {
+      if (o.out || o.team === c.team || o.gk) continue;
+      const dd = Math.hypot(o.x - c.x, o.y - c.y) * (((o.x - c.x) * d.x + (o.y - c.y) * d.y) > -0.5 ? 1 : 1.6);
+      if (dd < od) { od = dd; opp = o; }
     }
-    c.sk = { kind, t: T, T, dx: dir.x, dy: dir.y, sp };
-    if (opp && od < (kind === 'spin' ? 2.2 : 2.6)) {
-      const pr = clamp(0.4 + (c.dri - opp.def) / 110 + (kind === 'spin' ? 0.1 : 0), 0.15, 0.85);
+    c.skCD = 0.95; c.sta = Math.max(0, c.sta - 0.07);
+    const perp = { x: -d.y, y: d.x };
+    const side = opp ? (((opp.x - c.x) * perp.x + (opp.y - c.y) * perp.y) > 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
+    const sk = { kind, t: 0.5, T: 0.5, dx: d.x, dy: d.y, sp: 1.1 };
+    if (kind === 'spin') { sk.t = sk.T = 0.62; sk.sp = 1.04; }
+    else if (kind === 'feint') { const dir = nrm(d.x * 0.5 + perp.x * side * 0.9, d.y * 0.5 + perp.y * side * 0.9); sk.dx = dir.x; sk.dy = dir.y; sk.sp = 1.2; }
+    else if (kind === 'nutmeg') { sk.t = sk.T = 0.55; sk.sp = 1.28; }
+    else if (kind === 'elastico') { // out to one side, then sharply back across
+      sk.t = sk.T = 0.58; sk.sp = 1.22;
+      const out = nrm(d.x * 0.35 + perp.x * side * 0.95, d.y * 0.35 + perp.y * side * 0.95);
+      const back = nrm(d.x * 0.45 - perp.x * side * 0.9, d.y * 0.45 - perp.y * side * 0.9);
+      sk.dx = out.x; sk.dy = out.y; sk.dx2 = back.x; sk.dy2 = back.y;
+    } else if (kind === 'rainbow') { sk.t = sk.T = 0.6; sk.sp = 1.1; }
+    c.sk = sk;
+    const reach = kind === 'spin' ? 2.2 : kind === 'rainbow' ? 3.4 : 2.7;
+    if (kind === 'rainbow') {
+      // the ball goes up over the head of the defender and comes down behind him
+      kick(c, d.x * 6.5, d.y * 6.5, 6.2);
+      c.cool = 0.05; c.kickT = 0;
+      say(opp && od < reach ? `Chapéu em ${nameOf(opp)}!` : `${nameOf(c)} dá um chapéu!`, 1);
+    }
+    const bonus = (c.stars - 3) * 0.04;
+    if (opp && od < reach) {
+      const base = kind === 'nutmeg' ? 0.34 : kind === 'rainbow' ? 0.5 : 0.4;
+      const pr = clamp(base + (c.dri - opp.def) / 110 + (kind === 'spin' || kind === 'elastico' ? 0.1 : 0) + bonus, 0.15, 0.88);
       if (Math.random() < pr) {
-        opp.cool = Math.max(opp.cool, kind === 'spin' ? 0.8 : 0.6);
-        if (Math.random() < 0.3) opp.fall = Math.max(opp.fall, 0.4);
-        say(kind === 'spin' ? `${nameOf(c)} gira em cima de ${nameOf(opp)}!` : `${nameOf(c)} passa a finta em ${nameOf(opp)}!`, 1);
+        opp.cool = Math.max(opp.cool, kind === 'feint' ? 0.6 : 0.85);
+        if (Math.random() < 0.3 || kind === 'elastico') opp.fall = Math.max(opp.fall, 0.4);
+        if (kind !== 'rainbow') say(`${nameOf(c)} ${kind === 'spin' ? 'gira em cima de' : kind === 'nutmeg' ? 'dá uma caneta em' : kind === 'elastico' ? 'deixa no chão' : 'passa a finta em'} ${nameOf(opp)}!`, 1);
+        if (kind === 'elastico' || kind === 'nutmeg') banner(kind === 'nutmeg' ? 'CANETA!' : 'ELÁSTICO!', 0.9);
+      } else if (kind === 'nutmeg' && od < 2) {
+        // the nutmeg is read: he closes the legs and takes the ball
+        opp.cool = 0; opp.tackT = 0;
+        tryTackle(opp, c, 0.2);
       }
     }
     sfx('kick', 0.25);
@@ -8962,7 +9001,7 @@ const Game2D = (() => {
       if (has && G.restartHold) { p.wx = 0; p.wy = 0; return; }
       const s = p.speed * (p.sprint ? 1 : 0.8) * (has ? 0.92 : 1) * (p.sta < 0.15 ? 0.94 : 1);
       p.wx = p.inX * s; p.wy = p.inY * s;
-      if (p.sk) { p.wx = p.sk.dx * p.speed * p.sk.sp; p.wy = p.sk.dy * p.speed * p.sk.sp; }
+      if (p.sk) { const k = p.sk, back = k.dx2 !== undefined && k.t < k.T * 0.5; p.wx = (back ? k.dx2 : k.dx) * p.speed * k.sp; p.wy = (back ? k.dy2 : k.dy) * p.speed * k.sp; }
       if (G.restartHold && b.owner && b.owner.team === 1) keepDistance(p);
       if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.3) tryTackle(p, b.owner, 0.08);
       return;
@@ -10012,6 +10051,7 @@ const Game2D = (() => {
   }
   function buildDom() {
     root = document.createElement('div');
+    hud.skp = undefined; hud.lastStars = 0;
     root.className = 'g2d';
     applyBtnSize(root);
     const m = G.m;
@@ -10028,7 +10068,8 @@ const Game2D = (() => {
       <div class="g2-hint" id="g2-hint" hidden></div>
       <div class="g2-tag" id="g2-tag" hidden>REPLAY</div>
       <div class="g2d-controls"><div class="joy" id="g2-joy"><i></i></div>
-        <div class="pads"><button class="pad sk" data-k="feint">FINTA</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad" data-k="sprint">CORRER</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
+        <div class="skpads"><button class="pad sk" data-k="special">ESPECIAL</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
+        <div class="pads"><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
     document.body.style.overflow = 'hidden';
@@ -10180,7 +10221,7 @@ const Game2D = (() => {
     if (k === 'sprint') I.sprint = down;
     else if (k === 'pass') { if (down) I.pass = true; }
     else if (k === 'lob') { if (down) I.lob = true; }
-    else if (k === 'feint' || k === 'spin') { if (down) I.skill = k; }
+    else if (k === 'feint' || k === 'spin' || k === 'special') { if (down) I.skill = k; }
     else if (k === 'shoot') {
       if (down) { I.shootDown = true; I.hold = 0; }
       else if (I.shootDown) { I.shootDown = false; I.shoot = true; }
@@ -10201,6 +10242,7 @@ const Game2D = (() => {
     if (k === 'l' && down) G.input.lob = true;
     if (k === 'i' && down) G.input.skill = 'feint';
     if (k === 'o' && down) G.input.skill = 'spin';
+    if (k === 'u' && down) G.input.skill = 'special';
     if (k === 'k' || k === ' ') press('shoot', down);
   }
   function onBlur() {
@@ -10292,6 +10334,9 @@ const Game2D = (() => {
     if (!root || !G) return;
     const cl = G.state === 'halftime' ? 'INT' : G.shootout ? 'PÊN' : G.st.decided ? 'PRO' : G.state === 'fulltime' ? 'FIM' : clockLabel();
     if (cl !== hud.lastClock || force) { hud.clock.textContent = cl; hud.lastClock = cl; }
+    if (hud.skp === undefined) hud.skp = root.querySelectorAll('.skpads .pad');
+    const cs = G.ctrl && G.ctrl.stars || 1;
+    if (cs !== hud.lastStars || force) { hud.lastStars = cs; hud.skp.forEach((b) => b.classList.toggle('lock', cs < (SKILL_NEED[b.dataset.k] || 1))); }
     const s = G.st.score;
     const key = s[0] + ':' + s[1];
     if (key !== hud.lastScore || force) { hud.h.textContent = s[0]; hud.a.textContent = s[1]; hud.lastScore = key; }
@@ -10588,11 +10633,13 @@ const Game2D = (() => {
     const by = Y - r - b.z * s * 0.6;
     const br = r * (1 + b.z * 0.035);
     const g = ctx.createRadialGradient(X - br * 0.35, by - br * 0.35, br * 0.1, X, by, br);
-    g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#cfd6da');
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.7, '#e3e8eb'); g.addColorStop(1, '#a9b3b9');
     ctx.fillStyle = g; ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = Math.max(1, s * 0.04);
     ctx.beginPath(); ctx.arc(X, by, br, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#1b1b1b';
     for (let i = 0; i < 3; i++) { const t = b.spin + i * 2.1; ctx.beginPath(); ctx.arc(X + Math.cos(t) * br * 0.45, by + Math.sin(t) * br * 0.45, br * 0.24, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.ellipse(X - br * 0.35, by - br * 0.4, br * 0.22, br * 0.13, -0.6, 0, Math.PI * 2); ctx.fill();
   }
   function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
   function drawPlayer(p, X, Y, s) {
@@ -10608,6 +10655,8 @@ const Game2D = (() => {
     const ol = 'rgba(0,0,0,0.38)', lw = Math.max(1, s * 0.055);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath(); ctx.ellipse(X + s * 0.12, Y + s * 0.06, s * 0.55, s * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath(); ctx.ellipse(X + s * 0.04, Y + s * 0.02, s * 0.3, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
     Y -= lift;
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
@@ -10651,16 +10700,18 @@ const Game2D = (() => {
     const sk = !rp && p.sk ? p.sk : null;
     const skP = sk ? 1 - sk.t / sk.T : 0; // progress of a dribble move
     const spin = sk && sk.kind === 'spin';
-    const feint = sk && sk.kind === 'feint';
+    const feint = sk && (sk.kind === 'feint' || sk.kind === 'nutmeg' || sk.kind === 'elastico');
+    const rainbow = sk && sk.kind === 'rainbow';
     const celebrating = G.state === 'goal' && G.celebr && p.team === G.celebr.scorer.team && !p.gk;
     const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
     // kick leg: back-swing, strike, follow-through (positive = forward)
     const kr = !kicking ? 0 : q < 0.3 ? -(q / 0.3) * 0.8 : q < 0.6 ? -0.8 + ((q - 0.3) / 0.3) * 2.2 : 1.4 - ((q - 0.6) / 0.4) * 0.9;
     const bob = moving ? Math.abs(Math.sin(tt)) * s * 0.06 * run : Math.sin(G.time * 2 + (p.num || 0)) * s * 0.012;
-    const jump = spin ? Math.sin(skP * Math.PI) * s * 0.14 : 0;
+    const jump = spin ? Math.sin(skP * Math.PI) * s * 0.14 : rainbow ? Math.sin(skP * Math.PI) * s * 0.24 : 0;
     let lean = sd.x * s * 0.1 * run + (kicking ? sd.x * s * 0.06 * Math.max(0, kr) : 0);
     if (feint) {
-      const bd = sdir(sk.dx, sk.dy);
+      const cur = sk.dx2 !== undefined && sk.t < sk.T * 0.5 ? [sk.dx2, sk.dy2] : [sk.dx, sk.dy];
+      const bd = sdir(cur[0], cur[1]);
       lean += bd.x * s * 0.22 * (skP < 0.35 ? -0.7 * (skP / 0.35) : -0.7 + 1.7 * ((skP - 0.35) / 0.65));
     }
     ctx.save();
@@ -10674,6 +10725,7 @@ const Game2D = (() => {
       let fx = hx + sd.x * s * 0.32 * st * run, fy = Y - jump - lf * s * 0.17 * run + sd.y * s * 0.1 * st * run;
       let kneeF = 0.1 + lf * 0.12;
       if (kickLeg && kicking) { fx = hx + sd.x * s * 0.55 * kr; fy = Y - jump - s * 0.05 - Math.max(0, kr) * s * 0.15 + sd.y * s * 0.2 * kr; kneeF = 0.16; }
+      else if (rainbow && footLeg) { fx = hx + sd.x * s * 0.35; fy = Y - jump - Math.sin(skP * Math.PI) * s * 0.28; kneeF = 0.22; }
       else if (feint && footLeg) { // step-over: the foot circles over the ball
         const a = skP * Math.PI * 2.4;
         fx = hx + sd.x * s * 0.3 + Math.cos(a) * s * 0.42; fy = Y - jump - Math.max(0, Math.sin(a)) * s * 0.3; kneeF = 0.2;
@@ -10682,8 +10734,16 @@ const Game2D = (() => {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.strokeStyle = p.skin; ctx.lineWidth = s * 0.2;
       ctx.beginPath(); ctx.moveTo(hx + lean * 0.4, hipY); ctx.lineTo(kx, ky); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = s * 0.06;
+      ctx.beginPath(); ctx.moveTo(hx + lean * 0.4 - s * 0.05, hipY); ctx.lineTo(kx - s * 0.05, ky); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = s * 0.05;
+      ctx.beginPath(); ctx.moveTo(hx + lean * 0.4 + s * 0.07, hipY); ctx.lineTo(kx + s * 0.07, ky); ctx.stroke();
       ctx.strokeStyle = kit.socks; ctx.lineWidth = s * 0.19;
       ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(fx, fy - s * 0.1); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = s * 0.055;
+      ctx.beginPath(); ctx.moveTo(kx - s * 0.05, ky); ctx.lineTo(fx - s * 0.05, fy - s * 0.1); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = s * 0.05;
+      ctx.beginPath(); ctx.moveTo(kx + s * 0.07, ky); ctx.lineTo(fx + s * 0.07, fy - s * 0.1); ctx.stroke();
       ctx.strokeStyle = kit.trim; ctx.lineWidth = s * 0.19;
       const bx = kx + (fx - kx) * 0.3, by = ky + (fy - s * 0.1 - ky) * 0.3;
       ctx.beginPath(); ctx.moveTo(bx - s * 0.005, by); ctx.lineTo(bx + (fx - kx) * 0.12, by + (fy - s * 0.1 - ky) * 0.12); ctx.stroke();
@@ -10701,6 +10761,9 @@ const Game2D = (() => {
     ctx.fillStyle = kit.shorts;
     rr(X - s * 0.38 + lean * 0.4, hipY - s * 0.2, s * 0.76, s * 0.4, s * 0.1); ctx.fill();
     ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+    const sg = ctx.createLinearGradient(X - s * 0.38, 0, X + s * 0.38, 0);
+    sg.addColorStop(0, 'rgba(255,255,255,0.18)'); sg.addColorStop(0.5, 'rgba(0,0,0,0)'); sg.addColorStop(1, 'rgba(0,0,0,0.26)');
+    ctx.fillStyle = sg; rr(X - s * 0.38 + lean * 0.4, hipY - s * 0.2, s * 0.76, s * 0.4, s * 0.1); ctx.fill();
     ctx.fillStyle = kit.trim;
     ctx.fillRect(X - s * 0.38 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
     ctx.fillRect(X + s * 0.33 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
@@ -10708,10 +10771,15 @@ const Game2D = (() => {
     const tx = X + lean * 0.7, ty = Y - s * 1.46 - jump - bob;
     ctx.fillStyle = kit.shirt;
     rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.14)';
-    rr(tx + s * 0.12, ty + s * 0.05, s * 0.28, s * 0.68, s * 0.12); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    rr(tx - s * 0.36, ty + s * 0.04, s * 0.2, s * 0.4, s * 0.1); ctx.fill();
+    // cylinder-like shading: lit from the upper left, darker on the right and at the waist
+    const tg = ctx.createLinearGradient(tx - s * 0.42, 0, tx + s * 0.42, 0);
+    tg.addColorStop(0, 'rgba(255,255,255,0.24)'); tg.addColorStop(0.35, 'rgba(255,255,255,0.04)'); tg.addColorStop(0.65, 'rgba(0,0,0,0.04)'); tg.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = tg; rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
+    const tv = ctx.createLinearGradient(0, ty, 0, ty + s * 0.78);
+    tv.addColorStop(0, 'rgba(255,255,255,0.1)'); tv.addColorStop(0.6, 'rgba(0,0,0,0)'); tv.addColorStop(1, 'rgba(0,0,0,0.2)');
+    ctx.fillStyle = tv; rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = Math.max(1, s * 0.03); // fabric folds
+    ctx.beginPath(); ctx.moveTo(tx - s * 0.18, ty + s * 0.5); ctx.quadraticCurveTo(tx - s * 0.05, ty + s * 0.58, tx + s * 0.14, ty + s * 0.52); ctx.stroke();
     ctx.strokeStyle = ol; ctx.lineWidth = lw;
     rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.stroke();
     // arms swing against the legs; sleeves, forearms and hands
@@ -10752,6 +10820,9 @@ const Game2D = (() => {
     const hy = Y - s * 1.9 - jump - bob * 1.2;
     ctx.fillStyle = p.skin;
     ctx.beginPath(); ctx.arc(hx0, hy, s * 0.44, 0, Math.PI * 2); ctx.fill();
+    const hg = ctx.createRadialGradient(hx0 - s * 0.16, hy - s * 0.18, s * 0.04, hx0, hy, s * 0.5);
+    hg.addColorStop(0, 'rgba(255,255,255,0.3)'); hg.addColorStop(0.55, 'rgba(255,255,255,0)'); hg.addColorStop(1, 'rgba(0,0,0,0.26)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hx0, hy, s * 0.44, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
     if (sd.y >= -0.35) { // ears
       ctx.fillStyle = p.skin;
@@ -10764,6 +10835,7 @@ const Game2D = (() => {
     else if (p.hs === 2) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.12, s * 0.47, Math.PI * 0.95, Math.PI * 2.05); ctx.fill(); }
     else if (p.hs === 3) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.2, s * 0.35, Math.PI, 2 * Math.PI); ctx.fill(); }
     else { for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(hx0 + i * s * 0.17, hy - s * 0.36 + Math.abs(i) * s * 0.06, s * 0.15, 0, Math.PI * 2); ctx.fill(); } }
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(hx0 - s * 0.14, hy - s * 0.3, s * 0.18, s * 0.08, -0.4, 0, Math.PI * 2); ctx.fill();
     if (sd.y >= -0.35) {
       const ex = sd.x * s * 0.12;
       ctx.fillStyle = '#ffffff';
@@ -10785,9 +10857,10 @@ const Game2D = (() => {
       ctx.font = `700 ${Math.round(s * 0.5)}px "Barlow", "Arial", sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.lineWidth = Math.max(2, s * 0.12); ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-      ctx.strokeText(p.label, X, hy - s * 0.62);
+      const tag = p === G.ctrl && !G.pk && !G.shootout ? p.label + ' ' + '★'.repeat(p.stars || 1) : p.label;
+      ctx.strokeText(tag, X, hy - s * 0.62);
       ctx.fillStyle = p.team === 0 ? '#ffe14d' : '#ffffff';
-      ctx.fillText(p.label, X, hy - s * 0.62);
+      ctx.fillText(tag, X, hy - s * 0.62);
       if (p === G.ctrl && !G.pk && !G.shootout) {
         ctx.fillStyle = '#ffe14d';
         ctx.beginPath(); ctx.moveTo(X - s * 0.2, hy - s * 1.25); ctx.lineTo(X + s * 0.2, hy - s * 1.25); ctx.lineTo(X, hy - s * 1.02); ctx.closePath(); ctx.fill();
@@ -11128,6 +11201,153 @@ async function simToDate(target, o) {
     `${decisionsCount() > dec0 || unreadCount() ? '<button class="btn" data-a="simGoInbox">Caixa de entrada</button>' : ''}<button class="btn primary" data-a="closeModal">Continuar</button>`), { size: 'narrow' });
 }
 act('simGoInbox', () => { closeAllModals(); UI.screen = 'career'; UI.tab = 'inbox'; render(); });
+
+/* ===================== friendly match: any two teams of the game, played in the 2D match against the computer ===================== */
+act('openFriendly', () => {
+  UI.fr = { step: 'setup', era: 2026, kind: 'club', a: 0, b: 0, slot: 'a', q: '', grp: 'all', loaded: null, result: null };
+  UI.screen = 'friendly';
+  render();
+});
+act('frBack', () => { UI.fr = null; UI.screen = 'start'; render(); });
+act('frSet', (el) => { UI.fr[el.dataset.k] = el.dataset.v === '2016' || el.dataset.v === '2021' || el.dataset.v === '2026' ? +el.dataset.v : el.dataset.v; render(); });
+act('frLoad', async () => {
+  const f = UI.fr;
+  setLoading('Carregando elencos de ' + f.era + '…', 0.2);
+  try {
+    await loadEra(f.era);
+    setLoading('Montando os times…', 0.6);
+    await new Promise((r) => setTimeout(r, 20));
+    await createWorld({ era: f.era, mode: f.kind === 'national' ? 'national' : 'normal', coachName: 'Amistoso', coachAge: 40 });
+    S.coach.unemployed = false;
+    UI.wiz = { anyList: null, anyQ: '', anyG: 'all' };
+    f.loaded = { era: f.era, kind: f.kind }; f.step = 'pick'; f.a = 0; f.b = 0; f.slot = 'a'; f.q = ''; f.grp = 'all';
+    UI.screen = 'friendly';
+    render();
+  } catch (e) {
+    console.error(e);
+    UI.screen = 'friendly'; f.step = 'setup'; render(); toast(e.message, true);
+  }
+});
+act('frSlot', (el) => { UI.fr.slot = el.dataset.v; render(); });
+act('frGrp', (el) => { UI.fr.grp = el.value; render(); });
+act('frQ', (el) => { UI.fr.q = el.value; const box = $('#fr-list'); if (box) box.innerHTML = frListHtml(); });
+act('frPick', (el) => {
+  const f = UI.fr, id = +el.dataset.id;
+  if (f.slot === 'a') { f.a = id; if (f.b === id) f.b = 0; f.slot = f.b ? 'a' : 'b'; } else { f.b = id; if (f.a === id) f.a = 0; f.slot = f.a ? 'b' : 'a'; }
+  render();
+});
+act('frSwap', () => { const f = UI.fr; [f.a, f.b] = [f.b, f.a]; render(); });
+act('frRandom', () => {
+  const f = UI.fr, rows = anyClubEntries();
+  const pickRow = () => rows[Math.floor(Math.random() * rows.length)].id;
+  f.a = pickRow(); do { f.b = pickRow(); } while (f.b === f.a && rows.length > 1);
+  render();
+});
+act('frOpt', (el) => {
+  const k = el.dataset.k;
+  let v = el.dataset.v;
+  if (k === 'len') v = +v;
+  G2PREF[k] = v; saveG2Pref(); render();
+});
+act('frPlay', () => frStart());
+act('frAgain', () => frStart());
+act('frChange', () => { UI.fr.step = 'pick'; UI.fr.result = null; render(); });
+
+function frStart() {
+  const f = UI.fr;
+  if (!f || !f.a || !f.b || f.a === f.b) return;
+  g2Defaults();
+  S.user.team = f.a; S.coach.unemployed = false;
+  for (const id of [f.a, f.b]) { const t = S.teams[id]; if (t && t.isNat) autoCallUp(t.code, true); } // national squads are called up for the match
+  S.date = dayOf(S.era, 3, 15);
+  const m = { id: 'fr' + (Date.now() % 1e7), h: f.a, a: f.b, c: 0, d: S.date, r: 0, fr: true };
+  S.matches[m.id] = m;
+  const st = startMatchState(m, { user: f.a });
+  f.step = 'playing'; f.result = null;
+  UI.screen = 'friendly'; render();
+  Game2D.start(m, st, { minutes: G2PREF.len, diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: G2PREF.replay }, () => frDone(m, st));
+}
+function frDone(m, st) {
+  if (!st.decided) { st.min = Math.max(st.min || 0, 90 + st.stoppage[1]); st.half = 2; }
+  st.done = true;
+  delete S.matches[m.id];
+  if (!UI.fr) return;
+  UI.fr.step = 'result'; UI.fr.result = { m, st };
+  UI.screen = 'friendly'; render(); window.scrollTo(0, 0);
+}
+
+function frTeamCard(id, slot, label) {
+  const f = UI.fr, t = id ? S.teams[id] : null, on = f.slot === slot;
+  return `<button class="panel" style="text-align:left;cursor:pointer;border:2px solid ${on ? 'var(--gold, #ffc54d)' : 'transparent'};flex:1;min-width:220px" data-a="frSlot" data-v="${slot}">
+    <div class="muted up" style="font-size:11px">${label}</div>
+    ${t ? `<div class="row" style="gap:10px;margin-top:6px">${crest(t, 44)}<div><div class="disp" style="font-size:22px;font-weight:800">${esc(t.n)}</div><div class="muted" style="font-size:13px">${starStr(t.isNat ? nationRating(t.code) : teamRating(t.id))} força ${(t.isNat ? nationRating(t.code) : teamRating(t.id)).toFixed(1)}</div></div></div>` : '<div class="muted" style="margin-top:10px">Escolha na lista abaixo</div>'}
+  </button>`;
+}
+function frGroups(rows) {
+  const present = [...new Set(rows.map((r) => r.grp))];
+  return present;
+}
+function frListHtml() {
+  const f = UI.fr;
+  const q = strip((f.q || '').trim());
+  const rows = anyClubEntries().filter((r) => (f.grp === 'all' || r.grp === f.grp) && (!q || r.q.includes(q)));
+  if (!rows.length) return '<div class="empty">Nenhum resultado para essa busca.</div>';
+  const shown = rows.slice(0, 60);
+  return `<div class="any-grid">${shown.map((r) => {
+    const t = S.teams[r.id];
+    const taken = r.id === f.a || r.id === f.b;
+    return `<button class="any-item" style="${taken ? 'opacity:0.45' : ''}" data-a="frPick" data-id="${r.id}">${crest(t, 34)}<span class="grow"><span class="nm">${esc(t.n)}</span><span class="wh">${esc(r.where)}</span></span><span class="sc">${starStr(r.r)}<span class="muted">força ${r.r.toFixed(1)}</span></span></button>`;
+  }).join('')}</div>${rows.length > shown.length ? `<p class="muted" style="font-size:13px;margin:10px 0 0">Mostrando ${shown.length} de ${rows.length}. Digite o nome ou escolha a liga para achar os outros.</p>` : ''}`;
+}
+function frSeg(k, opts) {
+  return `<div class="seg">${opts.map(([v, l]) => `<button class="${String(G2PREF[k]) === String(v) ? 'on' : ''}" data-a="frOpt" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
+}
+function viewFriendly() {
+  const f = UI.fr;
+  if (!f) return viewStart();
+  const head = `<div class="row wrap" style="margin-bottom:14px"><button class="btn" data-a="frBack">← Menu</button><h2 style="font-size:34px;font-weight:800;margin:0" class="grow">Amistoso</h2></div>`;
+  if (f.step === 'setup') {
+    return `<div class="page" style="max-width:900px;margin:0 auto;padding:18px">${head}
+      <div class="panel"><p style="margin:0 0 14px">Jogue uma partida 2D contra o computador com <b>qualquer time do jogo</b>: clubes de todas as ligas ou seleções. Escolha a época dos elencos.</p>
+        <div class="muted up" style="font-size:11px">Época</div>
+        <div class="seg" style="margin:6px 0 14px">${[2016, 2021, 2026].map((y) => `<button class="${f.era === y ? 'on' : ''}" data-a="frSet" data-k="era" data-v="${y}">${y}</button>`).join('')}</div>
+        <div class="muted up" style="font-size:11px">Tipo de time</div>
+        <div class="seg" style="margin:6px 0 14px">${[['club', 'Clubes'], ['national', 'Seleções']].map(([k, l]) => `<button class="${f.kind === k ? 'on' : ''}" data-a="frSet" data-k="kind" data-v="${k}">${l}</button>`).join('')}</div>
+        <button class="btn gold" data-a="frLoad">Carregar times</button></div></div>`;
+  }
+  if (f.step === 'result' && f.result) {
+    const { m, st } = f.result;
+    const goals = st.ev.filter((e) => e.t === 'goal');
+    const line = (e) => `<div class="row" style="gap:8px;justify-content:${e.s === 0 ? 'flex-start' : 'flex-end'}"><span class="muted">${e.min}'</span><span>${e.p ? esc(pidName(e.p)) : 'Gol contra'}</span></div>`;
+    const stat = (l, v) => `<div class="row" style="justify-content:space-between"><b>${v[0]}</b><span class="muted">${l}</span><b>${v[1]}</b></div>`;
+    const pen = st.pen ? `<div class="muted" style="text-align:center">Pênaltis: ${st.pen[0]} x ${st.pen[1]}</div>` : '';
+    return `<div class="page" style="max-width:900px;margin:0 auto;padding:18px">${head}
+      <div class="panel"><div class="score-head" style="position:static"><div class="side">${crest(m.h, 56)}<div class="tname">${esc(teamName(m.h))}</div></div>
+        <div class="scorebox"><div class="sc">${st.score[0]} - ${st.score[1]}</div><div class="clock">FIM</div></div>
+        <div class="side r"><div class="tname">${esc(teamName(m.a))}</div>${crest(m.a, 56)}</div></div>${pen}
+        <div style="display:grid;gap:4px;margin:14px 0">${goals.length ? goals.map(line).join('') : '<div class="muted center">Sem gols.</div>'}</div>
+        <div style="display:grid;gap:4px;max-width:420px;margin:0 auto 14px">${stat('Finalizações', st.stats.sh)}${stat('No alvo', st.stats.sot)}${stat('Escanteios', st.stats.cor)}${stat('Faltas', st.stats.fo)}${stat('Posse (%)', st.stats.poss)}</div>
+        <div class="row wrap" style="justify-content:center"><button class="btn gold" data-a="frAgain">Jogar de novo</button><button class="btn" data-a="frChange">Trocar times</button><button class="btn" data-a="frBack">Menu</button></div></div></div>`;
+  }
+  if (f.step === 'playing') return `<div class="page" style="padding:40px;text-align:center"><p class="muted">Partida em andamento…</p></div>`;
+  // pick the two teams
+  g2Defaults();
+  const rows = anyClubEntries();
+  const groups = frGroups(rows);
+  const ready = f.a && f.b && f.a !== f.b;
+  return `<div class="page" style="max-width:1000px;margin:0 auto;padding:18px">${head}
+    <div class="row wrap" style="gap:12px;align-items:stretch">${frTeamCard(f.a, 'a', 'SEU TIME (você controla)')}<div class="col" style="justify-content:center;gap:6px"><button class="btn sm" data-a="frSwap" title="Trocar os lados">⇄</button><button class="btn sm" data-a="frRandom" title="Sortear dois times">🎲</button></div>${frTeamCard(f.b, 'b', 'ADVERSÁRIO (computador)')}</div>
+    <div class="panel" style="margin-top:12px"><div class="row wrap" style="gap:16px">
+      <div><div class="muted up" style="font-size:11px">Dificuldade</div>${frSeg('diff', G2_DIFFS)}</div>
+      <div><div class="muted up" style="font-size:11px">Duração</div>${frSeg('len', [[4, '4 min'], [6, '6 min'], [10, '10 min']])}</div>
+      <div><div class="muted up" style="font-size:11px">Câmera</div>${frSeg('cam', G2_CAMS)}</div>
+      <span class="grow"></span><button class="btn gold big" data-a="frPlay" ${ready ? '' : 'disabled style="opacity:0.45"'}>🎮 Jogar</button></div></div>
+    <div class="panel" style="margin-top:12px">
+      <div class="row wrap" style="margin-bottom:10px"><h3 class="grow" style="font-size:22px;margin:0">Escolher ${f.slot === 'a' ? 'o seu time' : 'o adversário'}</h3><span class="muted" style="font-size:13px">${rows.length} ${f.kind === 'national' ? 'seleções' : 'clubes'}</span></div>
+      <div class="row wrap" style="gap:8px;margin-bottom:10px"><input id="fr-q" class="input grow" type="search" placeholder="Buscar pelo nome…" value="${esc(f.q || '')}" data-a="frQ" data-live="1" autocomplete="off" aria-label="Buscar time">
+        <select class="input" style="max-width:320px" data-a="frGrp" aria-label="Liga"><option value="all">Todas as ${f.kind === 'national' ? 'confederações' : 'ligas'}</option>${groups.map((g) => `<option value="${esc(g)}" ${f.grp === g ? 'selected' : ''}>${esc(anyGroupLabel(g))}</option>`).join('')}</select></div>
+      <div id="fr-list">${frListHtml()}</div></div></div>`;
+}
 
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
