@@ -5214,6 +5214,31 @@ function plAfterMatch(m, st) {
   }
 }
 
+// +1 on an attribute, and the overall follows by the attribute's weight (capped per year by age)
+function plBump(pl, p, g, cap, i) {
+  const before = p.a[i];
+  if (before < 99) p.a[i] = before + 1;
+  pl.ox += (PL_W[g] || PL_W.MID)[i];
+  let o = 0;
+  while (pl.ox >= 1 && p.o < p.pot && pl.yrGain < cap) { pl.ox -= 1; p.o++; pl.yrGain++; o++; }
+  if (p.o >= p.pot || pl.yrGain >= cap) pl.ox = Math.min(pl.ox, 0.99);
+  pl.trLog = [{ d: S.date, a: i, o }].concat(pl.trLog || []).slice(0, 10);
+}
+// result of a drill played in the 2D training: XP once a week per drill
+function plDrill(kind, score, total) {
+  const pl = S.pl;
+  if (!pl || pl.ended || !total) return null;
+  pl.drill = pl.drill || {};
+  const last = pl.drill[kind] || -99;
+  if (S.date - last < 7) return { xp: 0, wait: 7 - (S.date - last) };
+  pl.drill[kind] = S.date;
+  const i = kind === 'pass' ? 2 : 1;
+  const xp = Math.round(score / total * 40) / 10;
+  pl.dxp = pl.dxp || [0, 0, 0, 0, 0, 0];
+  pl.dxp[i] += xp;
+  return { xp, i };
+}
+
 // ---------- weekly: training, offers
 function plWeek() {
   const pl = S.pl, p = S.players[pl.pid];
@@ -5237,14 +5262,10 @@ function plWeek() {
       let r = rnd() * tot; i = 0; for (; i < 5; i++) { r -= w[i]; if (r <= 0) break; }
     } else i = clamp(+pl.focus, 0, 5);
     if (!p.a) continue;
-    const before = p.a[i];
-    if (before < 99) p.a[i] = before + 1;
-    pl.ox += (PL_W[g] || PL_W.MID)[i];
-    let o = 0;
-    while (pl.ox >= 1 && p.o < p.pot && pl.yrGain < cap) { pl.ox -= 1; p.o++; pl.yrGain++; o++; }
-    if (p.o >= p.pot || pl.yrGain >= cap) pl.ox = Math.min(pl.ox, 0.99);
-    pl.trLog = [{ d: S.date, a: i, o }].concat(pl.trLog || []).slice(0, 10);
+    plBump(pl, p, g, cap, i);
   }
+  // set-piece drills (penalties, free kicks, passes) feed one attribute directly
+  if (pl.dxp && p.a) for (let i = 0; i < 6; i++) { let n = 0; while ((pl.dxp[i] || 0) >= 6 && n++ < 3) { pl.dxp[i] -= 6; plBump(pl, p, g, cap, i); } }
   // mid-season offers in the transfer windows
   if (isWindowOpen() && S.date - (pl.offD || 0) > 28 && (!pl.offers.length)) {
     const best = p.o + formBonus(p) + (pl.trust > 70 ? 2 : 0);
@@ -6143,6 +6164,8 @@ act('openMenu', () => {
   openModal(modalShell('Menu', `<div class="col">
     <button class="menu-btn" data-a="manualSave"><span class="ic">💾</span><span>Salvar carreira<small>Salva no navegador (automático também)</small></span></button>
     <button class="menu-btn" data-a="exportSave"><span class="ic">⤒</span><span>Exportar save<small>Baixar arquivo para guardar ou levar a outro aparelho</small></span></button>
+    <button class="menu-btn" data-a="openTraining"><span class="ic">🎯</span><span>Treinos<small>Pênalti, falta e passe${S.pl ? ' (dão XP ao jogador)' : ''}</small></span></button>
+    ${S.pl ? '<button class="menu-btn" data-a="openPlLook"><span class="ic">🎨</span><span>Personalizar jogador<small>Pele, cabelo, barba, chuteira, número</small></span></button>' : '<button class="menu-btn" data-a="openCoachLook"><span class="ic">🧢</span><span>Perfil do técnico<small>Nome, nacionalidade, estilo e aparência</small></span></button>'}
     <button class="menu-btn" data-a="openCrestsInGame"><span class="ic">🛡</span><span>Escudos dos times<small>Use imagens suas, uma a uma ou em lote</small></span></button>
     <button class="menu-btn" data-a="openStoreInGame"><span class="ic">🛒</span><span>Loja de times<small>${INFINITE_COINS ? 'FutCoins infinitas' : WALLET.coins + ' FutCoins disponíveis'}</small></span></button>
     <button class="menu-btn" data-a="howTo"><span class="ic">?</span><span>Como jogar</span></button>
@@ -8150,6 +8173,7 @@ act('g2dGo', () => {
   closeAllModals();
   if (!m || m.done) return;
   g2Defaults();
+  ensureCoachLook();
   const st = startMatchState(m, { user: S.user.team });
   M.st = st;
   M.phase = 'playing';
@@ -8356,6 +8380,8 @@ const Game2D = (() => {
       skin: SKINS[si], hair: HAIRS[(h >> 6) % HAIRS.length], hs: (h >> 11) % 5, num: p.num || sp.slot + 1,
       label: p.s || p.n, sta: 1,
     });
+    const lk = S.pl && S.pl.look && p.id === S.pl.pid ? S.pl.look : null; // the player-career look chosen by the user
+    if (lk) Object.assign(sp, { skin: SKINS[lk.skin] || sp.skin, hair: HAIRS[lk.hair] || sp.hair, hs: lk.hs != null ? lk.hs : sp.hs, beard: !!lk.beard, boots: lk.boots || null, num: lk.num || sp.num });
     sp.stars = sp.gk ? 1 : skillStars(sp.dri);
     if (natGK) Object.assign(sp, { pas: sp.gkKic, sho: 40, dri: 40, def: 45 });
   }
@@ -8480,6 +8506,7 @@ const Game2D = (() => {
   }
   function setPiece(team, x, y, kind) {
     const b = G.ball;
+    if (G.tr && !G.tr.own) { if (G.tr.phase === 'live') trainEnd('miss'); return; } // training: the ball going out ends the attempt
     x = clamp(x, 0.2, PW - 0.2); y = clamp(y, 0.2, PL - 0.2);
     if (kind === 'corner') { x = x < PW / 2 ? 0.3 : PW - 0.3; y = y < PL / 2 ? 0.3 : PL - 0.3; } // inside the corner arc
     let taker = kind === 'goalkick' ? keeperOf(team) : null;
@@ -8928,6 +8955,7 @@ const Game2D = (() => {
     const k = G.pk;
     G.pk = null;
     hint('');
+    if (G.tr) { trainEnd(k.scored ? 'goal' : k.outcome === 'save' ? 'save' : 'miss'); return; }
     const scored = G.online ? k.outcome === 'goal' : !!k.scored; // online: both screens use the decided outcome, never the physics
     const over = shootoutRecord(k.team, k.taker, scored);
     banner(scored ? 'GOL!' : k.outcome === 'save' ? 'DEFENDEU!' : 'PERDEU!', 1.3);
@@ -8946,6 +8974,179 @@ const Game2D = (() => {
     G.state = 'shootoutWait'; G.stateT = 1.2;
   }
 
+  // ------------------------------------------------------------------ training drills (penalties, free kicks, passes), like the FIFA skill games
+  const TR_INFO = {
+    pen: { name: 'Pênaltis', total: 10, ok: ['goal'], hint: 'Mire com o direcional e segure CHUTE para dar força.' },
+    free: { name: 'Faltas', total: 8, ok: ['goal'], hint: 'Falta: CHUTE bate por cima da barreira (segure para mais força).' },
+    pass: { name: 'Passes', total: 10, ok: ['ok'], hint: 'Passe para o companheiro marcado com o anel azul: PASSE rasteiro, LANÇAR por cima.' },
+  };
+  const TR_TXT = { goal: 'GOL!', save: 'DEFENDEU!', block: 'NA BARREIRA!', miss: 'ERROU!', ok: 'PASSE CERTO!', wrong: 'PASSE ERRADO!' };
+  function startTraining(kind, m, st, opts, done) {
+    onDone = done;
+    create(m, st, Object.assign({}, opts, { minutes: 999 }));
+    buildDom();
+    sfxInit(opts.sound);
+    root.classList.add('train');
+    const info = TR_INFO[kind];
+    G.tr = { kind, total: info.total, n: 0, score: 0, res: [], phase: 'wait', wait: 0.9, target: null, taker: null, own: false, t: 0, last: null };
+    // the shooter/passer: the career player when he is there, otherwise the best at it
+    const pool = G.players.filter((p) => p.team === 0 && !p.gk);
+    pool.sort((a, c) => (kind === 'pass' ? c.pas - a.pas : c.sho - a.sho));
+    G.tr.taker = (opts.pid && pool.find((p) => p.pid === opts.pid)) || pool[0];
+    G.ctrl = G.tr.taker;
+    G.tr.dispName = nameOf(G.tr.taker);
+    let n = 0;
+    for (const p of G.players) {
+      if (p === G.tr.taker) continue;
+      if (kind === 'pen') { if (!(p.gk && p.team === 1)) p.out = true; }
+      else if (kind === 'free') { if (p.team === 0) p.out = true; else if (!p.gk && n++ >= 4) p.out = true; }
+      else if (p.team === 1 || p.gk) p.out = true;
+      else if (n++ >= 5) p.out = true;
+    }
+    const bar = document.createElement('div');
+    bar.className = 'g2-trbar'; bar.id = 'g2-tr';
+    root.appendChild(bar);
+    hud.tr = bar;
+    trainBar();
+    G.state = 'trainWait'; G.restartHold = true;
+    say(`Treino de ${info.name.toLowerCase()}: ${G.tr.dispName}.`, 3);
+    G.last = performance.now();
+    rafId = requestAnimationFrame(loop);
+  }
+  function trainBar() {
+    if (!hud.tr || !G || !G.tr) return;
+    const t = G.tr, info = TR_INFO[t.kind];
+    const dots = Array.from({ length: t.total }, (_, i) => { const r = t.res[i]; return `<i class="${r === undefined ? '' : info.ok.includes(r) ? 'ok' : 'bad'}"></i>`; }).join('');
+    hud.tr.innerHTML = `<div class="t">🎯 ${info.name} · ${Math.min(t.n + 1, t.total)}/${t.total}</div><div class="d">${dots}</div><div class="s"><b>${t.score}</b> ${t.kind === 'pass' ? 'certos' : 'gols'}</div>`;
+  }
+  function trainEnd(res) {
+    const t = G.tr;
+    if (!t || t.phase === 'wait' || t.phase === 'done') return;
+    t.phase = 'wait'; t.n++; t.res.push(res);
+    const ok = TR_INFO[t.kind].ok.includes(res);
+    if (ok) t.score++;
+    banner(TR_TXT[res] || 'ERROU!', 1.2);
+    sfx(ok ? 'roar' : 'groan', 0.6);
+    trainBar();
+    hint('');
+    G.pk = null;
+    G.state = 'trainWait'; G.restartHold = true; t.wait = 1.7; G.slow = 1;
+  }
+  function trainNext() {
+    const t = G.tr, taker = t.taker, b = G.ball;
+    t.phase = 'ready'; t.t = 0; G.state = 'play'; G.restartHold = false;
+    G.ctrl = taker;
+    trainBar();
+    if (t.kind === 'pen') { setupKick(0, taker, keeperOf(1), true); return; }
+    for (const p of G.players) Object.assign(p, { vx: 0, vy: 0, wx: 0, wy: 0, slide: 0, fall: 0, dive: null, diveT: 0, dv: null, gz: 0, plan: null, claim: null, cool: 0, wall: false });
+    if (t.kind === 'free') {
+      const x = PW / 2 + (Math.random() - 0.5) * 36, y = 19 + Math.random() * 12;
+      const gk = keeperOf(1);
+      if (gk) Object.assign(gk, { x: PW / 2, y: 1.2, dx: 0, dy: 1 });
+      t.own = true;
+      setPiece(0, x, y, 'free');
+      t.own = false;
+      G.ctrl = taker;
+      say(`Falta a ${Math.round(Math.hypot(PW / 2 - x, y))} metros do gol.`, 2);
+      hint(TR_INFO.free.hint);
+      return;
+    }
+    // passes: the taker with the ball, the receivers spread around him
+    Object.assign(taker, { x: PW / 2, y: PL * 0.62, dx: 0, dy: -1 });
+    const recs = G.players.filter((p) => p.team === 0 && !p.gk && !p.out && p !== taker);
+    recs.forEach((p, i) => {
+      const ang = -Math.PI + ((i + 0.5) / recs.length) * Math.PI + (Math.random() - 0.5) * 0.35;
+      const d = 8 + Math.random() * 8;
+      p.x = clamp(taker.x + Math.cos(ang) * d, 4, PW - 4); p.y = clamp(taker.y + Math.sin(ang) * d, 12, PL - 8);
+      const l = Math.hypot(taker.x - p.x, taker.y - p.y) || 1;
+      p.dx = (taker.x - p.x) / l; p.dy = (taker.y - p.y) / l;
+    });
+    let tg; do { tg = recs[Math.floor(Math.random() * recs.length)]; } while (recs.length > 1 && tg === t.last);
+    t.target = tg; t.last = tg;
+    Object.assign(b, { x: taker.x, y: taker.y, z: 0, vx: 0, vy: 0, vz: 0, inGoal: false });
+    take(taker);
+    G.cam.x = PW / 2; G.cam.y = taker.y - 6;
+    hint(`Passe para ${nameOf(tg)} (anel azul).`);
+  }
+  // returns true when the drill handled the whole step
+  function trainStep(dt) {
+    const t = G.tr, b = G.ball;
+    if (G.state === 'over') return true;
+    if (G.state === 'trainWait') {
+      t.wait -= dt;
+      idle(dt); camera(dt);
+      if (t.wait <= 0) { if (t.n >= t.total) trainFinish(); else trainNext(); }
+      return true;
+    }
+    if (t.phase === 'done' || t.kind === 'pen') return false;
+    if (t.phase === 'ready') {
+      if (b.owner !== t.taker && (b.shot || Math.hypot(b.vx, b.vy) > 1.5)) { t.phase = 'live'; t.t = 0; }
+    } else if (t.phase === 'live') {
+      t.t += dt;
+      const o = b.owner;
+      if (t.kind === 'free') { if (o) trainEnd(o.gk ? 'save' : o.team === 1 ? 'block' : 'miss'); }
+      else if (o) trainEnd(o === t.target ? 'ok' : o === t.taker ? 'miss' : 'wrong');
+      if (t.phase === 'live' && (t.t > 7 || b.y < -1.2 || b.y > PL + 1.2 || b.x < -1.2 || b.x > PW + 1.2)) trainEnd('miss');
+    }
+    return false;
+  }
+  function trainFinish() {
+    const t = G.tr;
+    t.phase = 'done';
+    G.state = 'over';
+    const info = TR_INFO[t.kind];
+    const pct = t.score / t.total;
+    const grade = pct >= 0.9 ? 'S' : pct >= 0.75 ? 'A' : pct >= 0.55 ? 'B' : pct >= 0.35 ? 'C' : 'D';
+    G.trResult = { kind: t.kind, score: t.score, total: t.total, res: t.res.slice(), grade, name: t.dispName };
+    hud.pause.innerHTML = `<div class="card"><h2>Treino de ${esc(info.name.toLowerCase())} concluído</h2>
+      <div class="disp" style="font-size:54px;font-weight:800;line-height:1;margin:8px 0">${t.score}/${t.total}</div>
+      <div class="muted">Nota <b style="color:var(--gold)">${grade}</b> · ${esc(t.dispName)}</div>
+      <div class="g2-trdots">${t.res.map((r) => `<i class="${info.ok.includes(r) ? 'ok' : 'bad'}" title="${esc(TR_TXT[r] || '')}"></i>`).join('')}</div>
+      <div class="row" style="justify-content:center;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn primary big" data-g="trdone">Concluir</button></div></div>`;
+    hud.pause.hidden = false;
+    hud.pause.onclick = (e) => { const b2 = e.target.closest('button'); if (b2 && b2.dataset.g === 'trdone') trainClose(); };
+  }
+  function trainClose() {
+    const res = G.trResult || null, cb = onDone;
+    cleanup(); G = null;
+    if (cb) cb(res);
+  }
+  // the coach stands on the touchline and follows the play (the user's own coach in the manager career)
+  function coachSpot() {
+    const b = G.ball, c = G.coachP || (G.coachP = { x: -2.4, y: clamp(b.y, 8, PL - 8) });
+    const tx = b.x < PW / 2 ? -2.4 : PW + 2.4, ty = clamp(b.y, 8, PL - 8); // the touchline nearest to the ball
+    if (Math.abs(c.x - tx) > 1) c.x = tx; // switches sides at once, never crossing the pitch
+    c.y += (ty - c.y) * 0.06;
+    return c;
+  }
+  function drawCoach(X, Y, s) {
+    const lk = S.coach && S.coach.look; if (!lk) return;
+    const celeb = G.state === 'goal' && G.nextKick === 1, bob = Math.sin(G.time * 2.2) * s * 0.03, up = celeb ? Math.abs(Math.sin(G.time * 9)) * s * 0.25 : 0;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.5, s * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#23262b'; ctx.fillRect(X - s * 0.26, Y - s * 0.95 - up, s * 0.2, s * 0.95); ctx.fillRect(X + s * 0.06, Y - s * 0.95 - up, s * 0.2, s * 0.95);
+    ctx.fillStyle = lk.suit || '#22304a';
+    rr(X - s * 0.4, Y - s * 1.75 - up - bob, s * 0.8, s * 0.95, s * 0.12); ctx.fill();
+    ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(X - s * 0.12, Y - s * 1.75 - up - bob); ctx.lineTo(X + s * 0.12, Y - s * 1.75 - up - bob); ctx.lineTo(X, Y - s * 1.2 - up - bob); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = lk.tie || '#c0392b'; ctx.fillRect(X - s * 0.04, Y - s * 1.65 - up - bob, s * 0.08, s * 0.38);
+    ctx.strokeStyle = lk.suit || '#22304a'; ctx.lineWidth = s * 0.17; ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (celeb) { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - up); ctx.lineTo(X - s * 0.62, Y - s * 2.2 - up); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - up); ctx.lineTo(X + s * 0.62, Y - s * 2.2 - up); }
+    else { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X - s * 0.5, Y - s * 0.95); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X + s * 0.5, Y - s * 0.95); }
+    ctx.stroke(); ctx.lineCap = 'butt';
+    const hy = Y - s * 2.25 - up - bob;
+    ctx.fillStyle = SKINS[lk.skin] || SKINS[2]; ctx.beginPath(); ctx.arc(X, hy, s * 0.42, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = HAIRS[lk.hair] || HAIRS[0];
+    const hs = lk.hs == null ? 0 : lk.hs;
+    if (hs === 0) { ctx.beginPath(); ctx.arc(X, hy - s * 0.06, s * 0.43, Math.PI * 1.02, Math.PI * 1.98); ctx.fill(); }
+    else if (hs === 1) { ctx.beginPath(); ctx.ellipse(X, hy - s * 0.3, s * 0.39, s * 0.18, 0, 0, Math.PI * 2); ctx.fill(); }
+    else if (hs === 2) { ctx.beginPath(); ctx.arc(X, hy - s * 0.12, s * 0.45, Math.PI * 0.95, Math.PI * 2.05); ctx.fill(); }
+    else if (hs === 3) { ctx.beginPath(); ctx.arc(X, hy - s * 0.2, s * 0.34, Math.PI, 2 * Math.PI); ctx.fill(); }
+    if (lk.beard) { ctx.beginPath(); ctx.arc(X, hy + s * 0.08, s * 0.38, 0.15, Math.PI - 0.15); ctx.lineTo(X + s * 0.18, hy + s * 0.1); ctx.quadraticCurveTo(X, hy + s * 0.24, X - s * 0.18, hy + s * 0.1); ctx.closePath(); ctx.fill(); }
+    if (lk.glasses) { ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.beginPath(); ctx.arc(X - s * 0.17, hy + s * 0.02, s * 0.12, 0, Math.PI * 2); ctx.moveTo(X + s * 0.29, hy + s * 0.02); ctx.arc(X + s * 0.17, hy + s * 0.02, s * 0.12, 0, Math.PI * 2); ctx.moveTo(X - s * 0.05, hy + s * 0.02); ctx.lineTo(X + s * 0.05, hy + s * 0.02); ctx.stroke(); }
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(X - s * 0.14, hy + s * 0.02, s * 0.035, 0, Math.PI * 2); ctx.arc(X + s * 0.14, hy + s * 0.02, s * 0.035, 0, Math.PI * 2); ctx.fill();
+  }
+
   // ------------------------------------------------------------------ main step
   function step(dt) {
     G.time += dt;
@@ -8955,6 +9156,7 @@ const Game2D = (() => {
     const b = G.ball;
     if (b.postT > 0) b.postT -= dt;
     stepFx(dt);
+    if (G.tr && trainStep(dt)) return;
     switch (G.state) {
       case 'intro': G.stateT -= dt; camera(dt); if (G.stateT <= 0) { hideIntro(); G.state = 'kickoff'; G.stateT = 0.6; sfx('whistle', 1); say('Bola rolando!', 2); } return;
       case 'goal':
@@ -9236,6 +9438,7 @@ const Game2D = (() => {
   function callForBall() { if (!G || !G.solo) return; G.callT = 3; hint('Você pede a bola!'); setTimeout(() => { if (G && G.callT <= 0) hint(''); }, 1500); }
   // TROCAR: hand control to the teammate closest to the ball (the current one excluded)
   function swapPlayer(c, w) {
+    if (G.tr) return;
     const b = G.ball;
     // always the teammate closest to the ball (not the one the current player already controls)
     let best = null, bs = 1e9;
@@ -9531,6 +9734,7 @@ const Game2D = (() => {
       if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.3) tryTackle(p, b.owner, 0.08);
       return;
     }
+    if (G.tr && G.tr.kind === 'pass' && !p.gk) { p.wx = 0; p.wy = 0; return; } // pass drill: the receivers wait where they are
     if (p.gk) { keeperAI(p, dt, think); return; }
     if (b.owner === p) { carrierAI(p, dt); return; }
     if (think) offBallAI(p);
@@ -10281,6 +10485,13 @@ const Game2D = (() => {
   }
   function goalScored(goalTop) {
     const b = G.ball, st = G.st;
+    if (G.tr) { // training drill: no score, no replay
+      Object.assign(b, { inGoal: true, owner: null, shot: null, passer: null, target: null, curve: 0 });
+      b.vx *= 0.35; b.vy *= 0.35;
+      net(goalTop, b.x); sfx('net', 1);
+      trainEnd(G.tr.kind === 'free' ? 'goal' : 'miss');
+      return;
+    }
     const fromPk = !!G.pk;
     const team = G.pk ? G.pk.team : (goalTop ? 0 : 1);
     const k = sideOf(team);
@@ -10891,7 +11102,7 @@ const Game2D = (() => {
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Botões</span><div class="seg">${G2_BTN.map(([v, l]) => `<button class="${(G2PREF.btn || 1) === v ? 'on' : ''}" data-btn="${v}">${l}</button>`).join('')}</div></div>
         <button class="btn" data-g="lay">✥ Mover botões da tela</button>
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Corrida</span><div class="seg"><button class="${G2PREF.autoRun !== false ? 'on' : ''}" data-run="1">Automática</button><button class="${G2PREF.autoRun === false ? 'on' : ''}" data-run="0">Manual (botão)</button></div></div>
-        <button class="btn" data-g="sim">⏩ ${inShootout ? 'Simular os pênaltis' : 'Simular o resto'}</button></div>`;
+        <button class="btn" data-g="${G.tr ? 'trquit' : 'sim'}">${G.tr ? '✖ Encerrar o treino' : `⏩ ${inShootout ? 'Simular os pênaltis' : 'Simular o resto'}`}</button></div>`;
     }
     hud.pause.innerHTML = `<div class="card">${body}</div>`;
     hud.pause.hidden = false;
@@ -10907,6 +11118,7 @@ const Game2D = (() => {
       else if (t.dataset.g === 'subs') { G.subOut = null; renderPause(true, fromBreak); }
       else if (t.dataset.g === 'back') { if (fromBreak) showBreak(hud.breakKind || 'half'); else renderPause(false); }
       else if (t.dataset.g === 'sim') { hud.pause.hidden = true; simulateRest(); }
+      else if (t.dataset.g === 'trquit') { G.trResult = null; trainClose(); }
       else if (t.dataset.i !== undefined) { G.subOut = +t.dataset.i; renderPause(true, fromBreak); }
       else if (t.dataset.in !== undefined) {
         if (G.subOut == null) { toast('Escolha primeiro quem sai.', true); return; }
@@ -11137,8 +11349,9 @@ const Game2D = (() => {
       const outNow = replaying ? p.rOut : p.out;
       if (!outNow || (G.state === 'ufo' && G.ufo && G.ufo.vic === p)) items.push({ y: PY(p.x, p.y), p });
     }
+    if (!G.solo && !G.tr && !G.auto && S.coach && S.coach.look && !replaying) { const cs = coachSpot(); items.push({ y: PY(cs.x, cs.y), coach: cs }); }
     items.sort((u, v) => u.y - v.y);
-    for (const it of items) drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s);
+    for (const it of items) { if (it.coach) drawCoach(PX(it.coach.x, it.coach.y), it.y, s); else drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s); }
     // the ball is always drawn last: with these tall cartoon players it would otherwise vanish behind the carrier
     drawBall(s);
     // shot power and sprint stamina of the controlled player
@@ -11300,6 +11513,12 @@ const Game2D = (() => {
       ctx.lineWidth = Math.max(2, s * (0.1 + fl * 0.12));
       ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.62 + fl * 0.5), s * (0.27 + fl * 0.2), 0, 0, Math.PI * 2); ctx.stroke();
     }
+    if (G.tr && p === G.tr.target && G.tr.phase !== 'wait' && !rp) {
+      const pu = 0.5 + 0.5 * Math.sin(G.time * 7);
+      ctx.strokeStyle = 'rgba(80,220,255,' + (0.7 + 0.3 * pu) + ')'; ctx.lineWidth = Math.max(3, s * 0.14);
+      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.78 + pu * 0.12), s * (0.34 + pu * 0.06), 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(80,220,255,0.9)'; ctx.beginPath(); ctx.moveTo(X, Y - s * 2.75 - pu * s * 0.1); ctx.lineTo(X - s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.lineTo(X + s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.closePath(); ctx.fill();
+    }
     Y -= lift + ((!diving && p.gk) ? (rp ? p.rGz || 0 : p.gz || 0) * s * 0.55 : 0);
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
@@ -11453,7 +11672,7 @@ const Game2D = (() => {
       const bx = kx + (fx - kx) * 0.3, by = ky + (fy - s * 0.1 - ky) * 0.3;
       ctx.beginPath(); ctx.moveTo(bx - s * 0.005, by); ctx.lineTo(bx + (fx - kx) * 0.12, by + (fy - s * 0.1 - ky) * 0.12); ctx.stroke();
       // boot, pointing the way he is heading
-      ctx.fillStyle = '#16181a';
+      ctx.fillStyle = p.boots || '#16181a';
       ctx.beginPath(); ctx.ellipse(fx + sd.x * s * 0.07, fy - s * 0.04, s * 0.15 + Math.abs(sd.x) * s * 0.05, s * 0.09, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath(); ctx.ellipse(fx + sd.x * s * 0.09, fy - s * 0.07, s * 0.07, s * 0.025, 0, 0, Math.PI * 2); ctx.fill();
@@ -11540,7 +11759,9 @@ const Game2D = (() => {
     else if (p.hs === 1) { ctx.beginPath(); ctx.ellipse(hx0, hy - s * 0.3, s * 0.41, s * 0.2, 0, 0, Math.PI * 2); ctx.fill(); }
     else if (p.hs === 2) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.12, s * 0.47, Math.PI * 0.95, Math.PI * 2.05); ctx.fill(); }
     else if (p.hs === 3) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.2, s * 0.35, Math.PI, 2 * Math.PI); ctx.fill(); }
-    else { for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(hx0 + i * s * 0.17, hy - s * 0.36 + Math.abs(i) * s * 0.06, s * 0.15, 0, Math.PI * 2); ctx.fill(); } }
+    else if (p.hs === 4) { for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(hx0 + i * s * 0.17, hy - s * 0.36 + Math.abs(i) * s * 0.06, s * 0.15, 0, Math.PI * 2); ctx.fill(); } }
+    else if (p.hs === 6) { ctx.beginPath(); ctx.arc(hx0, hy - s * 0.1, s * 0.46, Math.PI * 0.98, Math.PI * 2.02); ctx.fill(); ctx.beginPath(); ctx.ellipse(hx0 + s * 0.3, hy - s * 0.52, s * 0.14, s * 0.3, 0.5, 0, Math.PI * 2); ctx.fill(); } // coque
+    if (p.beard && sd.y >= -0.35) { ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(hx0, hy + s * 0.08, s * 0.4, 0.15, Math.PI - 0.15); ctx.lineTo(hx0 + s * 0.2, hy + s * 0.1); ctx.quadraticCurveTo(hx0, hy + s * 0.26, hx0 - s * 0.2, hy + s * 0.1); ctx.closePath(); ctx.fill(); }
     ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(hx0 - s * 0.14, hy - s * 0.3, s * 0.18, s * 0.08, -0.4, 0, Math.PI * 2); ctx.fill();
     if (sd.y >= -0.35) {
       const ex = sd.x * s * 0.12;
@@ -11618,7 +11839,7 @@ const Game2D = (() => {
     dot(G.ball.x, G.ball.y, r * 0.85, '#ffffff');
   }
 
-  return { start, startShootoutOnly, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), get _G() { return G; } };
+  return { start, startShootoutOnly, startTraining, SKINS, HAIRS, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), get _G() { return G; } };
 })();
 // test hook: the browser tests open the page with ?debug=1 to drive the match directly
 try { if (/[?&]debug=1\b/.test(location.search)) window.__g2d = Game2D; } catch (e) { /* no location outside the browser */ }
@@ -11963,6 +12184,7 @@ function frStart() {
   const f = UI.fr;
   if (!f || !f.a || !f.b || f.a === f.b) return;
   g2Defaults();
+  ensureCoachLook();
   S.user.team = f.a; S.coach.unemployed = false;
   for (const id of [f.a, f.b]) { const t = S.teams[id]; if (t && t.isNat) autoCallUp(t.code, true); } // national squads are called up for the match
   S.date = dayOf(S.era, 3, 15);
@@ -13073,7 +13295,7 @@ function viewPlayerTab() {
       <div class="panel"><h3>Carreira <span class="sub">${pl.teams.length} ${pl.teams.length === 1 ? 'clube' : 'clubes'}</span></h3>
         <div class="grid g3" style="gap:8px">${plStatTile('Jogos', pl.car.a)}${plStatTile('Gols', pl.car.g)}${plStatTile('Assist.', pl.car.as)}</div>
         <p class="muted" style="font-size:13px;margin-top:12px">Títulos: ${S.coach.trophies.length} · Nota média na carreira: ${pl.car.n ? (pl.car.rs / pl.car.n).toFixed(2) : '—'}</p>
-        <div class="row wrap" style="gap:8px"><button class="btn" data-a="openTeam" data-id="${t.id}">Ver o clube</button><button class="btn" data-a="openPlayer" data-id="${p.id}">Ficha completa</button></div></div></div>
+        <div class="row wrap" style="gap:8px"><button class="btn" data-a="openTeam" data-id="${t.id}">Ver o clube</button><button class="btn" data-a="openPlayer" data-id="${p.id}">Ficha completa</button><button class="btn ${pl.look ? '' : 'gold'}" data-a="openPlLook">🎨 Personalizar</button><button class="btn" data-a="openTraining">🎯 Treinos</button></div></div></div>
     <div class="panel"><h3>Últimos jogos</h3>${log ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Adversário</th><th class="n">Placar</th><th class="n">Min.</th><th class="n">G</th><th class="n">A</th><th class="n">Nota</th></tr></thead><tbody>${log}</tbody></table></div>` : '<div class="empty">Você ainda não entrou em campo.</div>'}</div>
     ${hist ? `<div class="panel"><h3>Temporadas anteriores</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Temporada</th><th>Clube</th><th class="n">Idade</th><th class="n">OVR</th><th class="n">Jogos</th><th class="n">Gols</th><th class="n">Assist.</th><th class="n">Nota</th><th class="n">Liga</th></tr></thead><tbody>${hist}</tbody></table></div></div>` : ''}
   </div>`;
@@ -13201,6 +13423,185 @@ act('plEndPick', (el) => { const sum = S.pendingEnd; closeSeasonEnd({ offerId: +
 act('plEndRenew', () => { closeSeasonEnd({ renew: true }); UI.seasonOpen = false; closeAllModals(); render(); toast('Contrato renovado!'); saveGame(S.id); });
 act('plEndStay', () => { closeSeasonEnd(null); UI.seasonOpen = false; closeAllModals(); render(); saveGame(S.id); });
 
+/* ===================== training drills (penalties, free kicks, passes) and look customisation (player and coach) ===================== */
+const TR_DEF = [
+  ['pen', '🥅', 'Pênaltis', '10 cobranças contra o goleiro. Mire com o direcional e segure CHUTE: força demais vai por cima.', 'Finalização'],
+  ['free', '🎯', 'Faltas', '8 faltas de lugares diferentes, com barreira e goleiro. CHUTE bate por cima da barreira.', 'Finalização'],
+  ['pass', '🅿️', 'Passes', '10 passes para o companheiro marcado com o anel azul. PASSE é rasteiro, LANÇAR vai por cima.', 'Passe'],
+];
+function trStats() { S.train = S.train || {}; return S.train; }
+act('openTraining', () => {
+  closeAllModals();
+  openModal(() => {
+    const ts = trStats();
+    const cards = TR_DEF.map(([k, ic, nm, tx, attr]) => {
+      const r = ts[k], pl = S.pl;
+      const wait = pl && pl.drill && pl.drill[k] != null ? Math.max(0, 7 - (S.date - pl.drill[k])) : 0;
+      return `<div class="panel" style="text-align:left"><div class="row" style="gap:12px;align-items:flex-start"><div style="font-size:34px;line-height:1">${ic}</div>
+        <div class="grow"><b style="font-size:18px">${nm}</b><div class="muted" style="font-size:13px;margin:4px 0 8px">${tx}</div>
+        <div class="muted" style="font-size:12px">${r ? `Melhor: <b>${r.best}/${r.total}</b> · Última: ${r.last}/${r.total} · ${r.n} ${r.n === 1 ? 'treino' : 'treinos'}` : 'Ainda não treinado.'}${pl ? ` · dá XP de ${attr}${wait ? ` (próximo XP em ${wait} ${wait === 1 ? 'dia' : 'dias'})` : ''}` : ''}</div></div>
+        <button class="btn primary" data-a="trStart" data-k="${k}">Treinar</button></div></div>`;
+    }).join('');
+    return modalShell('🎯 Treinos', `<p class="muted" style="margin:0 0 12px">${S.pl ? `Treine com ${esc(plPlayer().n)}. Cada tipo dá XP de atributo uma vez por semana, conforme o acerto.` : 'Treinos de bola parada com o melhor batedor e passador do seu elenco.'}</p><div class="col" style="gap:10px">${cards}</div>`, '<button class="btn" data-a="closeModal">Fechar</button>');
+  }, { size: 'narrow' });
+});
+act('trStart', (el) => {
+  const kind = el.dataset.k;
+  g2Defaults();
+  closeAllModals();
+  const uid = S.user.team, lc = typeof userLeagueComp === 'function' ? userLeagueComp() : null;
+  let opp = lc && lc.teams ? lc.teams.find((id) => id !== uid) : 0;
+  if (!opp) opp = +Object.keys(S.teams).find((id) => +id !== uid && !S.teams[id].isNat === !S.teams[uid].isNat);
+  const m = { id: 'tr' + (Date.now() % 1e7), h: uid, a: opp, c: 0, d: S.date, r: 0, fr: true, tr: true };
+  if (S.pl) m.pls = { r: 'start', min: 0 };
+  S.matches[m.id] = m;
+  const st = startMatchState(m, { user: uid });
+  Game2D.startTraining(kind, m, st, { diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: false, pid: S.pl ? S.pl.pid : 0 }, (res) => {
+    delete S.matches[m.id];
+    trDone(res);
+  });
+});
+function trDone(res) {
+  render();
+  if (!res) { toast('Treino encerrado.'); return; }
+  const ts = trStats(), r = ts[res.kind] || { best: 0, n: 0, total: res.total };
+  r.best = Math.max(r.best || 0, res.score); r.last = res.score; r.n = (r.n || 0) + 1; r.total = res.total;
+  ts[res.kind] = r;
+  let extra = '';
+  if (S.pl) {
+    const d = plDrill(res.kind, res.score, res.total);
+    if (d && d.xp) extra = ` +${d.xp.toFixed(1)} XP de ${plAttrNames(plPlayer())[d.i]}.`;
+    else if (d && d.wait) extra = ` Sem XP extra: o próximo vem em ${d.wait} ${d.wait === 1 ? 'dia' : 'dias'}.`;
+  }
+  toast(`Treino concluído: ${res.score}/${res.total} (nota ${res.grade}).${extra}`);
+  render();
+}
+
+// ------------------------------------------------------------------ look data
+const LK_SKINS = ['#f3cfb0', '#e8b894', '#d29b6f', '#b07a4e', '#8a5733', '#603a22'];
+const LK_HAIRS = ['#1d1510', '#2e2018', '#5a3a22', '#8a5a2e', '#d1a85c', '#0e0e0e', '#9a9a9a'];
+const LK_HS = ['Curto', 'Topete', 'Cheio', 'Baixo', 'Black', 'Careca', 'Coque'];
+const LK_BOOTS = ['#16181a', '#ffffff', '#ff5a1f', '#ffd21f', '#2f7bff', '#2fd27a', '#ff4fa3', '#a35cff'];
+const LK_SUITS = ['#22304a', '#1b1b1b', '#5b6770', '#6b2b2b', '#2f5a3a', '#7a6a4f'];
+const LK_TIES = ['#c0392b', '#ffd24d', '#2f7bff', '#ffffff', '#1b1b1b', '#2fd27a'];
+const LK_STYLES = ['Equilibrado', 'Ofensivo', 'Defensivo', 'Retranca', 'Formador de jovens', 'Motivador'];
+function lkDefaultPlayer(p) {
+  const h = hashStr(p.n);
+  const dark = ['NGA', 'GHA', 'CIV', 'SEN', 'CMR', 'MLI', 'COD'].includes(p.nat);
+  return { skin: dark ? 3 + ((h >>> 0) % 3) : p.nat === "BRA" || p.nat === "COL" ? (h >>> 0) % 6 : (h >>> 0) % 3, hair: (h >>> 4) % 6, hs: (h >>> 7) % 4, beard: false, boots: LK_BOOTS[0], num: p.num || 10, nick: p.s || '' };
+}
+function lkDefaultCoach() {
+  const h = hashStr(S.coach.name || 'T');
+  return { skin: (h >>> 0) % 4, hair: (h >>> 3) % 7, hs: (h >>> 6) % 4, beard: (h >>> 9) % 3 === 0, glasses: (h >>> 11) % 4 === 0, suit: LK_SUITS[(h >>> 2) % LK_SUITS.length], tie: LK_TIES[(h >>> 5) % LK_TIES.length] };
+}
+function ensureCoachLook() { if (S.coach && !S.coach.look) S.coach.look = lkDefaultCoach(); return S.coach && S.coach.look; }
+
+// head-and-shoulders avatar for a look (SVG)
+function lookAvatar(lk, o = {}) {
+  const size = o.size || 120, kit = o.kit || '#2f7bff', kit2 = o.kit2 || '#ffffff';
+  const skin = LK_SKINS[lk.skin] || LK_SKINS[2], hair = LK_HAIRS[lk.hair] || LK_HAIRS[0], hs = lk.hs == null ? 0 : lk.hs;
+  let body;
+  if (o.coach) body = `<path d="M12 100 C14 76 30 68 50 68 C70 68 88 76 88 100Z" fill="${lk.suit || '#22304a'}"/><path d="M41 68 L50 84 L59 68Z" fill="#f2f2f2"/><path d="M48 72 L52 72 L53 90 L50 94 L47 90Z" fill="${lk.tie || '#c0392b'}"/>`;
+  else body = `<path d="M14 100 C16 76 30 68 50 68 C70 68 84 76 86 100Z" fill="${kit}"/><path d="M40 68 L50 80 L60 68" fill="${kit2}"/>${o.num ? `<text x="50" y="97" text-anchor="middle" font-size="15" font-weight="800" fill="${kit2}" font-family="Arial Narrow,sans-serif">${esc(String(o.num))}</text>` : ''}`;
+  const hairSvg = hs === 0 ? `<path d="M33 38 C33 20 67 20 67 38 C64 30 36 30 33 38Z" fill="${hair}"/>`
+    : hs === 1 ? `<path d="M32 40 C30 16 70 16 68 40 C66 26 34 26 32 40Z" fill="${hair}"/><ellipse cx="50" cy="22" rx="14" ry="7" fill="${hair}"/>`
+      : hs === 2 ? `<path d="M31 42 C28 14 72 14 69 42 C66 28 34 28 31 42Z" fill="${hair}"/>`
+        : hs === 3 ? `<path d="M34 34 C36 24 64 24 66 34 L66 30 C60 24 40 24 34 30Z" fill="${hair}"/>`
+          : hs === 4 ? [-2, -1, 0, 1, 2].map((i) => `<circle cx="${50 + i * 7}" cy="${24 + Math.abs(i) * 2.5}" r="7" fill="${hair}"/>`).join('')
+            : hs === 6 ? `<path d="M33 38 C33 20 67 20 67 38 C64 30 36 30 33 38Z" fill="${hair}"/><circle cx="62" cy="17" r="7" fill="${hair}"/>` : '';
+  const beard = lk.beard ? `<path d="M33 46 C34 66 66 66 67 46 C62 56 56 56 50 56 C44 56 38 56 33 46Z" fill="${hair}"/>` : '';
+  const glasses = lk.glasses ? `<g fill="none" stroke="#111" stroke-width="1.6"><circle cx="43" cy="44" r="5.5"/><circle cx="57" cy="44" r="5.5"/><path d="M48.5 44 L51.5 44"/></g>` : '';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" fill="rgba(255,255,255,0.06)"/>${body}
+    <rect x="43" y="56" width="14" height="14" rx="5" fill="${skin}"/><ellipse cx="50" cy="42" rx="17" ry="20" fill="${skin}"/>${hairSvg}${beard}
+    <circle cx="44" cy="44" r="1.8" fill="#1a1a1a"/><circle cx="56" cy="44" r="1.8" fill="#1a1a1a"/>${glasses}<path d="M45 ${lk.beard ? 51 : 53} Q50 ${lk.beard ? 54 : 56} 55 ${lk.beard ? 51 : 53}" stroke="${lk.beard ? '#e8e8e8' : '#5a3a2a'}" stroke-width="1.5" fill="none"/></svg>`;
+}
+// the player's saved look overrides the generated avatar everywhere
+(() => {
+  const orig = playerAvatar;
+  playerAvatar = function (p, size) {
+    if (S.pl && S.pl.look && p && p.id === S.pl.pid) {
+      const t = S.teams[p.t] || null;
+      return lookAvatar(S.pl.look, { size: size || 84, kit: t ? t.c1 : '#5b6b72', kit2: t ? t.c2 : '#cfd8dc', num: p.num });
+    }
+    return orig(p, size);
+  };
+})();
+
+// ------------------------------------------------------------------ editor
+function lkSwatches(key, list, cur, label) {
+  return `<div><div class="muted up" style="font-size:11px;margin-bottom:6px">${label}</div><div class="row wrap" style="gap:8px">${list.map((c, i) => {
+    const v = typeof cur === 'number' ? i : c;
+    return `<button class="swatch ${cur === v ? 'on' : ''}" style="background:${c}" data-a="lkSet" data-k="${key}" data-v="${v}" aria-label="${label} ${i + 1}"></button>`;
+  }).join('')}</div></div>`;
+}
+function lkTogBtn(key, label, on) { return `<button class="btn ${on ? 'gold' : ''}" data-a="lkTog" data-k="${key}">${label}: ${on ? 'sim' : 'não'}</button>`; }
+function lkHtml() {
+  const L = UI.lk, v = L.v;
+  if (L.kind === 'pl') {
+    const p = plPlayer(), t = S.teams[p.t];
+    return modalShell('🎨 Personalizar jogador', `<div class="row wrap" style="gap:18px;align-items:center;justify-content:center">${lookAvatar(v, { size: 150, kit: t.c1, kit2: t.c2, num: v.num })}
+      <div class="col grow" style="gap:6px;min-width:200px"><div class="field"><label for="lk-nick">Nome na camisa e na tela</label><input id="lk-nick" class="input" maxlength="14" value="${esc(v.nick)}" placeholder="${esc(p.n)}" data-a="lkNick" data-live="1"></div>
+      <div class="field"><label for="lk-num">Número</label><input id="lk-num" class="input" type="number" min="1" max="99" value="${v.num}" data-a="lkNum" data-live="1"></div></div></div>
+      <div class="col" style="gap:14px;margin-top:14px">${lkSwatches('skin', LK_SKINS, v.skin, 'Pele')}${lkSwatches('hair', LK_HAIRS, v.hair, 'Cor do cabelo')}
+      <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Penteado</div><div class="seg wrapseg">${LK_HS.map((n, i) => `<button class="${v.hs === i ? 'on' : ''}" data-a="lkSet" data-k="hs" data-v="${i}">${n}</button>`).join('')}</div></div>
+      <div>${lkTogBtn('beard', '🧔 Barba', v.beard)}</div>${lkSwatches('boots', LK_BOOTS, v.boots, 'Chuteira')}</div>`,
+    '<button class="btn" data-a="lkRandom">🎲 Sortear</button><button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="lkSave">Salvar</button>');
+  }
+  return modalShell('🧢 Perfil do técnico', `<div class="row wrap" style="gap:18px;align-items:center;justify-content:center">${lookAvatar(v, { size: 150, coach: true })}
+    <div class="col grow" style="gap:6px;min-width:200px"><div class="field"><label for="lk-name">Nome</label><input id="lk-name" class="input" maxlength="40" value="${esc(v.name)}" data-a="lkName" data-live="1"></div>
+    <div class="field"><label for="lk-nat">Nacionalidade</label><select id="lk-nat" class="input" data-a="lkNat">${PL_NATS.map(([c, n]) => `<option value="${c}" ${v.nat === c ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    <div class="field"><label for="lk-style">Estilo</label><select id="lk-style" class="input" data-a="lkStyle">${LK_STYLES.map((n) => `<option ${v.style === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div></div>
+    <div class="col" style="gap:14px;margin-top:14px">${lkSwatches('skin', LK_SKINS, v.skin, 'Pele')}${lkSwatches('hair', LK_HAIRS, v.hair, 'Cor do cabelo')}
+    <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Penteado</div><div class="seg wrapseg">${LK_HS.slice(0, 4).map((n, i) => `<button class="${v.hs === i ? 'on' : ''}" data-a="lkSet" data-k="hs" data-v="${i}">${n}</button>`).join('')}<button class="${v.hs === 5 ? 'on' : ''}" data-a="lkSet" data-k="hs" data-v="5">Careca</button></div></div>
+    <div class="row wrap" style="gap:8px">${lkTogBtn('beard', '🧔 Barba', v.beard)}${lkTogBtn('glasses', '👓 Óculos', v.glasses)}</div>${lkSwatches('suit', LK_SUITS, v.suit, 'Terno')}${lkSwatches('tie', LK_TIES, v.tie, 'Gravata')}</div>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Seu técnico aparece na lateral do campo nos jogos em 2D e comemora os gols.</p>`,
+  '<button class="btn" data-a="lkRandom">🎲 Sortear</button><button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="lkSave">Salvar</button>');
+}
+act('openPlLook', () => {
+  const p = plPlayer(); if (!p) return;
+  UI.lk = { kind: 'pl', v: Object.assign(lkDefaultPlayer(p), S.pl.look || {}) };
+  closeAllModals();
+  openModal(() => lkHtml(), { size: 'narrow' });
+});
+act('openCoachLook', () => {
+  ensureCoachLook();
+  UI.lk = { kind: 'coach', v: Object.assign({ name: S.coach.name, nat: S.coach.nat || 'BRA', style: S.coach.style || 'Equilibrado' }, S.coach.look) };
+  closeAllModals();
+  openModal(() => lkHtml(), { size: 'narrow' });
+});
+act('lkSet', (el) => { UI.lk.v[el.dataset.k] = isNaN(+el.dataset.v) ? el.dataset.v : +el.dataset.v; refreshModal(); });
+act('lkTog', (el) => { UI.lk.v[el.dataset.k] = !UI.lk.v[el.dataset.k]; refreshModal(); });
+act('lkNick', (el) => { UI.lk.v.nick = el.value.slice(0, 14); });
+act('lkNum', (el) => { UI.lk.v.num = clamp(Math.round(+el.value) || 1, 1, 99); });
+act('lkName', (el) => { UI.lk.v.name = el.value.slice(0, 40); });
+act('lkNat', (el) => { UI.lk.v.nat = el.value; });
+act('lkStyle', (el) => { UI.lk.v.style = el.value; });
+act('lkRandom', () => {
+  const v = UI.lk.v, r = (n) => Math.floor(Math.random() * n);
+  v.skin = r(6); v.hair = r(7); v.beard = Math.random() < 0.3;
+  if (UI.lk.kind === 'pl') { v.hs = r(7); v.boots = LK_BOOTS[r(LK_BOOTS.length)]; } else { v.hs = [0, 1, 2, 3, 5][r(5)]; v.glasses = Math.random() < 0.3; v.suit = LK_SUITS[r(LK_SUITS.length)]; v.tie = LK_TIES[r(LK_TIES.length)]; }
+  refreshModal();
+});
+act('lkSave', () => {
+  const L = UI.lk, v = L.v;
+  if (L.kind === 'pl') {
+    const p = plPlayer();
+    const num = clamp(Math.round(+v.num) || 1, 1, 99);
+    const mate = Object.values(S.players).find((q) => q.t === p.t && q.id !== p.id && q.num === num);
+    if (mate) mate.num = p.num || (num === 10 ? 11 : 10); // the teammate who wore it gets his number
+    p.num = num;
+    p.s = (v.nick || '').trim() || p.s;
+    S.pl.look = { skin: v.skin, hair: v.hair, hs: v.hs, beard: !!v.beard, boots: v.boots, num, nick: (v.nick || '').trim() };
+    toast('Jogador personalizado.');
+  } else {
+    S.coach.name = (v.name || '').trim() || S.coach.name;
+    S.coach.nat = v.nat; S.coach.style = v.style;
+    S.coach.look = { skin: v.skin, hair: v.hair, hs: v.hs, beard: !!v.beard, glasses: !!v.glasses, suit: v.suit, tie: v.tie };
+    toast('Perfil do técnico salvo.');
+  }
+  closeAllModals(); render();
+});
+
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); });
@@ -13219,6 +13620,6 @@ window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); 
   render();
 })();
 // test hook: the browser tests open the page with ?debug=1 to move the calendar on directly
-try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState }; } catch (e) { /* no location outside the browser */ }
+try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState, plWeek: () => plWeek() }; } catch (e) { /* no location outside the browser */ }
 
 })();

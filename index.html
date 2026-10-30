@@ -522,6 +522,23 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .g2d.solo .pad.swap { display: none; }
 .g2d.editlay.solo .pad.swap { display: none; }
 
+/* training drills */
+.g2d.train .sb, .g2d.train .g2-radar, .g2d.train .pad.swap, .g2d.train .pad.call { display: none !important; }
+.g2-trbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 12px; padding: 7px 14px; border-radius: 999px; background: rgba(8,12,18,0.78); border: 1px solid rgba(255,255,255,0.14); color: #fff; font-weight: 700; font-size: 14px; backdrop-filter: blur(6px); white-space: nowrap; }
+.g2-trbar .d, .g2-trdots { display: flex; gap: 4px; justify-content: center; }
+.g2-trbar i, .g2-trdots i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.22); display: inline-block; }
+.g2-trbar i.ok, .g2-trdots i.ok { background: #35d07f; }
+.g2-trbar i.bad, .g2-trdots i.bad { background: #ff5d5d; }
+.g2-trdots { margin-top: 10px; }
+.g2-trdots i { width: 14px; height: 14px; }
+.g2-trbar .s b { color: var(--gold, #ffd24d); font-size: 17px; }
+@media (max-width: 560px) { .g2-trbar { gap: 8px; padding: 6px 10px; font-size: 12px; top: 54px; } }
+
+/* look editor */
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); cursor: pointer; padding: 0; }
+.swatch.on { outline: 3px solid var(--gold, #ffc54d); outline-offset: 2px; }
+.seg.wrapseg { flex-wrap: wrap; }
+
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>
