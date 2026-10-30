@@ -5049,6 +5049,7 @@ function render() {
     if (UI.screen === 'start') html = viewStart();
     else if (UI.screen === 'wizard') html = viewWizard();
     else if (UI.screen === 'friendly') html = viewFriendly();
+    else if (UI.screen === 'pencup') html = viewPenCup();
     else if (UI.screen === 'career') html = viewCareer();
     else if (UI.screen === 'match') html = viewMatch();
     else if (UI.screen === 'loading') html = viewLoading();
@@ -5391,6 +5392,7 @@ function viewStart() {
         <button class="menu-btn primary" data-a="newCareer"><span class="ic">⚽</span><span>Nova carreira<small>Crie seu treinador e escolha a proposta</small></span></button>
         ${has ? `<button class="menu-btn" data-a="openSaves"><span class="ic">▶</span><span>Continuar<small>${SAVES.length} ${SAVES.length === 1 ? 'save salvo' : 'saves salvos'} · último: ${esc(SAVES[0].team)}</small></span></button>` : ''}
         <button class="menu-btn" data-a="openFriendly"><span class="ic">🎮</span><span>Amistoso<small>Partida 2D contra o computador com qualquer time do jogo</small></span></button>
+        <button class="menu-btn" data-a="openPenCup"><span class="ic">🥅</span><span>Copa de Pênaltis<small>Mata-mata de disputas: você bate e defende, alternando, contra o computador</small></span></button>
         <button class="menu-btn" data-a="openStore"><span class="ic">🛒</span><span>Comprar times<small>${INFINITE_COINS ? 'FutCoins infinitas: escolha qualquer clube' : 'Use FutCoins ganhos em títulos'}</small></span></button>
         <button class="menu-btn" data-a="openCrests"><span class="ic">🛡</span><span>Escudos dos times<small>Troque por imagens suas, uma a uma ou em lote</small></span></button>
         <label class="menu-btn" style="cursor:pointer"><span class="ic">⤓</span><span>Importar save<small>Arquivo .json exportado antes</small></span><input type="file" accept=".umsave,.json,.gz,application/json" data-a="importSave" class="hide"></label>
@@ -9929,7 +9931,60 @@ const Game2D = (() => {
     G.rec.push(f);
     if (G.rec.length > REC_N) { G.rec.shift(); if (G.recGoalIdx >= 0) G.recGoalIdx--; }
   }
+  // saving replays: the replay is recorded from the canvas while it plays and can be saved as a video file
+  function recMime() {
+    if (typeof MediaRecorder === 'undefined') return null;
+    for (const m of ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) { /* ignore */ } }
+    return null;
+  }
+  function recStart() {
+    G.vrec = null;
+    if (G.auto || !cv || !cv.captureStream) return;
+    const mime = recMime();
+    if (!mime) return;
+    try {
+      const stream = cv.captureStream(30), chunks = [];
+      const mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3500000 });
+      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      const sc = G.celebr && G.celebr.scorer;
+      const title = sc ? `${nameOf(sc)} ${G.st.score[0]}x${G.st.score[1]}` : 'gol';
+      mr.onstop = () => {
+        const blob = new Blob(chunks, { type: mime.split(';')[0] });
+        if (blob.size < 2000 || !G) return;
+        G.saved = G.saved || [];
+        G.saved.unshift({ title, blob, ext: mime.startsWith('video/mp4') ? 'mp4' : 'webm', clock: clockLabel() });
+        if (G.saved.length > 8) G.saved.length = 8;
+        showSaveBtn();
+      };
+      mr.start(250);
+      G.vrec = mr;
+    } catch (e) { G.vrec = null; }
+  }
+  function recStop() { const mr = G && G.vrec; G.vrec = null; if (mr && mr.state !== 'inactive') { try { mr.stop(); } catch (e) { /* ignore */ } } }
+  function showSaveBtn() {
+    const b = root && root.querySelector('#g2-savebtn');
+    if (!b) return;
+    b.hidden = false;
+    clearTimeout(G.saveTimer);
+    G.saveTimer = setTimeout(() => { b.hidden = true; }, 14000);
+  }
+  async function saveReplay(i) {
+    const r = G && G.saved && G.saved[i];
+    if (!r) return;
+    const name = `replay-gol-${String(r.title).replace(/[^\w\-]+/g, '-').replace(/^-+|-+$/g, '')}.${r.ext}`;
+    try {
+      const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
+      if (dl) { await dl.save({ filename: name, data: r.blob }); toast('Replay salvo.'); return; }
+    } catch (e) { if (e && e.code === 'declined') return; }
+    try {
+      const url = URL.createObjectURL(r.blob), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      toast('Replay baixado.');
+    } catch (e) { toast('Não foi possível salvar o replay neste navegador.', true); }
+  }
   function startReplay() {
+    recStart();
     const start = Math.max(0, G.recGoalIdx - 105);
     G.replay = { i: start, t: 0, end: G.rec.length - 1, netDone: false };
     G.state = 'replay';
@@ -9964,6 +10019,7 @@ const Game2D = (() => {
   function endReplay() {
     if (!G.replay) return;
     G.replay = null;
+    recStop();
     G.players.forEach((p) => { p.rSlide = p.rFall = p.rOut = p.rKick = p.rDive = 0; p.rGz = 0; });
     showReplayTag(false);
     resetKickoff(G.nextKick);
@@ -10126,6 +10182,7 @@ const Game2D = (() => {
       <div class="g2-pop" id="g2-pop" hidden></div>
       <div class="g2-hint" id="g2-hint" hidden></div>
       <div class="g2-tag" id="g2-tag" hidden>REPLAY</div>
+      <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
       <div class="g2d-controls"><div class="joy" id="g2-joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
         <div class="pads"><button class="pad swap" data-k="swap">TROCAR</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
@@ -10141,6 +10198,7 @@ const Game2D = (() => {
       pause: root.querySelector('#g2-pausebox'), say: root.querySelector('#g2-say'), hint: root.querySelector('#g2-hint'), tag: root.querySelector('#g2-tag'),
       pop: root.querySelector('#g2-pop'), so: root.querySelector('#g2-so'), snd: root.querySelector('#g2-snd'), lastClock: '', lastScore: '', breakKind: null, intro: null,
     });
+    root.querySelector('#g2-savebtn').addEventListener('click', () => { saveReplay(0); root.querySelector('#g2-savebtn').hidden = true; });
     resize();
     addEventListener('resize', resize);
     addEventListener('keydown', onKey);
@@ -10331,6 +10389,7 @@ const Game2D = (() => {
     } else {
       const inShootout = !!G.shootout;
       body = `<h2>Pausa</h2><p class="muted">${esc(teamName(m.h))} ${st.score[0]} x ${st.score[1]} ${esc(teamName(m.a))} · ${inShootout ? 'pênaltis' : clockLabel()}</p>
+        ${G.saved && G.saved.length ? `<div class="col" style="gap:6px;margin-top:12px"><div class="muted up" style="font-size:11px">Replays desta partida</div>${G.saved.map((r, i) => `<button class="btn" data-rp="${i}">💾 Salvar replay: ${esc(r.title)} (${esc(r.clock)})</button>`).join('')}</div>` : ''}
         <div class="col" style="gap:10px;margin-top:14px"><button class="btn primary big" data-g="resume">▶ Continuar</button>${inShootout ? '' : `<button class="btn" data-g="subs">⇄ Substituições (${st.subsLeft[k]})</button>`}
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Câmera</span><div class="seg">${G2_CAMS.map(([v, l]) => `<button class="${(G2PREF.cam || 'normal') === v ? 'on' : ''}" data-cam="${v}">${l}</button>`).join('')}</div></div>
         <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Botões</span><div class="seg">${G2_BTN.map(([v, l]) => `<button class="${(G2PREF.btn || 1) === v ? 'on' : ''}" data-btn="${v}">${l}</button>`).join('')}</div></div>
@@ -10342,6 +10401,7 @@ const Game2D = (() => {
     hud.pause.onclick = (e) => {
       const t = e.target.closest('button');
       if (!t || !G) return;
+      if (t.dataset.rp !== undefined) { saveReplay(+t.dataset.rp); return; }
       if (t.dataset.run !== undefined) { G2PREF.autoRun = t.dataset.run === '1'; saveG2Pref(); applyBtnSize(document.querySelector('.g2d')); renderPause(false); return; }
       if (t.dataset.btn) { G2PREF.btn = +t.dataset.btn; saveG2Pref(); applyBtnSize(document.querySelector('.g2d')); renderPause(false); return; }
       if (t.dataset.cam) { G2PREF.cam = t.dataset.cam; saveG2Pref(); G.camZoom = G2_ZOOM[t.dataset.cam] || 1; renderPause(false); return; }
@@ -10364,6 +10424,7 @@ const Game2D = (() => {
   }
   function cleanup() {
     cancelAnimationFrame(rafId);
+    if (G) clearTimeout(G.saveTimer);
     removeEventListener('resize', resize);
     removeEventListener('keydown', onKey);
     removeEventListener('keyup', onKey);
@@ -11494,6 +11555,181 @@ function viewFriendly() {
       <div class="row wrap" style="gap:8px;margin-bottom:10px"><input id="fr-q" class="input grow" type="search" placeholder="Buscar pelo nome…" value="${esc(f.q || '')}" data-a="frQ" data-live="1" autocomplete="off" aria-label="Buscar time">
         <select class="input" style="max-width:320px" data-a="frGrp" aria-label="Liga"><option value="all">Todas as ${f.kind === 'national' ? 'confederações' : 'ligas'}</option>${groups.map((g) => `<option value="${esc(g)}" ${f.grp === g ? 'selected' : ''}>${esc(anyGroupLabel(g))}</option>`).join('')}</select></div>
       <div id="fr-list">${frListHtml()}</div></div></div>`;
+}
+
+/* ===================== penalty cup: a knockout of penalty shoot-outs against the computer; you take your kicks and defend theirs, alternating ===================== */
+act('openPenCup', () => {
+  UI.pc = { step: 'setup', era: 2026, kind: 'club', size: 8, user: 0, q: '', grp: 'all', loaded: null, rounds: null, cur: 0, out: false, champ: 0, last: null };
+  UI.screen = 'pencup';
+  render();
+});
+act('pcBack', () => { UI.pc = null; UI.screen = 'start'; render(); });
+act('pcSet', (el) => { const k = el.dataset.k, v = el.dataset.v; UI.pc[k] = (k === 'era' || k === 'size') ? +v : v; render(); });
+act('pcLoad', async () => {
+  const f = UI.pc;
+  setLoading('Carregando elencos de ' + f.era + '…', 0.2);
+  try {
+    await loadEra(f.era);
+    setLoading('Montando os times…', 0.6);
+    await new Promise((r) => setTimeout(r, 20));
+    await createWorld({ era: f.era, mode: f.kind === 'national' ? 'national' : 'normal', coachName: 'Copa de Pênaltis', coachAge: 40 });
+    S.coach.unemployed = false;
+    UI.wiz = { anyList: null, anyQ: '', anyG: 'all' };
+    f.loaded = { era: f.era, kind: f.kind }; f.step = 'pick'; f.user = 0; f.q = ''; f.grp = 'all';
+    UI.screen = 'pencup';
+    render();
+  } catch (e) {
+    console.error(e);
+    UI.screen = 'pencup'; f.step = 'setup'; render(); toast(e.message, true);
+  }
+});
+act('pcGrp', (el) => { UI.pc.grp = el.value; render(); });
+act('pcQ', (el) => { UI.pc.q = el.value; const box = $('#pc-list'); if (box) box.innerHTML = pcListHtml(); });
+act('pcPick', (el) => { UI.pc.user = +el.dataset.id; render(); });
+act('pcOpt', (el) => { const k = el.dataset.k; let v = el.dataset.v; G2PREF[k] = v; saveG2Pref(); render(); });
+act('pcChange', () => { UI.pc.step = 'pick'; UI.pc.rounds = null; render(); });
+
+function pcRating(id) { const t = S.teams[id]; return t.isNat ? nationRating(t.code) : teamRating(t.id); }
+// quick computer-vs-computer shoot-out: five kicks each, then sudden death
+function pcSim(a, b) {
+  const d = (pcRating(a) - pcRating(b)) * 0.012;
+  const pa = clamp(0.75 + d, 0.6, 0.88), pb = clamp(0.75 - d, 0.6, 0.88);
+  let ga = 0, gb = 0;
+  for (let i = 0; i < 5; i++) { if (Math.random() < pa) ga++; if (Math.random() < pb) gb++; }
+  let n = 0;
+  while (ga === gb && n++ < 40) { if (Math.random() < pa) ga++; if (Math.random() < pb) gb++; }
+  if (ga === gb) ga++;
+  return [ga, gb];
+}
+function pcRoundName(nTies) { return nTies === 1 ? 'Final' : nTies === 2 ? 'Semifinais' : nTies === 4 ? 'Quartas de final' : nTies === 8 ? 'Oitavas de final' : 'Rodada'; }
+function pcMakeRound(ids) {
+  const ties = [];
+  for (let i = 0; i < ids.length; i += 2) ties.push({ a: ids[i], b: ids[i + 1], s: null, w: 0 });
+  return { name: pcRoundName(ids.length / 2), ties };
+}
+function pcStartCup() {
+  const f = UI.pc;
+  if (!f.user) return;
+  const pool = anyClubEntries().map((r) => r.id).filter((id) => id !== f.user);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const ids = [f.user, ...pool.slice(0, f.size - 1)];
+  for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+  f.rounds = [pcMakeRound(ids)]; f.cur = 0; f.out = false; f.champ = 0; f.last = null; f.step = 'bracket';
+  render();
+}
+// the tie of the user in the current round
+function pcUserTie() { const f = UI.pc; return f.rounds[f.cur].ties.find((t) => (t.a === f.user || t.b === f.user) && !t.w); }
+// settle the other ties of the round and open the next one (or crown the champion)
+function pcAdvance() {
+  const f = UI.pc;
+  for (;;) {
+    const r = f.rounds[f.cur];
+    for (const t of r.ties) if (!t.w) { t.s = pcSim(t.a, t.b); t.w = t.s[0] > t.s[1] ? t.a : t.b; }
+    const win = r.ties.map((t) => t.w);
+    if (win.length === 1) { f.champ = win[0]; f.step = 'over'; return; }
+    f.rounds.push(pcMakeRound(win)); f.cur++;
+    if (!f.out) return; // keep going only while the user is out (to show who won the cup)
+  }
+}
+act('pcStart', () => pcStartCup());
+act('pcPlay', () => {
+  const f = UI.pc, tie = pcUserTie();
+  if (!tie) return;
+  g2Defaults();
+  const opp = tie.a === f.user ? tie.b : tie.a;
+  S.user.team = f.user; S.coach.unemployed = false;
+  for (const id of [f.user, opp]) { const t = S.teams[id]; if (t && t.isNat) autoCallUp(t.code, true); }
+  S.date = dayOf(S.era, 3, 15);
+  const m = { id: 'pc' + (Date.now() % 1e7), h: f.user, a: opp, c: 0, d: S.date, r: 0, fr: true };
+  S.matches[m.id] = m;
+  const st = startMatchState(m, { user: f.user });
+  st.decided = false; st.deferPens = true;
+  f.step = 'playing'; UI.screen = 'pencup'; render();
+  Game2D.startShootoutOnly(m, st, { minutes: G2PREF.len, diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: G2PREF.replay }, () => pcDone(m, st, tie));
+});
+function pcDone(m, st, tie) {
+  const f = UI.pc;
+  delete S.matches[m.id];
+  if (!f) return;
+  let pen = st.pen;
+  if (!pen || pen[0] === pen[1]) pen = pcSim(m.h, m.a);
+  const [gu, go] = pen;
+  tie.s = tie.a === f.user ? [gu, go] : [go, gu];
+  tie.w = gu > go ? f.user : m.a;
+  f.last = { win: gu > go, gu, go, opp: m.a };
+  if (!f.last.win) f.out = true;
+  f.step = 'bracket';
+  pcAdvance();
+  if (f.out && f.step !== 'over') { f.step = 'over'; }
+  UI.screen = 'pencup'; render(); window.scrollTo(0, 0);
+}
+act('pcAgain', () => { UI.pc.step = 'pick'; UI.pc.rounds = null; render(); });
+
+function pcListHtml() {
+  const f = UI.pc;
+  const q = strip((f.q || '').trim());
+  const rows = anyClubEntries().filter((r) => (f.grp === 'all' || r.grp === f.grp) && (!q || r.q.includes(q)));
+  if (!rows.length) return '<div class="empty">Nenhum resultado para essa busca.</div>';
+  const shown = rows.slice(0, 60);
+  return `<div class="any-grid">${shown.map((r) => {
+    const t = S.teams[r.id];
+    return `<button class="any-item" style="${r.id === f.user ? 'outline:2px solid var(--gold,#ffc54d)' : ''}" data-a="pcPick" data-id="${r.id}">${crest(t, 34)}<span class="grow"><span class="nm">${esc(t.n)}</span><span class="wh">${esc(r.where)}</span></span><span class="sc">${starStr(r.r)}<span class="muted">força ${r.r.toFixed(1)}</span></span></button>`;
+  }).join('')}</div>${rows.length > shown.length ? `<p class="muted" style="font-size:13px;margin:10px 0 0">Mostrando ${shown.length} de ${rows.length}. Digite o nome ou escolha a liga.</p>` : ''}`;
+}
+function pcBracketHtml() {
+  const f = UI.pc;
+  const tieHtml = (t) => {
+    const row = (id, g) => id ? `<div class="row" style="gap:8px;${t.w && t.w !== id ? 'opacity:0.5' : ''}${id === f.user ? ';font-weight:800' : ''}">${crest(id, 22)}<span class="grow" style="font-size:14px">${esc(teamName(id))}</span><b>${g == null ? '' : g}</b></div>` : '';
+    return `<div class="panel" style="padding:8px 10px;margin:0 0 8px;${(t.a === f.user || t.b === f.user) ? 'border:1px solid var(--gold,#ffc54d)' : ''}">${row(t.a, t.s ? t.s[0] : null)}${row(t.b, t.s ? t.s[1] : null)}</div>`;
+  };
+  return `<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:6px">${f.rounds.map((r, i) => `<div style="min-width:230px;flex:1"><div class="muted up" style="font-size:11px;margin-bottom:6px">${r.name}</div>${r.ties.map(tieHtml).join('')}</div>`).join('')}</div>`;
+}
+function viewPenCup() {
+  const f = UI.pc;
+  if (!f) return viewStart();
+  const head = `<div class="row wrap" style="margin-bottom:14px"><button class="btn" data-a="pcBack">← Menu</button><h2 style="font-size:34px;font-weight:800;margin:0" class="grow">Copa de Pênaltis</h2></div>`;
+  if (f.step === 'setup') {
+    return `<div class="page" style="max-width:900px;margin:0 auto;padding:18px">${head}
+      <div class="panel"><p style="margin:0 0 14px">Um mata-mata só de <b>disputas de pênaltis</b> contra o computador, com qualquer clube ou seleção do jogo. Em cada disputa você <b>bate os seus pênaltis e defende os do adversário</b>, alternando, até o campeão. (Partida online 1 contra 1 precisaria de um servidor, que este jogo não tem.)</p>
+        <div class="muted up" style="font-size:11px">Época</div>
+        <div class="seg" style="margin:6px 0 14px">${[2016, 2021, 2026].map((y) => `<button class="${f.era === y ? 'on' : ''}" data-a="pcSet" data-k="era" data-v="${y}">${y}</button>`).join('')}</div>
+        <div class="muted up" style="font-size:11px">Tipo de time</div>
+        <div class="seg" style="margin:6px 0 14px">${[['club', 'Clubes'], ['national', 'Seleções']].map(([k, l]) => `<button class="${f.kind === k ? 'on' : ''}" data-a="pcSet" data-k="kind" data-v="${k}">${l}</button>`).join('')}</div>
+        <div class="muted up" style="font-size:11px">Tamanho da copa</div>
+        <div class="seg" style="margin:6px 0 14px">${[[4, '4 times'], [8, '8 times'], [16, '16 times']].map(([k, l]) => `<button class="${f.size === k ? 'on' : ''}" data-a="pcSet" data-k="size" data-v="${k}">${l}</button>`).join('')}</div>
+        <button class="btn gold" data-a="pcLoad">Carregar times</button></div></div>`;
+  }
+  if (f.step === 'playing') return `<div class="page" style="padding:40px;text-align:center"><p class="muted">Disputa em andamento…</p></div>`;
+  if (f.step === 'bracket' || f.step === 'over') {
+    const r = f.rounds[f.cur], tie = f.step === 'bracket' ? pcUserTie() : null;
+    const opp = tie ? (tie.a === f.user ? tie.b : tie.a) : 0;
+    let banner = '';
+    if (f.last) banner = `<div class="panel" style="margin-bottom:12px;text-align:center"><b style="font-size:20px">${f.last.win ? '✅ Você venceu' : '❌ Você perdeu'} a última disputa por ${f.last.gu} x ${f.last.go}${f.last.opp ? ' contra ' + esc(teamName(f.last.opp)) : ''}.</b></div>`;
+    let act = '';
+    if (f.step === 'over') {
+      const champ = f.champ === f.user;
+      act = `<div class="panel" style="margin:12px 0;text-align:center"><div style="font-size:30px;font-weight:800" class="disp">${champ ? '🏆 Você é o campeão!' : f.out ? 'Você foi eliminado' : 'Fim da copa'}</div>${f.champ ? `<div class="row" style="justify-content:center;gap:10px;margin-top:8px">${crest(f.champ, 40)}<b style="font-size:20px">Campeão: ${esc(teamName(f.champ))}</b></div>` : ''}
+        <div class="row wrap" style="justify-content:center;margin-top:14px"><button class="btn gold" data-a="pcStart">Jogar a copa de novo</button><button class="btn" data-a="pcAgain">Trocar de time</button><button class="btn" data-a="pcBack">Menu</button></div></div>`;
+    } else {
+      act = `<div class="panel" style="margin:12px 0;text-align:center"><div class="muted up" style="font-size:11px">${esc(r.name)}</div><div class="row" style="justify-content:center;gap:12px;margin:8px 0">${crest(f.user, 44)}<b style="font-size:22px">${esc(teamName(f.user))}</b><span class="muted">x</span><b style="font-size:22px">${esc(teamName(opp))}</b>${crest(opp, 44)}</div>
+        <button class="btn gold big" data-a="pcPlay">🎮 Disputar pênaltis</button></div>`;
+    }
+    return `<div class="page" style="max-width:1000px;margin:0 auto;padding:18px">${head}${banner}${act}<div class="panel">${pcBracketHtml()}</div></div>`;
+  }
+  // pick your team
+  g2Defaults();
+  const rows = anyClubEntries();
+  const groups = [...new Set(rows.map((r) => r.grp))];
+  const u = f.user ? S.teams[f.user] : null;
+  return `<div class="page" style="max-width:1000px;margin:0 auto;padding:18px">${head}
+    <div class="panel"><div class="row wrap" style="gap:16px">
+      <div class="grow">${u ? `<div class="row" style="gap:10px">${crest(u, 44)}<div><div class="muted up" style="font-size:11px">SEU TIME</div><div class="disp" style="font-size:22px;font-weight:800">${esc(u.n)}</div></div></div>` : '<div class="muted">Escolha o seu time na lista abaixo</div>'}</div>
+      <div><div class="muted up" style="font-size:11px">Dificuldade</div><div class="seg">${G2_DIFFS.map(([v, l]) => `<button class="${G2PREF.diff === v ? 'on' : ''}" data-a="pcOpt" data-k="diff" data-v="${v}">${l}</button>`).join('')}</div></div>
+      <button class="btn gold big" data-a="pcStart" ${f.user ? '' : 'disabled style="opacity:0.45"'}>🏆 Começar a copa (${f.size} times)</button></div></div>
+    <div class="panel" style="margin-top:12px">
+      <div class="row wrap" style="gap:8px;margin-bottom:10px"><input id="pc-q" class="input grow" type="search" placeholder="Buscar pelo nome…" value="${esc(f.q || '')}" data-a="pcQ" data-live="1" autocomplete="off" aria-label="Buscar time">
+        <select class="input" style="max-width:320px" data-a="pcGrp" aria-label="Liga"><option value="all">Todas as ${f.kind === 'national' ? 'confederações' : 'ligas'}</option>${groups.map((g) => `<option value="${esc(g)}" ${f.grp === g ? 'selected' : ''}>${esc(anyGroupLabel(g))}</option>`).join('')}</select></div>
+      <div id="pc-list">${pcListHtml()}</div></div></div>`;
 }
 
 /* ===================== boot ===================== */
