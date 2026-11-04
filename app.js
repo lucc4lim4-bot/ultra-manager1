@@ -2868,6 +2868,7 @@ function afterMatchHooks(m, st) {
   const opp = home ? m.a : m.h;
   const letter = resultLetter(m, uid);
   sponsAfterMatch(m);
+  fanAfterMatch(m);
   const rec = S.coach.rec;
   rec.gf += gf; rec.ga += ga;
   if (letter === 'V') rec.w++; else if (letter === 'D') rec.l++; else rec.d++;
@@ -3081,6 +3082,7 @@ function dailyEvents() {
   const t = ymd(S.date);
   if (t.w === 1) { // Mondays
     weeklyPlayerMessages();
+    fanWeek();
     if (S.pl) plWeek();
     weeklyLoans();
     if (S.coach.unemployed && rnd() < 0.6) { S.jobs = generateJobs(6); jobOfferMessage(); }
@@ -5571,6 +5573,194 @@ function sponsAfterMatch(m) {
   if (goalsFor > goalsAg) { const t = S.teams[uid]; t.budget += s.shirt.winBonus; s.total += s.shirt.winBonus; s.wins = (s.wins || 0) + 1; }
 }
 
+/* ===================== torcida: humor, reclamações, eventos inesperados e torcidas organizadas (só no Brasil) ===================== */
+// S.fans = { team, mood 0-100, org 0-100, recent: [letters], lastEv, lastCompl, lastOrg, ev: n, hist: [{d,t,r}] }
+const FAN_ORGS = {
+  corinthians: ['Gaviões da Fiel', 'Camisa 12'], palmeiras: ['Mancha Verde', 'Torcida Uniformizada do Palmeiras'], saopaulo: ['Independente', 'Dragões da Real'],
+  santos: ['Torcida Jovem', 'Sangue Jovem'], flamengo: ['Raça Rubro-Negra', 'Torcida Jovem do Flamengo'], vasco: ['Força Jovem do Vasco', 'Guerreiros do Almirante'],
+  fluminense: ['Young Flu', 'Torcida Garra Tricolor'], botafogo: ['Fúria Jovem do Botafogo', 'Loucos pelo Botafogo'], cruzeiro: ['Máfia Azul'], atleticomg: ['Galoucura', 'Movimento 105 Minutos'],
+  gremio: ['Geral do Grêmio', 'Máfia Tricolor'], internacional: ['Guarda Popular', 'Popular'], bahia: ['Bamor'], vitoria: ['Os Imbatíveis'], athletico: ['Os Fanáticos'],
+  coritiba: ['Império Alviverde'], sport: ['Inferno Coral'], fortaleza: ['Garra Tricolor'], ceara: ['Cearamor'],
+};
+const FAN_GENERIC = ['Torcida Jovem', 'Força Jovem', 'Fúria Organizada', 'Raça Organizada', 'Gaviões', 'Mancha', 'Garra Alvi', 'Camisa 12', 'Império', 'Legião'];
+function fanOrgsOf(teamId) {
+  const t = S.teams[teamId];
+  if (!t || t.isNat || t.c !== 'BRA') return [];
+  if (FAN_ORGS[t.key]) return FAN_ORGS[t.key];
+  return [`${FAN_GENERIC[teamId % FAN_GENERIC.length]} ${t.s || t.n}`];
+}
+function fanAvailable() { return !!(S.user && S.user.team && !S.coach.unemployed && !S.pl && S.mode !== 'national' && S.teams[S.user.team] && !S.teams[S.user.team].isNat); }
+function fanInit() {
+  if (!S.fans) S.fans = { team: 0, mood: 55, org: 55, recent: [], lastEv: -99, lastCompl: -99, lastOrg: -99, ev: 0, hist: [] };
+  const uid = S.user && S.user.team;
+  if (S.fans.team !== uid) Object.assign(S.fans, { team: uid || 0, mood: 55, org: 55, recent: [], lastEv: -99, lastCompl: -99, lastOrg: -99, hist: [] });
+  return S.fans;
+}
+function fanActive() { return S.fans && fanAvailable() && S.fans.team === S.user.team ? S.fans : null; }
+// mood of a team's supporters as the stadium sees it (the user's club follows the career, the others a stable value from the table)
+function fanMoodOf(teamId) {
+  const f = fanActive();
+  if (f && f.team === teamId) return f.mood;
+  return 45 + ((teamId * 37) % 31);
+}
+function fanOrgMoodOf(teamId) { const f = fanActive(); return f && f.team === teamId ? f.org : 50 + ((teamId * 53) % 31); }
+function fanLabel(v) { return v >= 80 ? 'Apaixonada' : v >= 62 ? 'Feliz' : v >= 45 ? 'Neutra' : v >= 28 ? 'Irritada' : 'Em revolta'; }
+function fanHist(t, r) { const f = fanInit(); f.hist.unshift({ d: S.date, t, r }); if (f.hist.length > 25) f.hist.length = 25; }
+
+/* ---------- effects ---------- */
+// fx: { fan, org, conf, mor (whole squad), morP (the player in ctx), budget, injP (days out for the ctx player), mor2 (second player) }
+function fanApply(fx, ctx) {
+  const f = fanInit(), t = S.teams[f.team], out = [];
+  const sgn = (v) => (v > 0 ? '+' : '') + Math.round(v);
+  if (fx.fan) { f.mood = clamp(f.mood + fx.fan, 0, 100); out.push(`torcida ${sgn(fx.fan)}`); }
+  if (fx.org && t.c === 'BRA') { f.org = clamp(f.org + fx.org, 0, 100); out.push(`organizada ${sgn(fx.org)}`); }
+  if (fx.conf) { S.board.conf = clamp(S.board.conf + fx.conf, 0, 100); out.push(`diretoria ${sgn(fx.conf)}`); }
+  if (fx.mor) { for (const p of squadOf(f.team)) p.mor = clamp((p.mor || 70) + fx.mor, 5, 100); out.push(`moral do elenco ${sgn(fx.mor)}`); }
+  const p1 = ctx && ctx.pid ? S.players[ctx.pid] : null, p2 = ctx && ctx.pid2 ? S.players[ctx.pid2] : null;
+  if (fx.morP && p1) { p1.mor = clamp((p1.mor || 70) + fx.morP, 5, 100); out.push(`moral de ${p1.n} ${sgn(fx.morP)}`); }
+  if (fx.mor2 && p2) { p2.mor = clamp((p2.mor || 70) + fx.mor2, 5, 100); out.push(`moral de ${p2.n} ${sgn(fx.mor2)}`); }
+  if (fx.injP && p1) { p1.inj = S.date + fx.injP; p1.injN = fx.injN || 'lesão no treino'; out.push(`${p1.n} fora ${fx.injP} dias`); }
+  if (fx.budget) { t.budget = Math.max(0, t.budget + fx.budget); out.push(`caixa ${fx.budget > 0 ? '+' : '−'}${fmtMoney(Math.abs(fx.budget))}`); }
+  return out.join(' · ');
+}
+
+/* ---------- events ---------- */
+const FAN_EVENTS = [];
+function fanEv(id, kind, w, build) { FAN_EVENTS.push({ id, kind, w, build }); }
+function fanRandPlayer(n, filt) { const sq = squadOf(S.user.team).filter((p) => available(p) && (!filt || filt(p))); return shuffle(sq).slice(0, n); }
+function fanBud(k) { return roundMoney(Math.max(40000, S.teams[S.user.team].budget * k)); }
+
+fanEv('rixa', 'g', 6, () => { const [a, b] = fanRandPlayer(2); if (!b) return null;
+  return { t: 'Discussão feia no treino', b: `${a.n} e ${b.n} se desentenderam no treino e quase partiram para a briga. O elenco parou para ver.`, ctx: { pid: a.pid || a.id, pid2: b.pid || b.id },
+    o: [{ l: 'Fazer os dois se abraçarem', fx: { mor: 1, morP: 2, mor2: 2 }, r: 'Os dois fizeram as pazes diante do grupo.' }, { l: 'Multar os dois', fx: { morP: -6, mor2: -6, budget: fanBud(0.002), conf: 1 }, r: 'Disciplina mantida, mas o clima ficou pesado.' }, { l: 'Fingir que não viu', fx: { mor: -2 }, r: 'O vestiário percebeu a omissão.' }] }; });
+fanEv('rede', 'g', 6, () => { const [a] = fanRandPlayer(1); if (!a) return null;
+  return { t: 'Polêmica nas redes sociais', b: `${a.n} postou algo que viralizou pelos motivos errados e a torcida está dividida.`, ctx: { pid: a.id },
+    o: [{ l: 'Defender o jogador', fx: { morP: 6, fan: -3 }, r: 'Você bancou o jogador publicamente.' }, { l: 'Multar e pedir desculpas', fx: { morP: -5, fan: 4, budget: fanBud(0.001) }, r: 'A torcida aceitou as desculpas.' }, { l: 'Ignorar', fx: { fan: -2 }, r: 'O assunto morreu em dois dias.' }] }; });
+fanEv('festa', 'g', 5, () => { const ps = fanRandPlayer(3); if (ps.length < 3) return null;
+  return { t: 'Festa na véspera de treino', b: `Fotos de ${ps.map((p) => p.n).join(', ')} em uma festa até tarde apareceram na internet.`, ctx: { pid: ps[0].id },
+    o: [{ l: 'Punir publicamente', fx: { fan: 5, mor: -3, conf: 2 }, r: 'Punição pública: a torcida gostou, o elenco nem tanto.' }, { l: 'Conversa reservada', fx: { mor: 1, fan: -1 }, r: 'Resolvido internamente.' }, { l: 'Liberar a folga', fx: { mor: 4, fan: -4, conf: -2 }, r: 'O elenco gostou, a imprensa não.' }] }; });
+fanEv('treinolesao', 'g', 5, () => { const [a] = fanRandPlayer(1, (p) => p.o >= 60); if (!a) return null; const d = rint(7, 28);
+  return { t: 'Susto no treino', b: `${a.n} sentiu o músculo em um treino intenso. A previsão inicial é de ${d} dias fora.`, ctx: { pid: a.id },
+    o: [{ l: 'Tratamento intensivo (caro)', fx: { injP: Math.ceil(d * 0.6), budget: -fanBud(0.004) }, r: 'O departamento médico acelerou a recuperação.' }, { l: 'Tratamento normal', fx: { injP: d }, r: 'Recuperação dentro do esperado.' }] }; });
+fanEv('idolo', 'g', 4, () => ({ t: 'Ídolo visita o vestiário', b: 'Um ex-ídolo do clube apareceu de surpresa antes do treino e contou histórias para o elenco.', o: [{ l: 'Convidar para o treino', fx: { mor: 4, fan: 4 }, r: 'Dia de festa no CT.' }, { l: 'Só uma foto', fx: { mor: 2, fan: 2 }, r: 'Foto postada, torcida feliz.' }] }));
+fanEv('gramado', 'g', 4, () => ({ t: 'Gramado em péssimas condições', b: 'O gramado do CT está esburacado depois das chuvas e os jogadores reclamam.', o: [{ l: 'Trocar o gramado', fx: { budget: -fanBud(0.01), mor: 3 }, r: 'Gramado novo, jogadores aprovando.' }, { l: 'Remendar', fx: { budget: -fanBud(0.002) }, r: 'Remendo resolveu por enquanto.' }, { l: 'Deixar assim', fx: { mor: -2 }, r: 'O elenco reclamou nos bastidores.' }] }));
+fanEv('cachorro', 'g', 4, () => ({ t: 'Cachorro invade o treino', b: 'Um vira-lata invadiu o CT, driblou três zagueiros e foi adotado pelo grupo. O vídeo bombou.', o: [{ l: 'Adotar como mascote', fx: { mor: 4, fan: 6 }, r: 'Mascote novo, camisa vendendo.' }, { l: 'Chamar a protetora de animais', fx: { fan: 2 }, r: 'Cachorro encaminhado e todo mundo feliz.' }] }));
+fanEv('intoxicacao', 'g', 3, () => ({ t: 'Intoxicação alimentar', b: 'Parte do elenco passou mal depois do almoço no CT.', o: [{ l: 'Trocar o fornecedor', fx: { mor: -1, budget: -fanBud(0.002) }, r: 'Fornecedor trocado, ninguém mais passou mal.' }, { l: 'Dar folga ao grupo', fx: { mor: 3, conf: -1 }, r: 'Dia de folga para se recuperar.' }] }));
+fanEv('onibus', 'g', 3, () => ({ t: 'Greve de ônibus atrasa o elenco', b: 'A greve do transporte fez metade do elenco chegar atrasada ao treino.', o: [{ l: 'Fretar vans para todos', fx: { budget: -fanBud(0.001), mor: 2 }, r: 'Treino começou no horário.' }, { l: 'Cobrar pontualidade', fx: { mor: -3, conf: 1 }, r: 'O grupo reclamou, mas ninguém mais atrasou.' }] }));
+fanEv('revelacao', 'g', 4, () => ({ t: 'Garoto da base viraliza', b: 'Um jogador do sub-20 fez um golaço no coletivo e o vídeo explodiu na internet.', o: [{ l: 'Aproveitar o momento e promover o atleta', fx: { fan: 6, mor: 1 }, r: 'A torcida pede o garoto no time principal.' }, { l: 'Segurar a empolgação', fx: { fan: -1 }, r: 'Você manteve os pés no chão.' }] }));
+fanEv('hacker', 'g', 3, () => ({ t: 'Hacker vaza a escalação', b: 'A escalação do próximo jogo vazou na internet antes do aviso ao elenco.', o: [{ l: 'Investigar e punir', fx: { mor: -2, conf: 1 }, r: 'Ninguém foi encontrado, mas o recado foi dado.' }, { l: 'Rir e mudar o time', fx: { mor: 1, fan: 2 }, r: 'Você mostrou bom humor e despistou o adversário.' }] }));
+fanEv('aniversario', 'g', 3, () => ({ t: 'Aniversário do clube', b: 'O clube completa mais um ano e a torcida quer uma festa à altura.', o: [{ l: 'Grande festa no estádio', fx: { budget: -fanBud(0.006), fan: 9, mor: 3 }, r: 'Festa linda, estádio pintado de cores do clube.' }, { l: 'Só um vídeo nas redes', fx: { fan: 2 }, r: 'Homenagem simples nas redes.' }] }));
+fanEv('beneficente', 'g', 3, () => ({ t: 'Campanha beneficente', b: 'Uma ONG pede que o elenco visite um hospital infantil.', o: [{ l: 'Levar o elenco todo', fx: { fan: 7, mor: 3 }, r: 'Dia emocionante para todo mundo.' }, { l: 'Mandar alguns jogadores', fx: { fan: 3 }, r: 'Representantes do clube fizeram a visita.' }, { l: 'Recusar', fx: { fan: -3 }, r: 'A recusa foi criticada.' }] }));
+fanEv('rival', 'g', 4, () => ({ t: 'Provocação do rival', b: 'O rival postou uma zoeira com o seu clube e a torcida quer resposta.', o: [{ l: 'Responder à altura', fx: { fan: 7, conf: -1 }, r: 'Resposta viralizou.' }, { l: 'Responder com classe', fx: { fan: 3, conf: 1 }, r: 'Postura elogiada.' }, { l: 'Ignorar', fx: { fan: -2 }, r: 'A torcida queria uma resposta.' }] }));
+fanEv('empresario', 'g', 4, () => { const [a] = fanRandPlayer(1, (p) => p.o >= 66); if (!a) return null;
+  return { t: 'Empresário faz pressão', b: `O empresário de ${a.n} deixou vazar interesse de outros clubes para pressionar por um aumento.`, ctx: { pid: a.id },
+    o: [{ l: 'Bancar o jogador', fx: { morP: 8, conf: -1 }, r: 'Jogador tranquilizado.' }, { l: 'Dar um prazo ao empresário', fx: { morP: -3 }, r: 'Negociação esfriou.' }, { l: 'Ir à imprensa', fx: { fan: 4, morP: -9 }, r: 'A torcida apoiou a firmeza; o jogador, nem tanto.' }] }; });
+fanEv('pai', 'g', 3, () => { const [a] = fanRandPlayer(1); if (!a) return null;
+  return { t: 'Pai de jogador viraliza', b: `O pai de ${a.n} foi flagrado vibrando na arquibancada, de camisa e bandeira, e virou meme.`, ctx: { pid: a.id },
+    o: [{ l: 'Convidar para o vestiário', fx: { morP: 6, fan: 4 }, r: 'Emoção no vestiário.' }, { l: 'Só curtir o meme', fx: { fan: 2 }, r: 'O clube entrou na brincadeira.' }] }; });
+fanEv('celebridade', 'g', 3, () => ({ t: 'Celebridade quer ver o treino', b: 'Um artista famoso, torcedor do clube, pediu para assistir a um treino.', o: [{ l: 'Abrir o treino', fx: { fan: 5, mor: -1 }, r: 'Treino aberto, redes bombando.' }, { l: 'Convidar para o próximo jogo', fx: { fan: 3 }, r: 'Convite aceito.' }] }));
+fanEv('enchente', 'g', 2, () => ({ t: 'Chuva forte alaga o CT', b: 'A chuva alagou o centro de treinamento. Não dá para treinar hoje.', o: [{ l: 'Treino tático dentro de casa', fx: { mor: 1 }, r: 'Aproveitou para trabalhar no vídeo.' }, { l: 'Folga para o grupo', fx: { mor: 3 }, r: 'Grupo agradecido.' }] }));
+fanEv('presidente', 'g', 3, () => ({ t: 'Presidente quer palpitar', b: 'O presidente do clube mandou recado sugerindo a escalação para o próximo jogo.', o: [{ l: 'Ouvir e agradecer', fx: { conf: 3, mor: -1 }, r: 'Presidente satisfeito.' }, { l: 'Deixar claro quem escala', fx: { conf: -3, mor: 2 }, r: 'Você bancou sua autoridade.' }] }));
+fanEv('placar', 'g', 2, () => ({ t: 'Placar eletrônico enlouquece', b: 'O placar do estádio marcou "Derrota" no treino-jogo. Dizem que foi uma brincadeira do técnico adversário.', o: [{ l: 'Rir e seguir em frente', fx: { fan: 2, mor: 2 }, r: 'Bom humor no grupo.' }, { l: 'Reclamar à federação', fx: { fan: -1 }, r: 'Reclamação arquivada.' }] }));
+// invented ones
+fanEv('mascote', 'g', 3, () => ({ t: 'Mascote some antes do clássico', b: 'A fantasia do mascote desapareceu do vestiário. A torcida acha que foi sabotagem do rival.', o: [{ l: 'Oferecer recompensa', fx: { fan: 5, budget: -fanBud(0.001) }, r: 'Fantasia encontrada no ônibus dos funcionários.' }, { l: 'Fazer piada nas redes', fx: { fan: 3 }, r: 'A torcida riu.' }] }));
+fanEv('pet', 'g', 2, () => ({ t: 'Craque vira garoto-propaganda de ração', b: 'Seu camisa 10 gravou comercial de ração para cachorro, atrasou o treino e a imprensa implicou.', o: [{ l: 'Liberar a campanha', fx: { budget: fanBud(0.002), morP: 2, fan: -1 }, r: 'O clube ficou com parte do cachê.' }, { l: 'Vetar', fx: { morP: -3 }, r: 'O jogador ficou chateado.' }] }));
+// Brazil only: the organised supporters' groups (torcidas organizadas)
+const FAN_ORG_EVENTS = [];
+function fanOrgEv(id, w, build) { FAN_ORG_EVENTS.push({ id, w, build }); }
+fanOrgEv('protesto', 6, (org) => ({ t: `${org} protesta no CT`, b: `A ${org} foi ao centro de treinamento com faixas e bandeiras para cobrar o time e a comissão técnica.`,
+  o: [{ l: 'Receber os líderes', fx: { org: 12, fan: 3, conf: -1 }, r: 'A conversa baixou os ânimos.' }, { l: 'Levar um grupo de jogadores até o portão', fx: { org: 8, fan: 4, mor: -3 }, r: 'Os jogadores ouviram as cobranças.' }, { l: 'Ignorar', fx: { org: -10, fan: -3, conf: -3 }, r: 'O protesto cresceu nas redes.' }] }));
+fanOrgEv('ingresso', 5, (org) => ({ t: `${org} pede ingressos para viagem`, b: `A ${org} quer ônibus e ingressos para acompanhar o time no próximo jogo fora de casa.`,
+  o: [{ l: 'Pagar a viagem', fx: { org: 10, fan: 2, budget: -fanBud(0.003) }, r: 'Caravana confirmada.' }, { l: 'Liberar só os ingressos', fx: { org: 4 }, r: 'Parte da torcida aceitou.' }, { l: 'Recusar', fx: { org: -8, fan: -1 }, r: 'A organizada ficou contrariada.' }] }));
+fanOrgEv('faixa', 5, (org) => ({ t: `Faixa da ${org} cobra a diretoria`, b: `Uma faixa gigante da ${org} apareceu na entrada do estádio com recado para a diretoria e para você.`,
+  o: [{ l: 'Responder em entrevista', fx: { org: 5, fan: 3, conf: -2 }, r: 'Você assumiu a responsabilidade.' }, { l: 'Pedir que retirem', fx: { org: -7, conf: 1 }, r: 'Retiraram, mas a briga ficou no ar.' }, { l: 'Deixar a faixa lá', fx: { org: 3, conf: -1 }, r: 'A faixa ficou o dia todo.' }] }));
+fanOrgEv('aeroporto', 4, (org) => ({ t: `${org} espera o time no aeroporto`, b: `Integrantes da ${org} esperaram o elenco no desembarque para cantar e cobrar atitude.`,
+  o: [{ l: 'Parar e cumprimentar', fx: { org: 9, fan: 4, mor: -1 }, r: 'Fotos, abraços e uma cobrança respeitosa.' }, { l: 'Sair pelos fundos', fx: { org: -8, mor: 1 }, r: 'Os torcedores esperaram em vão.' }] }));
+fanOrgEv('festa', 4, (org) => ({ t: `${org} faz festa de aniversário`, b: `A ${org} completa mais um ano e convida o clube para a festa na quadra.`,
+  o: [{ l: 'Ir com alguns jogadores', fx: { org: 12, fan: 4, mor: 1 }, r: 'Festa linda e muita música.' }, { l: 'Mandar um comunicado', fx: { org: 3 }, r: 'Gesto simples, mas educado.' }, { l: 'Não comparecer', fx: { org: -5 }, r: 'Sentiram sua ausência.' }] }));
+fanOrgEv('idolo', 4, (org) => ({ t: `${org} homenageia ídolo`, b: `A ${org} prepara um mosaico gigante para o próximo jogo e pede liberação das bandeiras maiores.`,
+  o: [{ l: 'Liberar e ajudar a pintar o mosaico', fx: { org: 11, fan: 6, budget: -fanBud(0.001) }, r: 'Mosaico lindo na arquibancada.' }, { l: 'Liberar sem apoio', fx: { org: 5, fan: 2 }, r: 'Mosaico simples, mas bonito.' }, { l: 'Negar por segurança', fx: { org: -8, fan: -2 }, r: 'A organizada reclamou da decisão.' }] }));
+fanOrgEv('clasico', 3, (org) => ({ t: `Tensão no clássico: ${org} e a polícia`, b: `Antes do clássico, a ${org} e a polícia discutem sobre os horários de entrada e as bandeiras.`,
+  o: [{ l: 'Mediar a conversa', fx: { org: 6, fan: 2, conf: 1 }, r: 'Acordo fechado, entrada tranquila.' }, { l: 'Pedir calma pelas redes', fx: { org: 2, fan: 2 }, r: 'Apelo bem recebido.' }, { l: 'Não se meter', fx: { org: -4, fan: -2 }, r: 'Sem acordo, a confusão atrasou o jogo.' }] }));
+// complaints from the stands (3 fixed answers)
+function fanComplaint(topic, extra) {
+  const f = fanInit();
+  const T = {
+    seq: { t: 'A torcida está irritada com a sequência ruim', b: 'Torcedores lotaram as redes e a porta do CT. Pedem mudanças depois dos últimos resultados.' },
+    star: { t: `Torcida cobra a escalação de ${extra && extra.n}`, b: `Muita gente reclama que ${extra && extra.n} tem ficado no banco. "Joga o nosso craque", pedem nas redes.`, ctx: extra && { pid: extra.id } },
+    jogo: { t: 'Torcida reclama do futebol apresentado', b: 'Os torcedores dizem que o time joga sem alma e que falta intensidade. Querem um futebol mais ofensivo.' },
+    preco: { t: 'Revolta com o preço dos ingressos', b: 'Os ingressos estão caros e a torcida fala em boicote ao estádio. A diretoria quer saber sua opinião.' },
+    reforco: { t: 'Torcida pede reforços', b: 'Nenhum nome novo chegou e a torcida cobra contratações nas redes e na saída do CT.' },
+  }[topic];
+  const o = [
+    { l: 'Pedir paciência', fx: { fan: 2, org: 1 }, r: 'Você pediu calma e prometeu trabalho.' },
+    topic === 'preco' ? { l: 'Baixar o preço do ingresso', fx: { fan: 10, org: 6, budget: -fanBud(0.004), conf: -1 }, r: 'Ingressos mais baratos: estádio mais cheio.' } : topic === 'reforco' ? { l: 'Prometer reforços', fx: { fan: 6, org: 3, conf: -2 }, r: 'Agora a diretoria vai cobrar contratações.' } : { l: 'Prometer mudanças', fx: { fan: 5, org: 3, mor: -1 }, r: 'A torcida deu um voto de confiança.' },
+    { l: 'Rebater as críticas', fx: { fan: -5, org: -4, mor: 3 }, r: 'O elenco gostou, a torcida nem tanto.' },
+  ];
+  return { id: 'c_' + topic, t: T.t, b: T.b, ctx: T.ctx, o, kind: 'c' };
+}
+function fanPick(list) { let tot = 0; for (const e of list) tot += e.w; let r = rnd() * tot; for (const e of list) { r -= e.w; if (r <= 0) return e; } return list[0]; }
+function fanSend(ev, from) {
+  const f = fanInit();
+  const o = ev.o.map((x) => ({ l: x.l, fx: x.fx, r: x.r }));
+  addInbox('fan', from || 'Torcida', ev.t, ev.b, { kind: 'fan', evId: ev.id, ctx: ev.ctx || null, opts: o, done: false });
+  f.ev++;
+}
+function fanAnswer(msgId, idx) {
+  const m = S.inbox.find((x) => x.id === msgId);
+  if (!m || !m.act || m.act.kind !== 'fan' || m.act.done) return null;
+  const op = m.act.opts[idx];
+  if (!op) return null;
+  const sum = fanApply(op.fx || {}, m.act.ctx);
+  m.act.done = true; m.act.chosen = idx; m.act.res = op.r + (sum ? ` (${sum})` : '');
+  fanHist(m.subj, op.r);
+  return m.act.res;
+}
+// the user's matches feed the mood
+function fanAfterMatch(m) {
+  const f = fanActive();
+  if (!f || m.fr) return;
+  const uid = f.team, gf = m.h === uid ? m.hg : m.ag, ga = m.h === uid ? m.ag : m.hg;
+  const letter = gf > ga ? 'V' : gf < ga ? 'D' : 'E';
+  const pts = letter === 'V' ? 3 : letter === 'E' ? 1 : 0;
+  const opp = m.h === uid ? m.a : m.h;
+  const myR = teamRating(uid), opR = S.teams[opp] && !S.teams[opp].isNat ? teamRating(opp) : myR;
+  const exp = expectedPoints(myR, opR, m.h === uid && !m.n);
+  let d = (pts - exp) * 4.2 + (letter === 'V' && gf - ga >= 3 ? 2 : 0) - (letter === 'D' && ga - gf >= 3 ? 3 : 0);
+  f.mood = clamp(f.mood + d, 0, 100);
+  f.org = clamp(f.org + d * 1.35, 0, 100); // organised groups swing harder
+  f.recent.push(letter); if (f.recent.length > 6) f.recent.shift();
+}
+// Mondays: drift, grudges, complaints and a chance of a surprise
+function fanWeek() {
+  if (!fanAvailable()) return;
+  const f = fanInit(), t = S.teams[f.team], day = S.date;
+  f.mood += (55 - f.mood) * 0.04; f.org += (55 - f.org) * 0.05;
+  if (f.mood < 28) { S.board.conf = clamp(S.board.conf - 0.8, 0, 100); for (const p of squadOf(f.team)) p.mor = clamp((p.mor || 70) - 1, 5, 100); }
+  else if (f.mood > 75) { S.board.conf = clamp(S.board.conf + 0.5, 0, 100); for (const p of squadOf(f.team)) p.mor = clamp((p.mor || 70) + 1, 5, 100); }
+  const pending = S.inbox.filter((m) => m.act && m.act.kind === 'fan' && !m.act.done).length;
+  if (pending >= 3) return;
+  const org = fanOrgsOf(f.team)[0];
+  const last3 = f.recent.slice(-3);
+  // complaints
+  if (day - f.lastCompl >= 18 && (f.mood < 38 || (last3.length === 3 && last3.every((x) => x !== 'V')) ) && rnd() < 0.7) {
+    const sq = squadOf(f.team).slice().sort(by((p) => p.o, -1));
+    const star = sq.slice(0, 5).find((p) => (p.cnp || 0) >= 3 && available(p));
+    const opts = ['seq', 'jogo', 'preco', 'reforco'];
+    const topic = star && rnd() < 0.45 ? 'star' : pick(opts);
+    fanSend(fanComplaint(topic, star), 'Torcida'); f.lastCompl = day; return;
+  }
+  // organised group (Brazil only)
+  if (org && day - f.lastOrg >= 14 && (f.org < 40 ? rnd() < 0.55 : rnd() < 0.2)) {
+    const e = fanPick(FAN_ORG_EVENTS); const ev = e.build(org);
+    fanSend(Object.assign({ id: 'o_' + e.id }, ev), org); f.lastOrg = day; return;
+  }
+  // surprises
+  if (day - f.lastEv >= 9 && rnd() < 0.4) {
+    for (let k = 0; k < 4; k++) { const e = fanPick(FAN_EVENTS), ev = e.build(); if (ev) { fanSend(Object.assign({ id: e.id }, ev), 'Clube'); f.lastEv = day; return; } }
+  }
+}
+
 /* ===================== UI core ===================== */
 const UI = {
   screen: 'start', tab: 'central', sub: {}, sel: null, newsIdx: 0, filters: {}, wiz: null, busy: false,
@@ -6596,7 +6786,7 @@ act('advance', async (el) => {
 });
 
 /* ===================== inbox (notificações) ===================== */
-const MSG_IC = { offer: '⇄', player: '🗣', board: '🏛', scout: '🔭', contract: '✍', loan: '↩', injury: '✚', job: '💼', info: 'ℹ' };
+const MSG_IC = { offer: '⇄', player: '🗣', board: '🏛', scout: '🔭', contract: '✍', loan: '↩', injury: '✚', job: '💼', info: 'ℹ', fan: '📣' };
 function viewInbox() {
   const list = S.inbox;
   const sel = list.find((m) => m.id === UI.msgSel) || list[0];
@@ -6633,6 +6823,8 @@ function viewMessage(m) {
       <button class="btn sm" data-a="answerP" data-x="ignore">Ignorar</button></div>`;
   } else if (m.type === 'job' && m.act && m.act.job) {
     actions = `<div class="row wrap" style="margin-top:14px"><button class="btn sm primary" data-a="applyJob" data-id="${m.act.job}">Conversar com o clube</button></div>`;
+  } else if (m.type === 'fan' && m.act) {
+    actions = fanMsgActions(m);
   } else if (m.act && m.act.done) actions = `<div class="chip" style="margin-top:12px">Respondido</div>`;
   return `<div class="muted" style="font-size:13px">${esc(m.from)} · ${fmtDate(m.d, 'long')}</div>
     <h2 style="font-size:28px;font-weight:800;margin:6px 0 10px">${esc(m.subj)}</h2>
@@ -7372,6 +7564,7 @@ function viewOffice() {
   const tabs = [['table', nat ? 'Grupos' : 'Classificação'], ['calendar', 'Calendário'], ['results', 'Resultados'], ['cups', nat ? 'Mata-mata' : 'Copas e torneios'], ['gallery', 'Galeria de títulos'], ['career', 'Carreira'], ['board', nat ? 'Federação' : 'Diretoria'], ['jobs', 'Mercado de trabalho']];
   if (!nat) tabs.push(['finance', 'Finanças']);
   if (!nat && !S.pl) tabs.push(['spons', 'Patrocínios']);
+  if (!nat && !S.pl) tabs.push(['fans', 'Torcida']);
   let body = '';
   if (sub === 'table') body = viewTables();
   else if (sub === 'calendar') body = viewCalendar();
@@ -7383,6 +7576,7 @@ function viewOffice() {
   else if (sub === 'jobs') body = viewJobsTab();
   else if (sub === 'finance') body = viewFinance();
   else if (sub === 'spons') body = viewSponsors();
+  else if (sub === 'fans') body = viewFans();
   return `<div class="row wrap" style="margin-bottom:12px"><h2 style="font-size:34px;font-weight:800">Escritório</h2></div>
     <div class="subtabs">${tabs.map(([k, l]) => `<button class="${sub === k ? 'on' : ''}" data-a="subtab" data-g="office" data-k="${k}">${l}</button>`).join('')}</div>${body}`;
 }
@@ -8668,6 +8862,20 @@ const Game2D = (() => {
     if (G.ufo) G.ufo.at = G.halfLen * (0.2 + Math.random() * 0.6);
     st.half = 1;
     G.spPerk = sponsPerk();
+    // organised supporters' groups (Brazilian clubs only): they sit in the stands, wave flags and react to the match
+    G.orgs = []; G.fanSup = 0; G.orgSay = '';
+    if (!G.auto && !opts.train && G.m && S.teams[G.m.h] && S.teams[G.m.a]) {
+      const mkOrg = (id, home) => {
+        const nm = fanOrgsOf(id)[0]; if (!nm) return null;
+        const t = S.teams[id], neutral = !!G.m.n;
+        return { id, name: nm, top: home, c1: t.c1, c2: t.c2 || '#ffffff', half: home && !neutral ? 13 : 8, mood: fanOrgMoodOf(id), cheer: 0, home, seed: hashStr(nm) };
+      };
+      G.orgs = [mkOrg(G.m.h, true), mkOrg(G.m.a, false)].filter(Boolean);
+      const uid = S.user && S.user.team;
+      if (uid && G.m.h === uid && !G.m.n && !G.solo) G.fanSup = (fanMoodOf(uid) - 50) / 50; // home crowd: -1 (booing) .. +1 (carrying the team)
+      const mine = G.orgs.find((o) => o.id === uid);
+      if (G.orgs.length) G.orgSay = mine ? (mine.mood < 32 ? `A ${mine.name} chegou ao estádio de cara fechada: hoje vão cobrar o time.` : `A ${mine.name} lota a arquibancada e canta sem parar.`) : `A ${G.orgs[0].name} marca presença na arquibancada.`;
+    }
     G.spTag = [sponsTag(st.sides[0].id), sponsTag(st.sides[1].id)];
     G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : SP_BRANDS[b][4]; });
     buildPlayers();
@@ -9360,6 +9568,7 @@ const Game2D = (() => {
   // ------------------------------------------------------------------ main step
   function step(dt) {
     G.time += dt;
+    if (G.orgs) { for (const o of G.orgs) if (o.cheer > 0) o.cheer -= dt; if (G.orgSay && G.time > 2.5) { say(G.orgSay, 1); G.orgSay = ''; } }
     if (G.msgT > 0) { G.msgT -= dt; if (G.msgT <= 0) setMsg(''); }
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 3);
     if (G.flash > 0) G.flash = Math.max(0, G.flash - dt);
@@ -9522,7 +9731,7 @@ const Game2D = (() => {
     const autoRun = G2PREF.autoRun !== false;
     const wantSprint = autoRun ? (mag > 0.6 && !KEYS.shift) : (!!I.sprint && mag > 0.05); // automatic sprint when the stick is pushed (Shift jogs), or only while the run button is held
     // sprint stamina: roughly 7 seconds of flat-out running, recovers while jogging
-    if (wantSprint && (w.x || w.y) && c.sta > 0.02) { c.sta = Math.max(0, c.sta - dt / ((6 + c.phy / 40) * (G.spPerk === 'energy' ? 1.2 : 1))); c.sprint = c.sta > 0.1; }
+    if (wantSprint && (w.x || w.y) && c.sta > 0.02) { c.sta = Math.max(0, c.sta - dt / ((6 + c.phy / 40) * (G.spPerk === 'energy' ? 1.2 : 1) * (1 + (G.fanSup || 0) * 0.08))); c.sprint = c.sta > 0.1; }
     else { c.sprint = false; c.sta = Math.min(1, c.sta + dt * 0.11); }
     for (const p of G.players) if (p !== c && p.team === 0 && p.sta < 1) p.sta = Math.min(1, p.sta + dt * 0.12);
     if (I.shootDown) I.hold = Math.min(1, I.hold + dt / 0.85);
@@ -9792,6 +10001,7 @@ const Game2D = (() => {
     }
     let spread = (0.03 + (1 - skill) * 0.15 + pressureOn(p) * 0.045 + Math.max(0, power - 0.8) * 0.12 + Math.max(0, d - 20) * 0.003) * (p.team === 1 ? G.D.shootErr : 1);
     if (G.spPerk === 'boots' && p.team === 0) spread *= 0.88; // the sports-gear sponsor
+    if (G.fanSup && p.team === 0) spread *= 1 - G.fanSup * 0.06; // the home crowd pushes (or boos) the team
     if (sup != null) spread *= sup < 0.45 ? 1.5 : sup > 1.02 ? 2.6 : sup > 0.95 ? 1.4 : 0.55; // sweet spot: accurate; too early or too late: wild
     const ang = Math.atan2(dy, dx) + grand() * spread;
     let hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
@@ -10766,6 +10976,7 @@ const Game2D = (() => {
     banner(team === 0 ? 'GOOOOL!' : `Gol ${tA(st.sides[k].id, 'do')}`, 2.4);
     say(og ? `Gol contra! Conta para ${tA(st.sides[k].id)}.` : `GOOOOL! ${nameOf(scorer)} marca para ${tA(st.sides[k].id)}${assist ? `, com assistência de ${pidName(assist)}` : ''}!`, 3);
     goalPopup(og ? 'Gol contra' : nameOf(scorer), mn, st.sides[k].id, assist ? pidName(assist) : '', fromPk);
+    if (G.orgs) for (const o of G.orgs) if (o.id === st.sides[k].id) o.cheer = 5;
     sfx('net', 1); sfx('roar', team === 0 ? 1 : 0.55);
     if (team === 0) confetti(k);
     updateHud(true);
@@ -11041,7 +11252,7 @@ const Game2D = (() => {
     G.moodT = 0.25;
     const b = G.ball;
     const danger = Math.max(0, 1 - Math.min(b.y, PL - b.y) / 30);
-    SFX.crowdGain.gain.setTargetAtTime(0.06 + danger * 0.1, SFX.ctx.currentTime, 0.4);
+    SFX.crowdGain.gain.setTargetAtTime(0.06 + danger * 0.1 + (G.orgs ? G.orgs.length * 0.025 : 0), SFX.ctx.currentTime, 0.4);
   }
   function sfxClose() { try { if (SFX.crowd) SFX.crowd.stop(); if (SFX.ctx) SFX.ctx.close(); } catch (e) { /* ignore */ } Object.assign(SFX, { ctx: null, master: null, crowd: null, crowdGain: null, noise: null }); }
 
@@ -11506,6 +11717,73 @@ const Game2D = (() => {
   const PX = (x, y) => T.a * x + T.c * y + T.e;
   const PY = (x, y) => T.b * x + T.d * y + T.f;
   function sdir(dx, dy) { return G.landscape ? { x: -dy, y: dx } : { x: dx, y: dy }; }
+  const ORG_PROTEST = ['RESPEITA ESSA CAMISA', 'DIRETORIA, ACORDA!', 'CADÊ O AMOR À CAMISA?', 'ELENCO SEM GARRA'];
+  function drawOrgs(s) {
+    if (!G.orgs || !G.orgs.length || G.tr) return;
+    const tm = G.time, W = cv.width, H = cv.height;
+    for (const o of G.orgs) {
+      const sg = o.top ? -1 : 1, yF = o.top ? -6.4 : PL + 6.4, x0 = PW / 2 - o.half, x1 = PW / 2 + o.half;
+      const cx = PX(PW / 2, yF), cy = PY(PW / 2, yF), mg = s * (o.half + 6);
+      if (cx < -mg || cx > W + mg || cy < -mg || cy > H + mg) continue;
+      const m = o.mood, low = m < 32, cheer = o.cheer > 0;
+      const act = cheer ? 1 : low ? 0 : m >= 65 ? 0.6 : 0.3;
+      const cols = [o.c1, o.c1, o.c2, '#ffffff'];
+      // heads, jumping to the beat
+      const rows = 5;
+      for (let r = 0; r < rows; r++) {
+        for (let i = 0, x = x0 + (r % 2) * 0.4; x < x1; i++, x += 0.8) {
+          const y = yF + sg * (1.3 + r * 1.0);
+          const bob = act * (0.5 + 0.5 * Math.sin(tm * (6 + m / 30) + i * 1.9 + r * 0.7)) * 0.4;
+          const px = PX(x, y), py = PY(x, y) - bob * s;
+          ctx.fillStyle = low ? '#2a2f36' : cols[(i * 3 + r + o.seed) % 4];
+          ctx.beginPath(); ctx.arc(px, py, s * 0.37, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#e9c9a8'; ctx.beginPath(); ctx.arc(px, py - s * 0.15, s * 0.17, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      // the banner along the front row
+      const q = [[x0, yF], [x1, yF], [x1, yF + sg * 0.95], [x0, yF + sg * 0.95]].map(([x, y]) => [PX(x, y), PY(x, y)]);
+      ctx.fillStyle = low ? '#111' : o.c1; ctx.strokeStyle = low ? '#e8e8e8' : o.c2; ctx.lineWidth = Math.max(1.5, s * 0.1);
+      ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); for (let i = 1; i < 4; i++) ctx.lineTo(q[i][0], q[i][1]); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.save();
+      ctx.translate((q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2);
+      if (G.landscape) ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = low ? '#ffffff' : lum(o.c1) > 0.6 ? '#101010' : '#ffffff';
+      ctx.font = `800 ${Math.round(s * 0.62)}px "Barlow Condensed","Arial Narrow",sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(low ? ORG_PROTEST[o.seed % ORG_PROTEST.length] : o.name.toUpperCase(), 0, 0);
+      ctx.restore();
+      // flags
+      const nf = low ? 0 : m >= 65 ? 9 : 5;
+      for (let f = 0; f < nf; f++) {
+        const xf = x0 + (x1 - x0) * (f + 0.5) / nf, bx = PX(xf, yF + sg * 1.0), by = PY(xf, yF + sg * 1.0);
+        const sway = Math.sin(tm * 3 + f * 1.3) * s * 0.25 * (act + 0.2), top = by - s * (2.6 + (cheer ? 0.6 : 0));
+        ctx.strokeStyle = '#3b2f24'; ctx.lineWidth = Math.max(1.5, s * 0.08);
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + sway, top); ctx.stroke();
+        const fw = s * 1.7, fh = s * 1.05, tx = bx + sway;
+        for (let k = 0; k < 2; k++) {
+          ctx.fillStyle = k ? o.c2 : o.c1;
+          ctx.beginPath();
+          for (let j = 0; j <= 6; j++) { const u = j / 6; ctx.lineTo(tx + u * fw, top + k * fh / 2 + Math.sin(tm * 6 + u * 4 + f) * s * 0.14 * u); }
+          for (let j = 6; j >= 0; j--) { const u = j / 6; ctx.lineTo(tx + u * fw, top + fh / 2 + k * fh / 2 + Math.sin(tm * 6 + u * 4 + f) * s * 0.14 * u); }
+          ctx.closePath(); ctx.fill();
+        }
+      }
+      // flares and smoke after a goal for this club
+      if (cheer) {
+        const a = Math.min(1, o.cheer / 2.5);
+        for (let f = 0; f < 6; f++) {
+          const xf = x0 + (x1 - x0) * (f + 0.5) / 6, bx = PX(xf, yF + sg * 2.2), by = PY(xf, yF + sg * 2.2);
+          const rise = (5 - o.cheer) * s * 0.55, r = s * (1.1 + (5 - o.cheer) * 0.35);
+          const col = f % 2 ? '255,70,40' : '255,255,255';
+          const g = ctx.createRadialGradient(bx, by - rise, 0, bx, by - rise, r);
+          g.addColorStop(0, `rgba(${col},${0.5 * a})`); g.addColorStop(1, `rgba(${col},0)`);
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by - rise, r, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = `rgba(255,${200 + (Math.sin(tm * 30 + f) > 0 ? 55 : 0)},120,${a})`;
+          ctx.beginPath(); ctx.arc(bx, by - s * 0.2, s * 0.12, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+  }
   function draw() {
     if (!TEX) buildTexture();
     const { W, H } = view();
@@ -11562,6 +11840,7 @@ const Game2D = (() => {
     ctx.globalAlpha = 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const s = SC;
+    drawOrgs(s);
     const b = G.ball;
     const replaying = G.state === 'replay';
     // controlled player ring, pass preview and the target of a pass in flight
@@ -14013,6 +14292,34 @@ act('spcQ', (el) => { UI.spc.q = el.value; UI.spc.page = 0; const pos = el.selec
 act('spcPerk', (el) => { UI.spc.perk = el.dataset.v; UI.spc.page = 0; refreshModal(); });
 act('spcPage', (el) => { UI.spc.page += +el.dataset.d; refreshModal(); });
 
+/* ===================== torcida: aba do escritório + respostas das mensagens ===================== */
+function fanBar(v, col) { return `<div style="height:12px;border-radius:7px;background:var(--panel2);overflow:hidden"><div style="height:100%;width:${Math.round(v)}%;background:${col}"></div></div>`; }
+function viewFans() {
+  if (!fanAvailable()) return '<div class="panel empty">A torcida só existe no modo de clubes com você como treinador.</div>';
+  const f = fanInit(), t = S.teams[f.team], orgs = fanOrgsOf(f.team);
+  const col = (v) => (v >= 62 ? 'var(--accent-hi)' : v >= 40 ? '#e0b43c' : '#d8503f');
+  const rec = f.recent.length ? f.recent.map((x) => `<span class="chip" style="background:${x === 'V' ? '#1c7a3e' : x === 'D' ? '#a8322a' : '#6b6f78'};color:#fff">${x}</span>`).join(' ') : '<span class="muted">sem jogos ainda</span>';
+  const pend = S.inbox.filter((m) => m.act && m.act.kind === 'fan' && !m.act.done).length;
+  return `<div class="grid g2" style="margin-bottom:16px">
+    <div class="panel"><h3>Torcida ${esc(tA(t.id, 'do'))} <span class="sub">${esc(fanLabel(f.mood))}</span></h3>${fanBar(f.mood, col(f.mood))}
+      <div class="muted" style="font-size:13px;margin-top:8px">Humor ${Math.round(f.mood)}/100. Sobe com vitórias e boas respostas; abaixo de 28 a diretoria e o elenco sentem a pressão, acima de 75 todo mundo joga mais solto.</div>
+      <div style="margin-top:10px">Últimos jogos: ${rec}</div></div>
+    <div class="panel"><h3>Organizada${orgs.length > 1 ? 's' : ''} <span class="sub">${t.c === 'BRA' ? 'só no Brasil' : 'não há torcidas organizadas fora do Brasil'}</span></h3>
+      ${t.c === 'BRA' ? `<div class="col" style="gap:8px">${orgs.map((o, i) => `<div class="row wrap" style="gap:10px"><span style="font-size:22px">🚩</span><b>${esc(o)}</b>${i === 0 ? '<span class="chip">principal</span>' : ''}</div>`).join('')}</div>
+      <div style="margin-top:10px">${fanBar(f.org, col(f.org))}</div><div class="muted" style="font-size:13px;margin-top:8px">Humor ${Math.round(f.org)}/100 (${esc(fanLabel(f.org))}). A organizada vai aos jogos, aparece em campo no modo 2D e cobra mais forte quando o time vai mal.</div>`
+      : '<p class="muted">As torcidas do seu clube são comuns: reclamam e vão ao estádio, mas sem organizada.</p>'}</div></div>
+    <div class="panel"><h3>Histórico <span class="sub">${pend ? pend + ' pendente' + (pend > 1 ? 's' : '') + ' na caixa de entrada' : 'tudo respondido'}</span></h3>
+      ${f.hist.length ? f.hist.slice(0, 10).map((h) => `<div class="row wrap" style="gap:10px;padding:6px 0;border-top:1px solid var(--line)"><span class="muted" style="width:70px">${fmtDate(h.d, 'short')}</span><div class="grow"><b>${esc(h.t)}</b><div class="muted" style="font-size:13px">${esc(h.r)}</div></div></div>`).join('') : '<div class="muted">Nada ainda. Eventos e reclamações chegam na caixa de entrada.</div>'}</div>`;
+}
+// inbox: choice buttons of a fan message
+function fanMsgActions(m) {
+  const a = m.act;
+  if (!a || a.kind !== 'fan') return '';
+  if (a.done) return `<div class="chip" style="margin-top:12px">Respondido</div><p class="muted" style="margin-top:8px">${esc(a.res || '')}</p>`;
+  return `<div class="col" style="gap:8px;margin-top:14px;align-items:flex-start">${a.opts.map((o, i) => `<button class="btn sm ${i === 0 ? 'primary' : ''}" data-a="fanAns" data-id="${m.id}" data-i="${i}">${esc(o.l)}</button>`).join('')}</div>`;
+}
+act('fanAns', (el) => { const r = fanAnswer(+el.dataset.id, +el.dataset.i); if (r) toast(r.length > 120 ? r.slice(0, 117) + '…' : r); render(); });
+
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); });
@@ -14031,6 +14338,6 @@ window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); 
   render();
 })();
 // test hook: the browser tests open the page with ?debug=1 to move the calendar on directly
-try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState, plWeek: () => plWeek(), sp: { month: () => sponsMonth(), after: (m) => sponsAfterMatch(m), bonus: (id) => sponsRatingBonus(id), perk: () => sponsPerk(), count: () => SP_BRANDS.length } }; } catch (e) { /* no location outside the browser */ }
+try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState, plWeek: () => plWeek(), fans: { week: () => fanWeek(), after: (m) => fanAfterMatch(m), init: () => fanInit(), orgs: (id) => fanOrgsOf(id), send: (i, o) => { const L = o ? FAN_ORG_EVENTS : FAN_EVENTS; const e = L[i % L.length]; const ev = o ? e.build(fanOrgsOf(S.user.team)[0] || 'Organizada') : e.build(); if (ev) fanSend(Object.assign({ id: e.id }, ev)); return !!ev; }, counts: () => [FAN_EVENTS.length, FAN_ORG_EVENTS.length] }, sp: { month: () => sponsMonth(), after: (m) => sponsAfterMatch(m), bonus: (id) => sponsRatingBonus(id), perk: () => sponsPerk(), count: () => SP_BRANDS.length } }; } catch (e) { /* no location outside the browser */ }
 
 })();
