@@ -1450,7 +1450,7 @@ function emptyState(opts) {
     user: { team: 0 }, teams: {}, players: {}, nations: {}, comps: {}, active: [], matches: {}, days: {}, tm: {},
     inbox: [], news: [], hist: [], titles: {}, lastTables: {}, board: { conf: 65, obj: '', objRank: 10 },
     tr: { offers: [], neg: [], log: [], short: [], counts: {} }, youth: { scouts: [], reports: [], squad: [], lastReport: 0 },
-    ultra: null, normal: null, flags: { potV2: 1, potV3: 1 }, seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
+    ultra: null, normal: null, flags: { potV2: 1, potV3: 1, braCut: 1 }, seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
   };
 }
 
@@ -1482,11 +1482,12 @@ function loadPlayersTeams(data) {
   }
   for (const id in S.teams) setBudgets(S.teams[id]);
 }
+const BRA_BUDGET_K = 0.4;
 function setBudgets(t) {
   const fin = t.fin || 2;
   const mf = moneyFactor();
   const base = [3e6, 8e6, 20e6, 45e6, 90e6, 160e6, 240e6][clamp(fin, 0, 6)];
-  t.budget = roundMoney(base * mf * (0.75 + rnd() * 0.5));
+  t.budget = roundMoney(base * mf * (0.75 + rnd() * 0.5) * (t.c === 'BRA' ? BRA_BUDGET_K : 1)); // Brazilian clubs have far less to spend
   const wages = sum(squadOf(t.id), (p) => p.w || 0);
   t.wb = Math.max(wages * 1.08, wages + 20000 * mf);
 }
@@ -3767,6 +3768,7 @@ async function loadSaveData(key) {
 function adoptState(obj) {
   S = obj;
   RNG.seed(S.rng || 1);
+  cutBraBudgets();
   purgeWomen2026(); // careers saved before the 2026 database fix
   if (S.flags && !S.flags.potV2) { // higher ceiling for the young talents of older careers (once)
     S.flags.potV2 = 1; S.flags.potV3 = 1;
@@ -3890,6 +3892,15 @@ function purgeWomen2026() {
   }
   S.purgedW = 1;
   return gone.size;
+}
+
+// saves made before the Brazilian clubs' budgets were cut: one-time reduction (not the user's own club if it was topped up with the admin button)
+function cutBraBudgets() {
+  if (!S.flags || S.flags.braCut) return;
+  S.flags.braCut = 1;
+  for (const id in S.teams) { const t = S.teams[id]; if (t.c === 'BRA' && !t.isNat && t.id !== (S.user && S.user.team)) t.budget = Math.round(t.budget * BRA_BUDGET_K); }
+  const u = S.user && S.teams[S.user.team];
+  if (u && u.c === 'BRA' && u.budget > 0 && !(S.spons && S.spons.total)) u.budget = Math.round(u.budget * BRA_BUDGET_K);
 }
 
 /* ===================== Copa Sul-Americana and Mundial de Clubes (ligas normais) ===================== */
