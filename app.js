@@ -124,6 +124,17 @@ const FORMATIONS = {
   '3-4-3': [['GK', 50, 4], ['CB', 72, 20], ['CB', 50, 18], ['CB', 28, 20], ['RM', 86, 48], ['CM', 60, 44], ['CM', 40, 44], ['LM', 14, 48], ['RW', 78, 74], ['ST', 50, 80], ['LW', 22, 74]],
   '5-3-2': [['GK', 50, 4], ['RB', 88, 32], ['CB', 70, 20], ['CB', 50, 18], ['CB', 30, 20], ['LB', 12, 32], ['CM', 68, 48], ['CDM', 50, 42], ['CM', 32, 48], ['ST', 60, 78], ['ST', 40, 78]],
   '5-4-1': [['GK', 50, 4], ['RB', 88, 30], ['CB', 70, 20], ['CB', 50, 18], ['CB', 30, 20], ['LB', 12, 30], ['RM', 82, 54], ['CM', 60, 46], ['CM', 40, 46], ['LM', 18, 54], ['ST', 50, 78]],
+  '4-4-1-1': [['GK', 50, 4], ['RB', 84, 26], ['CB', 62, 20], ['CB', 38, 20], ['LB', 16, 26], ['RM', 84, 52], ['CM', 60, 46], ['CM', 40, 46], ['LM', 16, 52], ['CAM', 50, 66], ['ST', 50, 82]],
+  '4-2-2-2': [['GK', 50, 4], ['RB', 84, 26], ['CB', 62, 20], ['CB', 38, 20], ['LB', 16, 26], ['CDM', 62, 40], ['CDM', 38, 40], ['CAM', 68, 62], ['CAM', 32, 62], ['ST', 60, 80], ['ST', 40, 80]],
+  '4-3-2-1': [['GK', 50, 4], ['RB', 84, 26], ['CB', 62, 20], ['CB', 38, 20], ['LB', 16, 26], ['CM', 70, 44], ['CDM', 50, 40], ['CM', 30, 44], ['CAM', 66, 64], ['CAM', 34, 64], ['ST', 50, 82]],
+  '4-1-2-1-2': [['GK', 50, 4], ['RB', 84, 26], ['CB', 62, 20], ['CB', 38, 20], ['LB', 16, 26], ['CDM', 50, 38], ['CM', 66, 50], ['CM', 34, 50], ['CAM', 50, 64], ['ST', 60, 80], ['ST', 40, 80]],
+  '4-2-4': [['GK', 50, 4], ['RB', 84, 26], ['CB', 62, 20], ['CB', 38, 20], ['LB', 16, 26], ['CM', 60, 44], ['CM', 40, 44], ['RW', 84, 72], ['ST', 60, 80], ['ST', 40, 80], ['LW', 16, 72]],
+  '3-4-1-2': [['GK', 50, 4], ['CB', 72, 20], ['CB', 50, 18], ['CB', 28, 20], ['RM', 86, 48], ['CM', 60, 44], ['CM', 40, 44], ['LM', 14, 48], ['CAM', 50, 64], ['ST', 60, 80], ['ST', 40, 80]],
+  '3-4-2-1': [['GK', 50, 4], ['CB', 72, 20], ['CB', 50, 18], ['CB', 28, 20], ['RM', 86, 48], ['CM', 60, 44], ['CM', 40, 44], ['LM', 14, 48], ['CAM', 66, 66], ['CAM', 34, 66], ['ST', 50, 82]],
+  '3-1-4-2': [['GK', 50, 4], ['CB', 72, 20], ['CB', 50, 18], ['CB', 28, 20], ['CDM', 50, 36], ['RM', 86, 54], ['CM', 62, 50], ['CM', 38, 50], ['LM', 14, 54], ['ST', 60, 78], ['ST', 40, 78]],
+  '5-2-3': [['GK', 50, 4], ['RB', 88, 32], ['CB', 70, 20], ['CB', 50, 18], ['CB', 30, 20], ['LB', 12, 32], ['CM', 62, 44], ['CM', 38, 44], ['RW', 80, 72], ['ST', 50, 80], ['LW', 20, 72]],
+  '5-2-1-2': [['GK', 50, 4], ['RB', 88, 32], ['CB', 70, 20], ['CB', 50, 18], ['CB', 30, 20], ['LB', 12, 32], ['CM', 62, 44], ['CM', 38, 44], ['CAM', 50, 62], ['ST', 60, 78], ['ST', 40, 78]],
+  '5-3-1-1': [['GK', 50, 4], ['RB', 88, 32], ['CB', 70, 20], ['CB', 50, 18], ['CB', 30, 20], ['LB', 12, 32], ['CM', 68, 48], ['CDM', 50, 42], ['CM', 32, 48], ['CAM', 50, 64], ['ST', 50, 80]],
 };
 const FORMATION_LIST = Object.keys(FORMATIONS);
 
@@ -8898,7 +8909,7 @@ const Game2D = (() => {
   function skillStars(dri) { return dri >= 84 ? 5 : dri >= 77 ? 4 : dri >= 70 ? 3 : dri >= 62 ? 2 : 1; }
   const SKILL_NEED = { feint: 1, spin: 2 };
   // the FINTA button picks a move among those unlocked by the stars
-  const FEINTS = [['feint', 1], ['roll', 2], ['nutmeg', 3], ['elastico', 4], ['rainbow', 5]];
+  const FEINTS = [['feint', 1], ['pedalada', 1], ['roll', 2], ['drag', 2], ['fakeshot', 2], ['nutmeg', 3], ['heel', 3], ['elastico', 4], ['rainbow', 5]];
   function makeSprite(p, team, k, pos, fx, fy, slot) {
     const sp = {
       team, side: k, pos, gk: pos === 'GK', slot, fx, fy,
@@ -9677,6 +9688,8 @@ const Game2D = (() => {
   // ------------------------------------------------------------------ main step
   function step(dt) {
     G.time += dt;
+    if (G.gkRush > 0) G.gkRush -= dt;
+    if (G.gkRushCD > 0) G.gkRushCD -= dt;
     if (G.slowPk && (!G.pk || G.pk.phase !== 'flight')) { G.slow = 1; G.slowPk = 0; } // a goal or a save ends the penalty slow motion for good
     if (G.orgs) { for (const o of G.orgs) if (o.cheer > 0) o.cheer -= dt; if (G.orgSay && G.time > 2.5) { say(G.orgSay, 1); G.orgSay = ''; } }
     if (G.msgT > 0) { G.msgT -= dt; if (G.msgT <= 0) setMsg(''); }
@@ -9896,8 +9909,9 @@ const Game2D = (() => {
     if (I.shoot) {
       I.shoot = false;
       const pw = clamp(0.3 + I.hold * 0.7, 0.3, 1);
+      const plc = !!I.plc; I.plc = false;
       I.hold = 0;
-      if (canKick) doUserShoot(c, w, pw);
+      if (canKick) doUserShoot(c, w, pw, plc);
       else if (looseNear) I.buf = { k: 'shoot', t: G.time, pw };
       else if (!has && c.slide <= 0 && c.fall <= 0 && !G.restartHold && G.state === 'play') {
         const t = b.owner && b.owner.team === 1 ? b.owner : b;
@@ -9909,7 +9923,7 @@ const Game2D = (() => {
   // GIRO (2★: a roulette spin), and the specials from 3★: CANETA (nutmeg through the defender's legs), ELÁSTICO (4★, a
   // flick out and in) and CHAPÉU (5★, the ball lifted over the defender). They fool the defenders around (more so with a
   // good dribbler) and make tackles harder for a moment
-  const SK_NAME = { feint: 'finta', roll: 'carretilha', spin: 'giro', nutmeg: 'caneta', elastico: 'elástico', rainbow: 'chapéu' };
+  const SK_NAME = { feint: 'finta', roll: 'carretilha', spin: 'giro', nutmeg: 'caneta', elastico: 'elástico', rainbow: 'chapéu', pedalada: 'pedalada', drag: 'puxada', fakeshot: 'finta de chute', heel: 'calcanhar' };
   function doSkill(c, w, btn) {
     const need = SKILL_NEED[btn] || 1;
     if (c.stars < need) { hint(`${nameOf(c)} tem ${c.stars}★ de finta e este drible pede ${need}★.`); return; }
@@ -9941,6 +9955,18 @@ const Game2D = (() => {
       const mv = nrm(d.x * 0.7 + perp.x * side * 0.6, d.y * 0.7 + perp.y * side * 0.6);
       sk.dx = mv.x; sk.dy = mv.y; sk.side = side; sk.sp = 1.0;
     }
+    else if (kind === 'pedalada') { // double step-over: a slower, wider cut
+      const dir = nrm(d.x * 0.7 + perp.x * side * 0.7, d.y * 0.7 + perp.y * side * 0.7); sk.t = sk.T = 0.6; sk.dx = dir.x; sk.dy = dir.y; sk.sp = 1.12;
+    } else if (kind === 'drag') { // puxada: the sole pulls the ball back, then he leaves to the side
+      sk.t = sk.T = 0.6; const bk = nrm(-d.x * 0.7 + perp.x * side * 0.3, -d.y * 0.7 + perp.y * side * 0.3), go = nrm(d.x * 0.55 + perp.x * side * 0.85, d.y * 0.55 + perp.y * side * 0.85);
+      sk.dx = bk.x; sk.dy = bk.y; sk.sp = 0.7; sk.dx2 = go.x; sk.dy2 = go.y; sk.sp2 = 1.32;
+    } else if (kind === 'fakeshot') { // finta de chute: stops as if to shoot, then bursts away
+      sk.t = sk.T = 0.58; const go = nrm(d.x * 0.5 + perp.x * side * 0.9, d.y * 0.5 + perp.y * side * 0.9);
+      sk.dx = d.x * 0.15; sk.dy = d.y * 0.15; sk.sp = 0.5; sk.dx2 = go.x; sk.dy2 = go.y; sk.sp2 = 1.4; sk.fake = true;
+    } else if (kind === 'heel') { // calcanhar: backheels the ball past himself and spins after it
+      sk.t = sk.T = 0.62; const go = nrm(d.x * 0.8 + perp.x * side * 0.5, d.y * 0.8 + perp.y * side * 0.5);
+      sk.dx = d.x * 0.1; sk.dy = d.y * 0.1; sk.sp = 0.45; sk.dx2 = go.x; sk.dy2 = go.y; sk.sp2 = 1.38;
+    }
     else if (kind === 'nutmeg') { sk.t = sk.T = 0.55; sk.sp = 1.28; }
     else if (kind === 'elastico') { // out to one side, then sharply back across
       sk.t = sk.T = 0.58; sk.sp = 1.22;
@@ -9957,7 +9983,7 @@ const Game2D = (() => {
     const bonus = (c.stars - 3) * 0.04;
     if (opp && od < reach) {
       const base = kind === 'nutmeg' ? 0.34 : kind === 'rainbow' ? 0.5 : 0.4;
-      const pr = clamp(base + (c.dri - opp.def) / 110 + (kind === 'spin' || kind === 'elastico' || kind === 'roll' ? 0.1 : 0) + bonus, 0.15, 0.88);
+      const pr = clamp(base + (c.dri - opp.def) / 110 + (kind === 'spin' || kind === 'elastico' || kind === 'roll' || kind === 'drag' || kind === 'heel' ? 0.1 : 0) + bonus, 0.15, 0.88);
       if (Math.random() < pr) {
         opp.cool = Math.max(opp.cool, kind === 'feint' ? 0.6 : 0.85);
         if (Math.random() < 0.3 || kind === 'elastico') opp.fall = Math.max(opp.fall, 0.4);
@@ -10008,11 +10034,20 @@ const Game2D = (() => {
     G.shake = 0.7;
     sfx('kick', 1);
   }
-  function doUserShoot(c, w, pw) {
+  // the user sends the keeper out (drag TROCAR down, or G): a few seconds of a sweeper-keeper rush
+  function startGkRush() {
+    if (!G || G.solo || G.state !== 'play' || G.restartHold || G.paused) return;
+    if ((G.gkRushCD || 0) > 0) { hint('Goleiro ainda se recompondo…'); return; }
+    const b = G.ball, k = keeperOf(0);
+    if (!k || (b.owner && b.owner.team === 0) || k.dive) return;
+    G.gkRush = 2.8; G.gkRushCD = 5;
+    banner('GOLEIRO SAI!', 0.9);
+  }
+  function doUserShoot(c, w, pw, placed) {
     hint('');
     if (G.restartHold && (G.setKind === 'throw' || G.setKind === 'kickoff')) { userPass(c, w, false); return; }
     if (G.restartHold && G.setKind === 'corner') { cornerKick(c, zoneFromStick(c, w)); return; }
-    shoot(c, w.x, pw);
+    shoot(c, w.x, pw, null, !!placed);
   }
   // PASSE: to feet; LANÇAR: into the space in front of a runner (lofted when the lane is closed or it is long);
   // in front of goal with the keeper off his line, LANÇAR is a chip
@@ -10087,7 +10122,7 @@ const Game2D = (() => {
     if (q) q.runT = Math.max(q.runT, through ? 1.4 : 0);
     if (!G.auto && q && p.team === 0 && (through || d > 28)) say(through ? `${nameOf(p)} enfia para ${nameOf(q)}!` : `${nameOf(p)} lança para ${nameOf(q)}.`, 0);
   }
-  function shoot(p, ax, power, sup) {
+  function shoot(p, ax, power, sup, placed) {
     const b = G.ball, st = G.st;
     const up = p.team === 0;
     const gy = up ? 0 : PL;
@@ -10095,26 +10130,33 @@ const Game2D = (() => {
     let aimX;
     if (Math.abs(ax) > 0.25) aimX = PW / 2 + Math.sign(ax) * (1.4 + Math.min(1, Math.abs(ax)) * 2.1);
     else aimX = PW / 2 + (gk && gk.x > PW / 2 ? -1 : 1) * (1.8 + Math.random() * 1.4);
+    if (placed && sup == null) { // CHUTE COLOCADO: the inside of the foot to the corner away from the keeper (or where the stick points)
+      const sd = Math.abs(ax) > 0.25 ? Math.sign(ax) : (gk && gk.x > PW / 2 ? -1 : 1);
+      aimX = PW / 2 + sd * 3.15;
+    }
     let dx = aimX - b.x;
     const dy = gy - b.y, d = Math.hypot(dx, dy);
     const skill = p.sho / 100;
     let vh = 13 + power * 17 + (p.sho - 70) * 0.05;
+    if (placed && sup == null) vh *= 0.84;
     if (sup != null) vh *= 1.2 + 0.16 * Math.min(1, sup); // super shot: a rocket
     const t = d / vh;
     // placed (not blasted) shots to a corner bend back inside the post: start them a little wide
     let curve = 0;
     const side = Math.sign(aimX - PW / 2) || 1;
-    if (sup == null && Math.abs(aimX - PW / 2) > 2 && power < 0.85 && d > 9) {
-      const mag = 2 + Math.random() * 2.5, kd = 2.2;
+    if (sup == null && Math.abs(aimX - PW / 2) > 2 && (power < 0.85 || placed) && d > 9) {
+      const mag = placed ? 3.4 + Math.random() * 1.4 : 2 + Math.random() * 2.5, kd = 2.2;
       dx += side * (mag / kd) * (t - (1 - Math.exp(-kd * t)) / kd);
       curve = -side * mag * (up ? 1 : -1);
     }
     let spread = (0.03 + (1 - skill) * 0.15 + pressureOn(p) * 0.045 + Math.max(0, power - 0.8) * 0.12 + Math.max(0, d - 20) * 0.003) * (p.team === 1 ? G.D.shootErr : 1);
+    if (placed && sup == null) spread *= 0.55;
     if (G.spPerk === 'boots' && p.team === 0) spread *= 0.88; // the sports-gear sponsor
     if (G.fanSup && p.team === 0) spread *= 1 - G.fanSup * 0.06; // the home crowd pushes (or boos) the team
     if (sup != null) spread *= sup < 0.45 ? 1.5 : sup > 1.02 ? 2.6 : sup > 0.95 ? 1.4 : 0.55; // sweet spot: accurate; too early or too late: wild
     const ang = Math.atan2(dy, dx) + grand() * spread;
     let hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
+    if (placed && sup == null) hg = 0.15 + Math.random() * 0.6;
     if (sup != null) hg = sup > 1.02 ? 2.6 + Math.random() * 1.6 : 0.2 + Math.random() * 0.9; // low and hard, unless it was held too long
     // direct free kick: the ball is lifted over the wall and comes down towards the goal (it used to stop in the wall)
     const fk = !!(G.fk && G.fk.taker === p && G.time - G.fk.t < 10 && d > 14);
@@ -10294,7 +10336,7 @@ const Game2D = (() => {
       if (has && G.restartHold) { p.wx = 0; p.wy = 0; return; }
       const s = p.speed * (p.sprint ? 1 : 0.8) * (has ? 0.92 : 1) * (p.sta < 0.15 ? 0.94 : 1);
       p.wx = p.inX * s; p.wy = p.inY * s;
-      if (p.sk) { const k = p.sk, back = k.dx2 !== undefined && k.t < k.T * 0.5; p.wx = (back ? k.dx2 : k.dx) * p.speed * k.sp; p.wy = (back ? k.dy2 : k.dy) * p.speed * k.sp; }
+      if (p.sk) { const k = p.sk, back = k.dx2 !== undefined && k.t < k.T * 0.5; const sp2 = back ? (k.sp2 || k.sp) : k.sp; p.wx = (back ? k.dx2 : k.dx) * p.speed * sp2; p.wy = (back ? k.dy2 : k.dy) * p.speed * sp2; }
       if (G.restartHold && b.owner && b.owner.team === 1) keepDistance(p);
       if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.3) tryTackle(p, b.owner, 0.08);
       return;
@@ -10682,6 +10724,19 @@ const Game2D = (() => {
       if (pl.mode === 'dive' && G.time >= pl.launchAt) { gkLaunch(p, pl); return; }
       moveTo(p, pl.stepX, p.y, pl.mode === 'watch' ? 0.5 : 1.15);
       return;
+    }
+    // SAÍDA DO GOLEIRO (user button): the keeper rushes out to the ball / the carrier and smothers it
+    if (p.team === 0 && G.gkRush > 0 && !G.restartHold && G.state === 'play') {
+      const tgt = own && own.team === 1 ? own : b;
+      if (own && own.team === 0) G.gkRush = 0;
+      else {
+        const ty = Math.max(PL - 40, tgt.y + (tgt.y < p.y ? 0.6 : 0));
+        moveTo(p, tgt.x, ty, 1.3, 1.4);
+        const dd = Math.hypot(tgt.x - p.x, tgt.y - p.y);
+        if (own && own.team === 1 && dd < 2.4 && p.tackT <= 0) { gkSmother(p, own); G.gkRush = 0; }
+        else if (!own && dd < 1.4 && b.z < 1.2) { take(p); p.holdT = 1.0; G.gkRush = 0; }
+        return;
+      }
     }
     // crosses: decide once per ball in the air whether to come for it
     if (!own && !G.restartHold && b.z > 0.5) {
@@ -11075,11 +11130,14 @@ const Game2D = (() => {
     Object.assign(b, { inGoal: true, owner: null, shot: null, passer: null, target: null, assist: null, curve: 0 });
     b.vx *= 0.35; b.vy *= 0.35;
     const celebrant = scorer || nearestTo(team, b.x, b.y, true);
-    G.celebr = celebrant ? { scorer: celebrant, cx: b.x < PW / 2 ? 3 : PW - 3, cy: goalTop ? 4 : PL - 4 } : null;
-    G.state = 'goal'; G.stateT = 2.8; G.nextKick = 1 - team;
+    G.celebr = celebrant ? { scorer: celebrant, cx: b.x < PW / 2 ? 3 : PW - 3, cy: goalTop ? 4 : PL - 4, kind: null, t0: G.time, lastK: null, lastT: -9 } : null;
+    const mine = !!G.celebr && celebrant.team === 0 && !G.auto && !G.solo;
+    if (G.celebr && !mine) { const ks = Object.keys(CELEBS); G.celebr.kind = ks[Math.floor(Math.random() * ks.length)]; }
+    G.state = 'goal'; G.stateT = mine ? 3.8 : 2.8;
+    if (mine) hint('COMEMORE! Toque os botões: CHUTE=joelhada · PASSE=aviãozinho · LANÇAR=mortal · FINTA=silêncio · GIRO=dança · TROCAR=agradece · SUPER=abraço · ou combine 2 (PASSE+CHUTE ❤️)'); G.nextKick = 1 - team;
     G.restartHold = true;
     G.pk = null;
-    hint('');
+    if (!mine) hint('');
     G.recGoalIdx = G.rec.length - 1; G.goalTop = goalTop; G.goalX = b.x;
     net(goalTop, b.x);
     if (!G.auto) { G.shake = 0.6; G.flash = 0.5; }
@@ -11101,12 +11159,38 @@ const Game2D = (() => {
     p.vx = p.vy = p.wx = p.wy = 0;
     if (d.t <= 0) p.gz = 0;
   }
+  // GOAL CELEBRATIONS: a button after the goal picks one; two buttons together (within half a second) make a combo
+  const CELEBS = {
+    slide: ['🧎', 'Joelhada'], plane: ['✈️', 'Aviãozinho'], flip: ['🤸', 'Mortal'], shush: ['🤫', 'Silêncio'], dance: ['💃', 'Dancinha'],
+    sky: ['🙏', 'Agradece aos céus'], huddle: ['🤝', 'Abraço coletivo'],
+    heart: ['❤️', 'Coração'], baby: ['👶', 'Embalando o bebê'], salute: ['🫡', 'Continência'], robot: ['🤖', 'Robô'], bow: ['🙇', 'Reverência'], conga: ['🎉', 'Trenzinho'],
+  };
+  const CEL_SINGLE = { shoot: 'slide', pass: 'plane', lob: 'flip', feint: 'shush', spin: 'dance', swap: 'sky', super: 'huddle' };
+  const CEL_COMBO = { 'pass+shoot': 'heart', 'lob+shoot': 'baby', 'lob+pass': 'salute', 'feint+spin': 'robot', 'pass+swap': 'bow', 'spin+super': 'conga', 'shoot+super': 'huddle' };
+  const CEL_GROUP = { huddle: 1.3, heart: 2.4, baby: 2.0, salute: 2.4, robot: 2.2, bow: 2.2, conga: 3.2 };
+  function celebInput(k) {
+    const c = G.celebr;
+    if (!c || c.scorer.team !== 0 || !CEL_SINGLE[k]) return false;
+    let kind = CEL_SINGLE[k];
+    if (c.lastK && c.lastK !== k && G.time - c.lastT < 0.5) kind = CEL_COMBO[[c.lastK, k].sort().join('+')] || kind;
+    c.lastK = k; c.lastT = G.time; c.kind = kind; c.t0 = G.time;
+    banner(`${CELEBS[kind][0]} ${CELEBS[kind][1]}!`, 1.4);
+    G.stateT = Math.max(G.stateT, 2.4); hint('');
+    return true;
+  }
   function idle(dt) {
     const sc = G.celebr, pk = G.pk, b = G.ball;
     for (const p of G.players) {
       if (p.out) continue;
-      if (G.state === 'goal' && sc && p === sc.scorer) moveTo(p, sc.cx, sc.cy, 1);
-      else if (G.state === 'goal' && sc && p.team === sc.scorer.team && !p.gk) moveTo(p, sc.scorer.x + (p.fx - 0.5) * 5, sc.scorer.y + (p.team === 0 ? 2.5 : -2.5), 0.95);
+      if (G.state === 'goal' && sc && p === sc.scorer) {
+        const kd = sc.kind;
+        if (kd === 'plane') moveTo(p, sc.cx + Math.sin((G.time - sc.t0) * 2.2) * 9, sc.cy + 5 + Math.cos((G.time - sc.t0) * 2.2) * 3, 1.2);
+        else if (kd === 'slide') moveTo(p, sc.cx, sc.cy + (sc.cy < PL / 2 ? 9 : -9), 1.45);
+        else if (kd === 'conga') moveTo(p, PW / 2 + Math.sin((G.time - sc.t0) * 1.6) * 14, PL / 2 + (sc.cy < PL / 2 ? -8 : 8), 1);
+        else if (CEL_GROUP[kd]) moveTo(p, sc.cx + (sc.cx < PW / 2 ? 6 : -6), sc.cy + (sc.cy < PL / 2 ? 6 : -6), 1);
+        else moveTo(p, sc.cx, sc.cy, 1);
+      }
+      else if (G.state === 'goal' && sc && p.team === sc.scorer.team && !p.gk) { const gp = CEL_GROUP[sc.kind] || 5; moveTo(p, sc.scorer.x + (p.fx - 0.5) * gp, sc.scorer.y + (p.team === 0 ? gp / 2 : -gp / 2), 0.95); }
       else if (pk && p === pk.gk && p.dive && p.dive.t > 0) { penDive(p, dt); }
       else if (pk && p === pk.gk && pk.phase !== 'flight' && !p.dive) { p.gz = 0; moveTo(p, PW / 2 + Math.sin(G.time * 3.2) * 0.8, p.y, 0.4); }
       else if (pk && p === pk.taker && pk.run) moveTo(p, b.x - 0.15, b.y - pk.fwd * 0.55, 0.55);
@@ -11454,7 +11538,7 @@ const Game2D = (() => {
       <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
       <div class="g2d-controls"><div class="joy" id="g2-joy" data-k="joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
-        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR</button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE</button></div></div>
+        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR<small>↓ goleiro sai</small></button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE<small>↑ colocado</small></button></div></div>
       <div class="g2-laybar" id="g2-laybar" hidden><div class="t">Arraste os botões para onde quiser · toque num botão e use − / + para o tamanho</div><div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn sm" data-l="minus">−</button><button class="btn sm" data-l="plus">+</button><button class="btn sm" data-l="reset">Padrão</button><button class="btn sm gold" data-l="done">Pronto</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
@@ -11495,8 +11579,23 @@ const Game2D = (() => {
     joy.addEventListener('pointercancel', endJoy);
     root.querySelectorAll('.pad').forEach((btn) => {
       const k = btn.dataset.k;
-      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.classList.add('on'); press(k, true); });
-      const up = () => { if (!btn.classList.contains('on')) return; btn.classList.remove('on'); press(k, false); };
+      let y0 = 0, drag = 0;
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); btn.classList.add('on'); y0 = e.clientY; drag = 0;
+        try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not capturable */ }
+        if (k !== 'swap') press(k, true);
+      });
+      btn.addEventListener('pointermove', (e) => {
+        if (!G || !btn.classList.contains('on')) return;
+        const dy = e.clientY - y0;
+        if (k === 'shoot') { const on = dy < -26; if (on !== !!G.input.plc) { G.input.plc = on; btn.classList.toggle('plc', on); } }
+        else if (k === 'swap') { drag = dy > 26 ? 1 : 0; btn.classList.toggle('plc', !!drag); }
+      });
+      const up = () => {
+        if (!btn.classList.contains('on')) return; btn.classList.remove('on'); btn.classList.remove('plc');
+        if (k === 'swap') { if (drag) startGkRush(); else press('swap', true); drag = 0; return; }
+        press(k, false);
+      };
       btn.addEventListener('pointerup', up);
       btn.addEventListener('pointercancel', up);
       btn.addEventListener('pointerleave', up);
@@ -11606,6 +11705,7 @@ const Game2D = (() => {
     const I = G.input;
     if (down && G.state === 'replay') { endReplay(); return; }
     if (down && G.state === 'intro') { G.stateT = 0; return; }
+    if (G.state === 'goal' && G.celebr && G.celebr.scorer.team === 0 && k !== 'sprint') { if (down) celebInput(k); return; }
     if (k === 'sprint') I.sprint = down;
     else if (k === 'pass') { if (down) I.pass = true; }
     else if (k === 'lob') { if (down) I.lob = true; }
@@ -11630,12 +11730,18 @@ const Game2D = (() => {
     if (G.paused) return;
     if (down && e.repeat) return;
     if (down && (G.state === 'replay' || G.state === 'intro') && ['j', 'k', 'l', ' ', 'enter'].includes(k)) { press('pass', true); return; }
+    if (down && G.state === 'goal' && G.celebr && G.celebr.scorer.team === 0) {
+      const km = { j: 'pass', l: 'lob', i: 'feint', o: 'spin', q: 'swap', e: 'swap', k: 'shoot', ' ': 'shoot', u: 'super' };
+      if (km[k]) { celebInput(km[k]); return; }
+    }
     KEYS[k] = down;
     if (k === 'shift') G.input.sprint = down;
     if (k === 'j' && down) G.input.pass = true;
     if (k === 'l' && down) G.input.lob = true;
     if ((k === 'q' || k === 'e') && down) G.input.swap = true;
     if (k === 'v' && down) callForBall();
+    if (k === 'g' && down) startGkRush();
+    if (k === 'h') G.input.plc = down;
     if (k === 'i' && down) G.input.skill = 'feint';
     if (k === 'o' && down) G.input.skill = 'spin';
     if (k === 'k' || k === ' ') press('shoot', down);
@@ -12159,6 +12265,13 @@ const Game2D = (() => {
     const diving = rp ? p.rDive : p.diveT > 0;
     let lift = 0, alpha = 1;
     if (G.state === 'ufo' && G.ufo && G.ufo.vic === p) { lift = Math.max(0, G.ufo.t - 0.6) * s * 3.2; alpha = clamp(1 - (G.ufo.t - 1.1) / 0.6, 0, 1); if (alpha <= 0) return; }
+    const cel = G.state === 'goal' && G.celebr && G.celebr.kind && p === G.celebr.scorer ? G.celebr : null;
+    if (cel) {
+      const ct = G.time - cel.t0;
+      if (cel.kind === 'flip') lift += ct < 0.9 ? Math.abs(Math.sin(ct * Math.PI / 0.9)) * s * 1.1 : 0;
+      else if (cel.kind === 'dance' || cel.kind === 'robot' || cel.kind === 'conga') lift += Math.abs(Math.sin(ct * 7)) * s * 0.18;
+      else if (cel.kind === 'sky') lift += Math.abs(Math.sin(ct * 3)) * s * 0.1;
+    }
     ctx.globalAlpha = alpha;
     const ol = 'rgba(0,0,0,0.38)', lw = Math.max(1, s * 0.055);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -12177,6 +12290,7 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.78 + pu * 0.12), s * (0.34 + pu * 0.06), 0, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = 'rgba(80,220,255,0.9)'; ctx.beginPath(); ctx.moveTo(X, Y - s * 2.75 - pu * s * 0.1); ctx.lineTo(X - s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.lineTo(X + s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.closePath(); ctx.fill();
     }
+    if (cel) { ctx.font = `${Math.round(s * 0.95)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(CELEBS[cel.kind][0], X, Y - lift - s * 2.5); }
     Y -= lift + ((!diving && p.gk) ? (rp ? p.rGz || 0 : p.gz || 0) * s * 0.55 : 0);
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
@@ -12272,7 +12386,7 @@ const Game2D = (() => {
     const sk = !rp && p.sk ? p.sk : null;
     const skP = sk ? 1 - sk.t / sk.T : 0; // progress of a dribble move
     const spin = sk && sk.kind === 'spin';
-    const feint = sk && (sk.kind === 'feint' || sk.kind === 'roll' || sk.kind === 'nutmeg' || sk.kind === 'elastico');
+    const feint = sk && (sk.kind === 'feint' || sk.kind === 'roll' || sk.kind === 'nutmeg' || sk.kind === 'elastico' || sk.kind === 'pedalada' || sk.kind === 'drag' || sk.kind === 'fakeshot' || sk.kind === 'heel');
     const rainbow = sk && sk.kind === 'rainbow';
     const rollOn = sk && sk.kind === 'roll' && G.ball.owner === p;
     const rollB = rollOn ? { x: PX(G.ball.x, G.ball.y), y: PY(G.ball.x, G.ball.y) } : null;
@@ -12507,7 +12621,7 @@ const Game2D = (() => {
     dot(G.ball.x, G.ball.y, r * 0.85, '#ffffff');
   }
 
-  return { start, startShootoutOnly, startTraining, SKINS, HAIRS, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), get _G() { return G; } };
+  return { start, startShootoutOnly, startTraining, SKINS, HAIRS, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), _gkRush: startGkRush, _celeb: celebInput, _shoot: shoot, _skill: doSkill, get _G() { return G; } };
 })();
 // test hook: the browser tests open the page with ?debug=1 to drive the match directly
 try { if (/[?&]debug=1\b/.test(location.search)) window.__g2d = Game2D; } catch (e) { /* no location outside the browser */ }
