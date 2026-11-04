@@ -2218,7 +2218,7 @@ function retirePlayer(p) {
 function releasePlayer(p, free) {
   if (p.t) { const t = S.teams[p.t]; if (t) t.sq = t.sq.filter((x) => x !== p.id); removeFromLineups(p.id); }
   p.t = 0; p.tl = 0; p.ll = 0; p.rn = 0; p.loan = null;
-  p.ct = 0; p.fd = S.date;
+  p.ct = 0; p.fd = S.date; p.fw = null;
   _faCache = null;
 }
 function removeFromLineups(pid) {
@@ -2416,7 +2416,7 @@ function executeTransfer(p, toTeam, fee, opts = {}) {
   const fromT = S.teams[from], toT = S.teams[toTeam];
   if (fromT) { fromT.budget += fee; bumpCount(from); }
   if (toT) { toT.budget -= fee; bumpCount(toTeam); }
-  movePlayer(p, toTeam, { ct: opts.ct, w: opts.w });
+  movePlayer(p, toTeam, { ct: opts.ct, w: opts.w, loan: !!opts.loanFrom });
   if (opts.loanFrom) p.loan = { from: opts.loanFrom, until: opts.until, o: p.o, g: 0 }; // o, g: overall at the start, games played
   const rec = { d: S.date, pid: p.id, n: p.n, from, to: toTeam, fee, loan: !!opts.loanFrom, o: p.o };
   S.tr.log.unshift(rec);
@@ -2465,6 +2465,7 @@ function aiTransferDay(fast) {
   // free agents can sign at any time of the year (more in the windows)
   aiFreeAgentDay(open ? 0.05 : 0.02, open && ((t.m === 8 && t.d >= 24) || (t.m === 1 && t.d >= 24)));
   if (!open) return;
+  aiLoanDay(open);
   const ids = activeClubIds().filter((id) => !isCoachTeam(id));
   const closing = (t.m === 8 && t.d >= 24) || (t.m === 1 && t.d >= 24);
   const last = (t.m === 1 && t.d >= 28);
@@ -2519,6 +2520,7 @@ function aiFreeAgentDay(prob, closing) {
     let seen = 0;
     for (const p of pool) {
       if (p.t) continue; // signed meanwhile
+      if (faWait(p)) continue;
       if (p.o > lvl + 7) continue; // too good for this club
       if (p.o < minO) break; // list is sorted by overall
       if (p.age > 35 || !posList.includes(p.p)) continue;
@@ -2530,6 +2532,12 @@ function aiFreeAgentDay(prob, closing) {
     }
     if (best) aiSignFree(best, t);
   }
+}
+// a free agent stays on the market for a few days: nobody signs him before his own waiting time is over
+function faWait(p) {
+  if (!p.fd) p.fd = S.date;
+  if (p.fw == null) p.fw = rint(1, 8);
+  return S.date - p.fd < p.fw;
 }
 // weekly: good players do not stay long without a club; old/weak ones fade away
 function freeAgentWeek() {
@@ -2601,6 +2609,38 @@ function aiTryBuy(t, closing) {
   const fee = best.p.t ? roundMoney(best.price * rfloat(0.92, 1.15)) : 0;
   executeTransfer(best.p, t.id, fee, { w: best.wage, ct: seasonEndYear() + rint(2, 5) });
   if (squadOf(t.id).length > 30) aiSellSurplus(t);
+}
+// AI clubs also take players on loan: a smaller club borrows a surplus/young player of a bigger one (not a star who would refuse)
+function aiLoanDay() {
+  const ids = activeClubIds().filter((id) => !isCoachTeam(id) && S.teams[id] && !S.teams[id].ext && !S.teams[id].isNat);
+  for (const tid of ids) {
+    if (rnd() > 0.035) continue;
+    const t = S.teams[tid];
+    if (squadOf(tid).length >= 29 || squadOf(tid).filter((q) => q.loan && q.t === tid).length >= 3) continue;
+    const need = aiNeed(t);
+    if (!need) continue;
+    const lvl = teamRating(tid);
+    const posList = [need.pos].concat(Object.keys(COMPAT[need.pos] || {}).filter((x) => x !== need.pos).slice(0, 2));
+    const pool = marketPool();
+    let best = null, bs = -1e9;
+    for (const pos of posList) {
+      const arr = pool[pos] || [];
+      for (let k = 0; k < 40; k++) {
+        const p = arr[Math.floor(rnd() * arr.length)];
+        if (!p || !p.t || p.t === tid || p.loan || p.o < Math.max(need.cur + 1, lvl - 6) || p.o > lvl + 3) continue;
+        if (p.age > 31 || (p.joined && S.date - p.joined < 200)) continue;
+        if (isCoachTeam(p.t) || p.t === S.user.team || (S.pl && p.id === S.pl.pid)) continue;
+        const from = S.teams[p.t];
+        if (!from || from.ext || from.isNat || teamRating(p.t) < lvl + 2) continue; // loaned out by a bigger club
+        const sq = squadOf(p.t).sort(by((x) => x.o, -1));
+        if (sq.findIndex((x) => x.id === p.id) < 12 && p.age > 22) continue; // a regular starter stays
+        if (squadOf(p.t).length <= 20 || loanSnub(p, t)) continue;
+        const sc = (p.o - (need.cur || lvl)) * 3 + (p.age <= 23 ? 3 : 0) + rnd() * 2;
+        if (sc > bs) { bs = sc; best = p; }
+      }
+    }
+    if (best) executeTransfer(best, tid, 0, { loanFrom: best.t, until: seasonEndDay(), w: wageDemand(best, t) });
+  }
 }
 function aiSellSurplus(t, force) {
   const sq = squadOf(t.id).filter((p) => !isCoachTeam(p.t) && !(S.pl && p.id === S.pl.pid) && !(p.joined && S.date - p.joined < 120)).sort(by((p) => p.o + (p.age <= 21 ? 6 : 0)));
