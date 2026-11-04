@@ -1566,6 +1566,7 @@ async function createWorld(opts) {
   loadPlayersTeams(DATA);
   setupStructures(DATA);
   setupNations();
+  if (S.mode === 'normal') { const d0 = S.date; if (!S.date) S.date = dayOf(S.era, 7, 1); ensureBraPyramid(true); S.date = d0; }
   if (S.mode === 'national') prepareNationalPools();
   return S;
 }
@@ -1810,7 +1811,14 @@ function createSASeason(y, initial) {
     const single = lg.teams.length > 24;
     makeLeague({ key: lg.id, name: lg.name, short: lg.id, zone: 'SA', season: label, year: y, teams: lg.teams.slice(), single,
       down: lg.down, country: lg.country, lgId: lg.id, rr: lg.rr });
-    if (lg.bank.length >= 2) {
+    if (lg.id === 'BRA') ensureBraPyramid();
+    if (lg.tiers) {
+      braTiers(lg).forEach((tm, i) => {
+        if (tm.length < 2) return;
+        makeLeague({ key: lg.id + (i + 2), name: BRA_TIER_NAMES[i + 2], short: lg.id + (i + 2), zone: 'SA', season: label, year: y, teams: tm.slice(),
+          single: tm.length > 24, up: lg.down, down: i < 2 ? lg.down : 0, tier: i + 2, country: lg.country, second: true, lgId: lg.id });
+      });
+    } else if (lg.bank.length >= 2) {
       makeLeague({ key: lg.id + '2', name: LEAGUE_NAMES2[lg.id] || lg.name + ' 2', short: lg.id + '2', zone: 'SA', season: label, year: y,
         teams: lg.bank.slice(), up: lg.down, country: lg.country, second: true, lgId: lg.id });
     }
@@ -1902,7 +1910,7 @@ function archiveZone(zone) {
     if (!c) continue;
     const z = c.zone === 'UEFA' ? 'EU' : c.zone;
     if (z !== zone) { keep.push(cid); continue; }
-    if (c.kind === 'league' && c.lgId) S.lastTables[c.second ? c.lgId + '2' : c.lgId] = sortTable(c.table, c.teams).map((r) => r.id);
+    if (c.kind === 'league' && c.lgId) S.lastTables[c.second ? c.lgId + (c.tier || 2) : c.lgId] = sortTable(c.table, c.teams).map((r) => r.id);
     if (c.kind === 'league' && c.key.startsWith('UL')) S.lastTables[c.key] = sortTable(c.table, c.teams).map((r) => r.id);
     // delete matches
     for (const rd of c.rounds) for (const mid of rd.m) {
@@ -1958,6 +1966,7 @@ function newsPromo(id, toDiv) { if (isUserTeam(id)) addNews(`Acesso! ${teamName(
 
 function applyPromotionsNormal(zone) {
   for (const lg of S.normal.filter((l) => l.cal === zone)) {
+    if (lg.tiers) { applyBraPromotions(lg); continue; }
     if (!lg.down || lg.bank.length < lg.down) continue;
     const t1 = S.lastTables[lg.id], t2 = S.lastTables[lg.id + '2'];
     if (!t1) continue;
@@ -2929,7 +2938,7 @@ function unreadCount() { return S.inbox.filter((m) => !m.read).length; }
 function userLeagueTeams() {
   const uid = S.user.team;
   if (S.mode === 'ultra') return S.ultra.div.find((d) => d.includes(uid)) || [];
-  if (S.mode === 'normal') { const lg = S.normal.find((l) => l.teams.includes(uid) || l.bank.includes(uid)); return lg ? (lg.teams.includes(uid) ? lg.teams : lg.bank) : []; }
+  if (S.mode === 'normal') { const lg = S.normal.find((l) => l.teams.includes(uid) || l.bank.includes(uid)); return lg ? (lg.teams.includes(uid) ? lg.teams : lg.tiers ? braTiers(lg).find((t) => t.includes(uid)) || [] : lg.bank) : []; }
   return [];
 }
 function setBoardObjective() {
@@ -4371,6 +4380,7 @@ const ZONE_LEGEND = {
 // squads. Clubs the game already has keep their real players; one missing in an era (Vasco in 2021, say) is created
 // here too. key|name|short|colour 1|colour 2|stadium|level (average overall of the best 14)
 const STATE_CLUB_ROWS = `
+br_ibis|Íbis|IBI|#111111|#c8102e|Ademir Cunha|47
 vasco|Vasco da Gama|VAS|#111111|#ffffff|São Januário|64
 bahia|Bahia|BAH|#0047ab|#e2001a|Arena Fonte Nova|62
 vitoria|Vitória|VIT|#e2001a|#111111|Barradão|61
@@ -4721,6 +4731,11 @@ function createStateClub(key) {
     const nat = rnd() < 0.05 ? pick(['ARG', 'URU', 'PAR', 'COL']) : 'BRA';
     const p = generatePlayer({ nat, pos, age, ovr: clamp(lvl + off + rint(-2, 2) - (age >= 33 ? 2 : 0), 40, 80), potBoost: age <= 21 ? rint(5, 16) : age <= 24 ? rint(1, 8) : rint(0, 3) });
     movePlayer(p, id, { ct: y + rint(1, 3) });
+  }
+  if (key === 'br_ibis') { // the "worst team in the world" has a star: Luke Bastos
+    const lk = generatePlayer({ nat: 'BRA', pos: 'ST', age: 22, ovr: lvl + 6, potBoost: 9 });
+    lk.n = 'Luke Bastos'; lk.s = 'L. Bastos';
+    movePlayer(lk, id, { ct: y + 3 });
   }
   setBudgets(t);
   return id;
@@ -6015,6 +6030,72 @@ function liveTactic(st, k, o) {
   return changed;
 }
 
+/* ===================== Brazilian lower divisions: Série B, C and D ===================== */
+// lg.bank of the BRA league holds every club below the Série A (B, then C, then D) and lg.tiers their sizes
+const BRA_TIER_N = 20;
+const BRA_TIER_NAMES = { 2: 'Série B', 3: 'Série C', 4: 'Série D' };
+function braTiers(lg) {
+  if (!lg.tiers) return [lg.bank.slice(), [], []];
+  let i = 0;
+  return lg.tiers.map((n) => { const a = lg.bank.slice(i, i + n); i += n; return a; });
+}
+function setBraTiers(lg, t) { lg.bank = t[0].concat(t[1], t[2]); lg.tiers = t.map((a) => a.length); }
+// the division (2 = B ... 4 = D) of a club of the pyramid, 0 for Série A / other leagues
+function braTierOf(lg, id) {
+  if (!lg || !lg.tiers) return lg && lg.bank.includes(id) ? 2 : 0;
+  const t = braTiers(lg);
+  for (let i = 0; i < 3; i++) if (t[i].includes(id)) return i + 2;
+  return 0;
+}
+// creates the clubs of the Séries C and D (and completes the B) the first time a Brazilian league season is built
+function ensureBraPyramid(silent) {
+  if (!S || S.mode !== 'normal' || S.zoeira) return 0;
+  const lg = S.normal.find((l) => l.id === 'BRA');
+  if (!lg || lg.tiers) return 0;
+  const taken = new Set();
+  for (const l of S.normal) for (const id of l.teams.concat(l.bank)) if (S.teams[id]) taken.add(S.teams[id].key);
+  const cands = Object.values(STATE_CLUBS).filter((d) => !taken.has(d.key) && d.key !== 'br_ibis')
+    .sort((a, b) => b.lvl - a.lvl || (a.key < b.key ? -1 : 1));
+  const idOf = (key) => teamIdByKey(key) || createStateClub(key);
+  const B = lg.bank.slice();
+  let k = 0;
+  const take = (n) => { const out = []; while (out.length < n && k < cands.length) { const id = idOf(cands[k++].key); if (id) out.push(id); } return out; };
+  while (B.length < BRA_TIER_N && k < cands.length) { const id = idOf(cands[k++].key); if (id) B.push(id); }
+  const C = take(BRA_TIER_N);
+  const D = take(BRA_TIER_N - 1);
+  const ibis = idOf('br_ibis');
+  if (ibis) D.push(ibis);
+  KEY_IDX = null;
+  setBraTiers(lg, [B, C, D]);
+  if (!silent && !S.presim) addNews('Séries C e D chegam ao Brasileirão', `O futebol brasileiro agora tem as Séries B, C e D, com acesso e rebaixamento de quatro clubes entre cada divisão. As novas divisões começam na próxima temporada do calendário.`, 'info', [], { cat: 'Acesso e rebaixamento' });
+  return C.length + D.length;
+}
+// promotion and relegation of the whole pyramid (four clubs between divisions)
+function applyBraPromotions(lg) {
+  const n = lg.down || 4;
+  const tabs = [S.lastTables[lg.id], S.lastTables[lg.id + '2'], S.lastTables[lg.id + '3'], S.lastTables[lg.id + '4']];
+  const [A, B, C, D] = [lg.teams.slice()].concat(braTiers(lg));
+  const ok = (a, b) => a && b && a.length >= n && b.length >= n;
+  // move[i]: clubs going up from tier i+1 to i (0 = A) and clubs coming down
+  const up = [[], [], []], down = [[], [], []];
+  for (let i = 0; i < 3; i++) {
+    const hi = tabs[i], lo = tabs[i + 1];
+    if (!ok(hi, lo)) continue;
+    down[i] = hi.slice(-n); up[i] = lo.slice(0, n);
+  }
+  const rest = (arr, ...outs) => arr.filter((id) => !outs.some((o) => o.includes(id)));
+  const nA = rest(A, down[0]).concat(up[0]);
+  const nB = rest(B, up[0], down[1]).concat(down[0], up[1]);
+  const nC = rest(C, up[1], down[2]).concat(down[1], up[2]);
+  const nD = rest(D, up[2]).concat(down[2]);
+  lg.teams = nA; setBraTiers(lg, [nB, nC, nD]);
+  const names = ['a Série A', 'a Série B', 'a Série C', 'a Série D'];
+  for (let i = 0; i < 3; i++) {
+    for (const id of up[i]) if (isUserTeam(id)) addNews(`Acesso! ${teamName(id)} sobe`, `${teamName(id)} conquistou o acesso para ${names[i]}.`, 'promo', [id], { cat: 'Acesso e rebaixamento', hot: i === 0 });
+    for (const id of down[i]) if (isUserTeam(id)) addNews(`${teamName(id)} é rebaixado`, `${teamName(id)} vai disputar ${names[i + 1]} na próxima temporada.`, 'promo', [id], { cat: 'Acesso e rebaixamento' });
+  }
+}
+
 /* ===================== UI core ===================== */
 const UI = {
   screen: 'start', tab: 'central', sub: {}, sel: null, newsIdx: 0, filters: {}, wiz: null, busy: false,
@@ -6638,7 +6719,8 @@ function anyClubEntries() {
   } else if (S.mode === 'normal') {
     for (const lg of S.normal) {
       lg.teams.forEach((id) => rows.push({ id, grp: lg.id, where: lg.name }));
-      if (lg.bank.length >= 2) lg.bank.forEach((id) => rows.push({ id, grp: lg.id + '2', where: LEAGUE_NAMES2[lg.id] || `${lg.name} · 2ª divisão` }));
+      if (lg.tiers) braTiers(lg).forEach((tm, i) => tm.forEach((id) => rows.push({ id, grp: lg.id + (i + 2), where: BRA_TIER_NAMES[i + 2] })));
+      else if (lg.bank.length >= 2) lg.bank.forEach((id) => rows.push({ id, grp: lg.id + '2', where: LEAGUE_NAMES2[lg.id] || `${lg.name} · 2ª divisão` }));
     }
   } else {
     const opening = new Set(nationalOpeningCodes());
@@ -7979,7 +8061,7 @@ function zoneFor(c, pos, n) {
     if (tier === 0 && pos === 1) return 'zone-lib';
     return '';
   }
-  if (c.second) return pos <= (c.up || 3) ? 'zone-up' : '';
+  if (c.second) return pos <= (c.up || 3) ? 'zone-up' : c.down && pos > n - c.down ? 'zone-down' : '';
   if (c.kind !== 'league') return '';
   if (c.down && pos > n - c.down) return 'zone-down';
   return S.mode === 'normal' ? continentalZone(c, pos) : '';
@@ -7995,7 +8077,7 @@ function legendFor(c) {
   if (!c) return '';
   const items = [];
   if (c.key && c.key.startsWith('UL')) { if (c.key !== 'UL1') items.push(['var(--win)', 'Acesso']); if (!S.zoeira) items.push(['var(--loss)', c.key === 'UL4' ? 'Vai para o banco de times' : 'Rebaixamento']); }
-  else if (c.second) items.push(['var(--win)', 'Acesso']);
+  else if (c.second) { items.push(['var(--win)', 'Acesso']); if (c.down) items.push(['var(--loss)', 'Rebaixamento']); }
   else if (c.kind === 'league') {
     const zones = new Set((c.teams || []).map((_, i) => zoneFor(c, i + 1, c.teams.length)));
     Object.keys(ZONE_LEGEND).forEach((z) => { if (zones.has(z)) items.push(ZONE_LEGEND[z]); });
@@ -8878,7 +8960,7 @@ function openSeasonEnd() {
       const r = o.isNat ? nationRating(o.code) : teamRating(o.id);
       let where = '';
       if (S.mode === 'ultra') { const dv = S.ultra.div.findIndex((d) => d.includes(o.id)); where = dv >= 0 ? `Ultra Liga ${dv + 1}` : 'Banco'; }
-      else if (S.mode === 'normal') { const lg = S.normal.find((l) => l.teams.includes(o.id) || l.bank.includes(o.id)); where = lg ? (lg.teams.includes(o.id) ? lg.name : LEAGUE_NAMES2[lg.id] || '2ª divisão') : ''; }
+      else if (S.mode === 'normal') { const lg = S.normal.find((l) => l.teams.includes(o.id) || l.bank.includes(o.id)); where = lg ? (lg.teams.includes(o.id) ? lg.name : lg.tiers ? BRA_TIER_NAMES[braTierOf(lg, o.id)] : LEAGUE_NAMES2[lg.id] || '2ª divisão') : ''; }
       return `<button class="offer" data-a="endPick" data-id="${o.id}"><div class="row">${crest(o, 40)}<div class="grow"><div class="tn" style="font-size:20px">${esc(o.n)}</div><div class="muted" style="font-size:12px">${esc(where)}</div></div></div><div class="row">${starStr(r)}</div><span class="btn xs primary" style="align-self:flex-start">Aceitar</span></button>`;
     }).join('')}</div>
     ${owned.length ? `<div class="panel" style="margin-top:14px"><h3>Meus times <span class="sub">comprados com FutCoins</span></h3><div class="row wrap">${owned.map((o) => `<button class="btn" data-a="endPick" data-id="${o.id}">${crest(o, 22)} ${esc(o.n)}</button>`).join('')}</div></div>` : ''}`,
