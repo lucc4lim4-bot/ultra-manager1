@@ -7491,6 +7491,7 @@ function searchResults() {
   const f = UI.filters;
   const pos = f.pos || 'all';
   const q = strip(f.q || '');
+  const cq = strip(f.club || '');
   const uid = S.user.team;
   const list = [];
   for (const id in S.players) {
@@ -7504,10 +7505,31 @@ function searchResults() {
     if (f.amax && p.age > f.amax) continue;
     if (f.omin && p.o < f.omin) continue;
     if (q && !strip(p.n).includes(q)) continue;
+    if (cq && !(p.t && S.teams[p.t] && strip(S.teams[p.t].n).includes(cq))) continue;
+    if (f.lg && !(p.t && S.teams[p.t] && S.teams[p.t].c === f.lg)) continue;
+    if (f.nat && p.nat !== f.nat) continue;
     list.push(p);
   }
-  list.sort(by((p) => p.o, -1));
+  const so = f.sort || 'o';
+  if (so === 'age') list.sort(by((p) => p.age, 1));
+  else if (so === 'pot') list.sort(by((p) => p.pot, -1));
+  else if (so === 'val') list.sort(by((p) => playerValue(p), -1));
+  else list.sort(by((p) => p.o, -1));
   return list;
+}
+// leagues (by the club's country) and nationalities that exist in the search pool
+function searchLeagues() {
+  const seen = {};
+  for (const id in S.teams) { const t = S.teams[id]; if (t && !t.isNat && t.c) seen[t.c] = 1; }
+  return Object.keys(seen).map((c) => {
+    const lg = (S.normal || []).find((l) => l.country === c);
+    return [c, lg ? `${lg.name} (${natName(c)})` : natName(c)];
+  }).sort((a, b) => a[1].localeCompare(b[1], 'pt'));
+}
+function searchNats() {
+  const seen = {};
+  for (const id in S.players) { const p = S.players[id]; if (p.nat && !p.yth && !p.natOnly) seen[p.nat] = 1; }
+  return Object.keys(seen).map((c) => [c, natName(c)]).sort((a, b) => a[1].localeCompare(b[1], 'pt'));
 }
 function viewSearch() {
   const f = UI.filters;
@@ -7525,6 +7547,12 @@ function viewSearch() {
         <div class="field"><label>Idade</label><div class="row"><input class="input" type="number" min="14" max="45" placeholder="mín" value="${f.amin || ''}" data-a="fNum" data-k="amin"><input class="input" type="number" min="14" max="45" placeholder="máx" value="${f.amax || ''}" data-a="fNum" data-k="amax"></div></div>
         <div class="field"><label for="f-omin">Overall mínimo</label><input id="f-omin" class="input" type="number" min="40" max="99" value="${f.omin || ''}" data-a="fNum" data-k="omin"></div>
         <div class="field"><label for="f-vmax">Valor máximo (€ milhões)</label><input id="f-vmax" class="input" type="number" min="0" value="${f.vmax || ''}" data-a="fNum" data-k="vmax"></div>
+      </div>
+      <div class="grid g4" style="margin-top:10px">
+        <div class="field"><label for="f-club">Clube</label><input id="f-club" class="input" placeholder="Ex.: Real, Flamengo" value="${esc(f.club || '')}" data-a="fClub" data-live="1"></div>
+        <div class="field"><label for="f-lg">Liga / país do clube</label><select id="f-lg" class="input" data-a="fSel" data-k="lg"><option value="">Todas</option>${searchLeagues().map(([c, n]) => `<option value="${c}" ${f.lg === c ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+        <div class="field"><label for="f-nat">Nacionalidade</label><select id="f-nat" class="input" data-a="fSel" data-k="nat"><option value="">Todas</option>${searchNats().map(([c, n]) => `<option value="${c}" ${f.nat === c ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+        <div class="field"><label for="f-sort">Ordenar por</label><select id="f-sort" class="input" data-a="fSel" data-k="sort">${[['o', 'Overall'], ['pot', 'Potencial'], ['val', 'Valor'], ['age', 'Mais novos']].map(([k, n]) => `<option value="${k}" ${(f.sort || 'o') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
       </div>
       <div class="row wrap" style="margin-top:10px"><label class="toggle"><input type="checkbox" data-a="fBool" data-k="free" ${f.free ? 'checked' : ''}><span class="sw"></span>Somente sem clube</label>
         <label class="toggle"><input type="checkbox" data-a="fBool" data-k="listed" ${f.listed ? 'checked' : ''}><span class="sw"></span>Somente à venda</label>
@@ -7544,6 +7572,12 @@ act('fPos', (el) => { UI.filters.pos = el.dataset.v; UI.filters.page = 0; render
 act('fPage', (el) => { UI.filters.page = +el.dataset.v; render(); });
 act('fNum', (el) => { UI.filters[el.dataset.k] = +el.value || 0; UI.filters.page = 0; render(); });
 act('fBool', (el) => { UI.filters[el.dataset.k] = el.checked; UI.filters.page = 0; render(); });
+act('fSel', (el) => { UI.filters[el.dataset.k] = el.value; UI.filters.page = 0; render(); });
+act('fClub', (el) => {
+  UI.filters.club = el.value; UI.filters.page = 0;
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { const box = $('#search-list'); if (box) box.innerHTML = viewPlayerTable(searchResults().slice(0, 150)); }, 180);
+});
 let qTimer = 0;
 act('fQ', (el) => {
   UI.filters.q = el.value; UI.filters.page = 0;
