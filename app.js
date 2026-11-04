@@ -2050,10 +2050,16 @@ function devDelta(p, minutesFactor) {
   else if (a <= 22) d = rfloat(0.8, 4);
   else if (a <= 24) d = rfloat(0.3, 2.5);
   else if (a <= 27) d = rfloat(-0.5, 2);
-  else if (a <= 29) d = rfloat(-1.5, 1);
-  else if (a <= 31) d = rfloat(-3, 0.5);
-  else if (a <= 33) d = rfloat(-4, 0);
-  else d = rfloat(-6, -1);
+  else if (a <= 31) d = rfloat(-0.5, 1);
+  else if (a <= 33) d = rfloat(-1, 0.5);
+  else if (a <= 35) d = rfloat(-2.5, 0);
+  else d = rfloat(-5, -1);
+  if (p.p === 'GK') {
+    // goalkeepers keep their level until about 38-39
+    if (a <= 37) d = a <= 31 ? rfloat(-0.3, 1) : rfloat(-0.7, 0.5);
+    else if (a <= 39) d = rfloat(-1.5, 0);
+    else d = rfloat(-4, -1);
+  }
   // playing time matters, wherever it comes from (a loan included); the last steps to the top are the hardest
   if (d > 0) d *= clamp(gap / 5, 0.25, 1.3) * (0.6 + 0.6 * minutesFactor) * (p.loan && minutesFactor > 0.5 ? 1.15 : 1) * highDamp(p.o);
   return d;
@@ -2099,13 +2105,14 @@ function yearlyPlayers(y) {
         const d = Math.round(devDelta(p, mf));
         p.o = clamp(p.o + d, 30, Math.max(p.pot, p.o));
         if (isUserTeam(p.t) || (p.loan && isUserTeam(p.loan.from))) devReport.push({ p, d: p.o - o0, pc, g: seasonApps(p) });
-        if (p.age >= 30 && rnd() < 0.5) p.pot = Math.max(p.o, p.pot - 1);
-        if (p.a) p.a = p.a.map((v, i) => clamp(v + d + (i === 0 && p.age > 29 ? -rint(0, 2) : 0), 15, 99));
+        if (p.age >= (p.p === 'GK' ? 37 : 32) && rnd() < 0.5) p.pot = Math.max(p.o, p.pot - 1);
+        if (p.a) p.a = p.a.map((v, i) => clamp(v + d + (i === 0 && p.age > (p.p === 'GK' ? 36 : 32) ? -rint(0, 2) : 0), 15, 99));
       }
       // retirement
       if (!S.zoeira) {
         let pr = 0;
         if (p.age >= 41) pr = 0.95; else if (p.age >= 38) pr = 0.6; else if (p.age >= 36) pr = 0.35; else if (p.age >= 34) pr = 0.12; else if (p.age >= 33 && p.o < 70) pr = 0.1;
+        if (p.p === 'GK' && p.age < 40) pr *= p.age >= 38 ? 0.4 : 0.15;
         if (p.o >= 84) pr *= 0.4;
         if (rnd() < pr && !(S.pl && p.id === S.pl.pid)) retired.push(p);
       } else if (p.age >= 270) retired.push(p);
@@ -8774,14 +8781,15 @@ function showCelebration() {
   wrap.className = 'celebrate';
   wrap.innerHTML = `<canvas></canvas><div class="inner">
       <div class="muted up" style="font-size:14px;letter-spacing:0.2em">${esc(tr.name)} · ${esc(tr.season)}</div>
-      ${trophySVG(tr.key, 220).replace('class="tsvg"', 'class="trophy-svg"')}
+      <canvas class="title-scene" width="640" height="380"></canvas>
       <div class="champ">CAMPEÃO!</div>
       <div class="row" style="justify-content:center;gap:12px;margin-top:12px">${crest(t, 48)}<span class="disp" style="font-size:34px;font-weight:800">${esc(t.n)}</span></div>
       ${tr.coins ? `<div class="coin-pill" style="margin-top:14px;font-size:20px"><span class="coin">F</span>+${tr.coins} FutCoins</div>` : ''}
       <div style="margin-top:22px"><button class="btn primary big" id="cel-ok">Continuar</button></div></div>`;
   document.body.appendChild(wrap);
-  const cv = wrap.querySelector('canvas');
+  const cv = wrap.querySelector('canvas:not(.title-scene)');
   const ctx = cv.getContext('2d');
+  const sceneStop = playTitleScene(wrap.querySelector('.title-scene'), t, tr);
   const resize = () => { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; };
   resize();
   const cols = [t.c1, t.c2, '#ffc54d', '#ffffff'];
@@ -8800,7 +8808,7 @@ function showCelebration() {
   };
   if (!reduce) tick();
   wrap.querySelector('#cel-ok').onclick = () => {
-    alive = false; wrap.remove(); UI.celebrating = false;
+    alive = false; sceneStop(); wrap.remove(); UI.celebrating = false;
     if (S.celebrate.length) showCelebration(); else render();
   };
 }
@@ -8852,6 +8860,79 @@ act('endStay', () => {
   render();
   saveGame(S.id);
 });
+
+// The cutscene of the title: the squad walks in, forms up on two rows and the captain lifts the cup while everybody jumps
+function playTitleScene(cv, team, tr) {
+  if (!cv) return () => {};
+  const c = cv.getContext('2d'), W = cv.width, H = cv.height;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(trophySVG(tr.key, 200).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
+  const c1 = team.c1 || '#c8102e', c2 = team.c2 || '#ffffff';
+  const sq = (typeof squadOf === 'function' ? squadOf(team.id) : []).slice().sort((a, b) => b.o - a.o).slice(0, 11);
+  const skins = ['#f1c9a0', '#e0ac7e', '#c68a5b', '#8d5a3a', '#5e3b24'], hairs = ['#1c1410', '#3a2414', '#6b4a2b', '#c9a24a', '#111'];
+  const fig = Array.from({ length: 11 }, (_, i) => {
+    const pl = sq[i], h = pl ? hashStr(pl.n + '|' + pl.id) : i * 7919;
+    const row = i === 0 ? 0 : i <= 5 ? 1 : 2, idx = i === 0 ? 0 : i <= 5 ? i - 1 : i - 6;
+    const cnt = row === 1 ? 5 : 6;
+    const tx = row === 0 ? W / 2 : W / 2 + (idx - (cnt - 1) / 2) * (row === 1 ? 92 : 80) + (row === 1 && Math.abs(idx - 2) < 0.1 ? 0 : 0);
+    const ty = row === 0 ? H - 70 : row === 1 ? H - 112 : H - 150;
+    return { i, row, tx: row === 1 && idx === 2 ? tx + 0 : tx, ty, x: i % 2 ? -60 : W + 60, y: ty, skin: skins[h % 5], hair: hairs[(h >> 4) % 5], ph: (h % 100) / 16, delay: i * 0.1, name: pl ? pl.s || pl.n : '' };
+  });
+  // the captain steps out of the front row so the cup is not hidden
+  const t0 = performance.now();
+  let alive = true;
+  const body = (f, jump, armsUp, scale) => {
+    const x = f.x, y = f.y - jump, s = scale;
+    c.fillStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.ellipse(x, f.y + 4, 20 * s, 7 * s, 0, 0, 7); c.fill();
+    c.fillStyle = '#f2f2f2'; c.fillRect(x - 11 * s, y - 20 * s, 8 * s, 20 * s); c.fillRect(x + 3 * s, y - 20 * s, 8 * s, 20 * s);
+    c.fillStyle = c2; c.fillRect(x - 11 * s, y - 14 * s, 8 * s, 4 * s); c.fillRect(x + 3 * s, y - 14 * s, 8 * s, 4 * s);
+    c.fillStyle = c2 === '#ffffff' ? '#222' : c2; c.fillRect(x - 13 * s, y - 32 * s, 26 * s, 14 * s);
+    c.fillStyle = c1; c.beginPath(); c.roundRect ? c.roundRect(x - 15 * s, y - 62 * s, 30 * s, 32 * s, 6 * s) : c.rect(x - 15 * s, y - 62 * s, 30 * s, 32 * s); c.fill();
+    c.fillStyle = c2; c.fillRect(x - 15 * s, y - 50 * s, 30 * s, 5 * s);
+    c.strokeStyle = f.skin; c.lineWidth = 6 * s; c.lineCap = 'round';
+    c.beginPath();
+    if (armsUp) { c.moveTo(x - 15 * s, y - 57 * s); c.lineTo(x - 24 * s, y - 84 * s); c.moveTo(x + 15 * s, y - 57 * s); c.lineTo(x + 24 * s, y - 84 * s); }
+    else { c.moveTo(x - 15 * s, y - 57 * s); c.lineTo(x - 20 * s, y - 38 * s); c.moveTo(x + 15 * s, y - 57 * s); c.lineTo(x + 20 * s, y - 38 * s); }
+    c.stroke(); c.lineCap = 'butt';
+    c.fillStyle = f.skin; c.beginPath(); c.arc(x, y - 74 * s, 13 * s, 0, 7); c.fill();
+    c.fillStyle = f.hair; c.beginPath(); c.arc(x, y - 77 * s, 13.5 * s, Math.PI * 1.02, Math.PI * 1.98); c.fill();
+    c.fillStyle = '#111'; c.beginPath(); c.arc(x - 4.5 * s, y - 73 * s, 1.6 * s, 0, 7); c.arc(x + 4.5 * s, y - 73 * s, 1.6 * s, 0, 7); c.fill();
+    c.strokeStyle = '#7a2a1a'; c.lineWidth = 1.5 * s; c.beginPath(); c.arc(x, y - 70 * s, 5 * s, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+  };
+  const frame = (now) => {
+    if (!alive) return;
+    const t = (now - t0) / 1000;
+    c.clearRect(0, 0, W, H);
+    // the podium floor
+    const g = c.createLinearGradient(0, H - 190, 0, H); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0.08)');
+    c.fillStyle = g; c.fillRect(0, H - 190, W, 190);
+    for (const f of fig) {
+      const wt = clamp((t - f.delay) / 1.4, 0, 1), e = 1 - Math.pow(1 - wt, 3);
+      f.x = (f.i % 2 ? -60 : W + 60) + (f.tx - (f.i % 2 ? -60 : W + 60)) * e;
+      f.y = f.ty + (f.row === 0 ? Math.min(0, 0) : 0);
+    }
+    const lift = clamp((t - 2.0) / 1.0, 0, 1);
+    const order = fig.slice().sort((a, b) => a.row === b.row ? 0 : b.row - a.row); // back row first
+    for (const f of order) {
+      const walking = t - f.delay < 1.4;
+      const hop = walking ? Math.abs(Math.sin(t * 9 + f.ph)) * 6 : t > 3.0 ? Math.abs(Math.sin(t * 6 + f.ph)) * 20 : 0;
+      body(f, hop, t > 2.6 || (f.i === 0 && lift > 0.2), f.row === 0 ? 1.25 : f.row === 1 ? 1.1 : 1);
+    }
+    // the cup rises over the captain's head, then shines
+    const cap = fig[0];
+    if (img.complete && img.naturalWidth) {
+      const baseY = cap.y - 120, up = lift * 70, size = 92 + lift * 18;
+      const cx = cap.x, cy = baseY - up - (t > 3 ? Math.abs(Math.sin(t * 6)) * 8 : 0);
+      if (t > 2.0) { const gl = c.createRadialGradient(cx, cy, 5, cx, cy, 90); gl.addColorStop(0, `rgba(255,236,160,${0.5 * lift})`); gl.addColorStop(1, 'rgba(255,236,160,0)'); c.fillStyle = gl; c.fillRect(cx - 100, cy - 100, 200, 200); }
+      c.globalAlpha = t < 1.6 ? 0 : clamp((t - 1.6) / 0.4, 0, 1);
+      c.drawImage(img, cx - size / 2, cy - size * 0.75, size, size);
+      c.globalAlpha = 1;
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return () => { alive = false; };
+}
 
 /* ===================== playable 2D match (top-down arcade, World Soccer Champs style) ===================== */
 // match settings kept on this device
@@ -9904,8 +9985,16 @@ const Game2D = (() => {
   const BENCH_X = -4.7, TECH_X = -2.1;
   function initStaff() {
     const mk = (x, y) => ({ x, y, vx: 0, vy: 0, ph: Math.random() * 6 });
-    G.ref = mk(PW / 2 + 8, PL / 2 - 6);
-    G.lines = [Object.assign(mk(-1.3, PL * 0.28), { lo: 2, hi: PL / 2 + 8, flag: 0 }), Object.assign(mk(PW + 1.3, PL * 0.72), { lo: PL / 2 - 8, hi: PL - 2, flag: 0 })];
+    // the officials are drawn with the same body, run cycle and shadow as the players (own kit, no shirt number)
+    const official = (name, x, y, kit, seed) => {
+      const fake = { id: 880000 + seed, n: name + seed, s: name, nat: seed % 2 ? 'BRA' : 'ENG', o: 70, pot: 70, age: 40, a: [72, 70, 70, 70, 70, 70], h: 178, p: 'CM' };
+      const sp = makeSprite(fake, 2, 2, 'CM', 0.5, 0.5, 0);
+      Object.assign(sp, { x, y, kitOv: kit, num: '', staff: true, ph: seed });
+      return sp;
+    };
+    const REF = { shirt: '#f2d21b', trim: '#15171a', shorts: '#15171a', socks: '#15171a' }, ASS = { shirt: '#e8c11a', trim: '#15171a', shorts: '#15171a', socks: '#15171a' };
+    G.ref = official('Árbitro', PW / 2 + 8, PL / 2 - 6, REF, 1);
+    G.lines = [Object.assign(official('Bandeirinha', -1.3, PL * 0.28, ASS, 2), { lo: 2, hi: PL / 2 + 8, flag: 0, flagC: true }), Object.assign(official('Bandeirinha', PW + 1.3, PL * 0.72, ASS, 3), { lo: PL / 2 - 8, hi: PL - 2, flag: 0, flagC: true })];
     G.coaches = [0, 1].map((team) => Object.assign(mk(TECH_X, PL / 2 + (team === 0 ? 11 : -11)), { team, y0: PL / 2 + (team === 0 ? 11 : -11), mode: 'walk', mt: 0 }));
     G.oppLook = { skin: 1 + (hashStr(String(G.st.sides[1].id)) % 3), hair: hashStr('c' + G.st.sides[1].id) % 4, hs: hashStr('h' + G.st.sides[1].id) % 3, suit: ['#2b2f3a', '#3a3a3a', '#1f3b4d', '#4a2c2c'][hashStr('s' + G.st.sides[1].id) % 4], tie: '#d9d9d9' };
   }
@@ -9915,6 +10004,11 @@ const Game2D = (() => {
     const nx = d > 0.05 ? dx / d * want : 0, ny = d > 0.05 ? dy / d * want : 0;
     o.vx += (nx - o.vx) * Math.min(1, dt * 5); o.vy += (ny - o.vy) * Math.min(1, dt * 5);
     o.x += o.vx * dt; o.y += o.vy * dt;
+    if (o.staff) { // face where he runs (the referee watches the ball when he stands) and run like a player
+      const v = Math.hypot(o.vx, o.vy);
+      if (v > 0.4) { o.dx = o.vx / v; o.dy = o.vy / v; } else { const b = G.ball, n = nrm(b.x - o.x, b.y - o.y); o.dx = n.x; o.dy = n.y; }
+      o.anim += v * dt * 1.9;
+    }
   }
   function stepStaff(dt) {
     if (!G.ref) return;
@@ -9979,7 +10073,16 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.moveTo(PX(-0.8, y0 - 8), PY(-0.8, y0 - 8)); ctx.lineTo(PX(-3.3, y0 - 8), PY(-3.3, y0 - 8)); ctx.lineTo(PX(-3.3, y0 + 8), PY(-3.3, y0 + 8)); ctx.lineTo(PX(-0.8, y0 + 8), PY(-0.8, y0 + 8)); ctx.stroke();
     }
   }
-  // a minimal full-body person for the officials
+  // the assistant's flag, in his hand; raised when the ball is out of play
+  function drawFlag(X, Y, s, o) {
+    const fl = o.flag || 0, hx = X + s * 0.62, hy = Y - s * (0.85 + fl * 0.95);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = Math.max(1, s * 0.06); ctx.beginPath(); ctx.moveTo(hx, hy + s * 0.15); ctx.lineTo(hx, hy - s * 0.55); ctx.stroke();
+    const wv = Math.sin(G.time * 9) * s * 0.04 * (0.3 + fl);
+    ctx.fillStyle = '#e53935'; ctx.beginPath(); ctx.moveTo(hx, hy - s * 0.55); ctx.lineTo(hx + s * 0.4, hy - s * 0.5 + wv); ctx.lineTo(hx + s * 0.4, hy - s * 0.2 + wv); ctx.lineTo(hx, hy - s * 0.25); ctx.fill();
+    ctx.fillStyle = '#ffd54a'; ctx.beginPath(); ctx.moveTo(hx, hy - s * 0.4); ctx.lineTo(hx + s * 0.4, hy - s * 0.35 + wv); ctx.lineTo(hx + s * 0.4, hy - s * 0.2 + wv); ctx.lineTo(hx, hy - s * 0.25); ctx.fill();
+  }
+  // a minimal full-body person for the officials (no longer used)
   function drawOfficial(X, Y, s, o) {
     ctx.globalAlpha = 1;
     const run = Math.min(1, Math.hypot(o.vx || 0, o.vy || 0) / 4), ph = Math.sin(G.time * 11 + (o.ph || 0)) * run;
@@ -11585,15 +11688,26 @@ const Game2D = (() => {
     slide: ['🧎', 'Joelhada'], plane: ['✈️', 'Aviãozinho'], flip: ['🤸', 'Mortal'], shush: ['🤫', 'Silêncio'], dance: ['💃', 'Dancinha'],
     sky: ['🙏', 'Agradece aos céus'], huddle: ['🤝', 'Abraço coletivo'],
     heart: ['❤️', 'Coração'], baby: ['👶', 'Embalando o bebê'], salute: ['🫡', 'Continência'], robot: ['🤖', 'Robô'], bow: ['🙇', 'Reverência'], conga: ['🎉', 'Trenzinho'],
+    surf: ['🏄', 'Surfista'], archer: ['🏹', 'Arqueiro'], screw: ['🌀', 'Parafuso'], cry: ['😭', 'Chorão'], tornado: ['🌪️', 'Furacão'], zen: ['🧘', 'Meditação'],
+    wave: ['🌊', 'Ola'], rocket: ['🚀', 'Foguete'], fire: ['🔥', 'Fogueira'], moon: ['🕺', 'Moonwalk'], drum: ['🥁', 'Bateria'], king: ['👑', 'Rei do pedaço'],
   };
+  // repeated presses of the same button (within 0.6s of each other) and longer button sequences
+  const CEL_REPEAT = { 'shoot*3': 'surf', 'pass*3': 'archer', 'lob*3': 'screw', 'feint*3': 'cry', 'spin*3': 'tornado', 'swap*3': 'zen', 'super*3': 'wave', 'shoot*4': 'rocket', 'super*4': 'fire' };
+  const CEL_SEQ = { 'spin>feint>spin>feint': 'moon', 'shoot>pass>shoot>pass': 'drum', 'shoot>pass>lob': 'king' };
   const CEL_SINGLE = { shoot: 'slide', pass: 'plane', lob: 'flip', feint: 'shush', spin: 'dance', swap: 'sky', super: 'huddle' };
   const CEL_COMBO = { 'pass+shoot': 'heart', 'lob+shoot': 'baby', 'lob+pass': 'salute', 'feint+spin': 'robot', 'pass+swap': 'bow', 'spin+super': 'conga', 'shoot+super': 'huddle' };
-  const CEL_GROUP = { huddle: 1.3, heart: 2.4, baby: 2.0, salute: 2.4, robot: 2.2, bow: 2.2, conga: 3.2 };
+  const CEL_GROUP = { huddle: 1.3, wave: 3.4, fire: 1.1, drum: 2.0, king: 2.6, zen: 1.8, heart: 2.4, baby: 2.0, salute: 2.4, robot: 2.2, bow: 2.2, conga: 3.2 };
   function celebInput(k) {
     const c = G.celebr;
     if (!c || c.scorer.team !== 0 || !CEL_SINGLE[k]) return false;
     let kind = CEL_SINGLE[k];
     if (c.lastK && c.lastK !== k && G.time - c.lastT < 0.5) kind = CEL_COMBO[[c.lastK, k].sort().join('+')] || kind;
+    if (!c.seq || G.time - c.lastT > 0.6) c.seq = [];
+    c.seq.push(k);
+    const sq = c.seq.join('>');
+    let n = 0; for (let i = c.seq.length - 1; i >= 0 && c.seq[i] === k; i--) n++;
+    for (const key in CEL_SEQ) if (sq.endsWith(key)) kind = CEL_SEQ[key];
+    if (CEL_REPEAT[k + '*' + n]) kind = CEL_REPEAT[k + '*' + n];
     c.lastK = k; c.lastT = G.time; c.kind = kind; c.t0 = G.time;
     banner(`${CELEBS[kind][0]} ${CELEBS[kind][1]}!`, 1.4);
     G.stateT = Math.max(G.stateT, 2.4); hint('');
@@ -11607,6 +11721,11 @@ const Game2D = (() => {
         const kd = sc.kind;
         if (kd === 'plane') moveTo(p, sc.cx + Math.sin((G.time - sc.t0) * 2.2) * 9, sc.cy + 5 + Math.cos((G.time - sc.t0) * 2.2) * 3, 1.2);
         else if (kd === 'slide') moveTo(p, sc.cx, sc.cy + (sc.cy < PL / 2 ? 9 : -9), 1.45);
+        else if (kd === 'surf') moveTo(p, sc.cx + Math.sin((G.time - sc.t0) * 2.5) * 12, sc.cy + (sc.cy < PL / 2 ? 5 : -5), 1.5);
+        else if (kd === 'rocket') moveTo(p, sc.cx, sc.cy + (sc.cy < PL / 2 ? 14 : -14), 1.7);
+        else if (kd === 'tornado' || kd === 'screw') moveTo(p, sc.cx + Math.cos((G.time - sc.t0) * 6) * 3, sc.cy + Math.sin((G.time - sc.t0) * 6) * 3, 1.3);
+        else if (kd === 'moon') moveTo(p, sc.cx - Math.sin((G.time - sc.t0) * 1.2) * 8, sc.cy, 0.45);
+        else if (kd === 'archer' || kd === 'cry') moveTo(p, sc.cx + (sc.cx < PW / 2 ? 4 : -4), sc.cy, 0.6);
         else if (kd === 'conga') moveTo(p, PW / 2 + Math.sin((G.time - sc.t0) * 1.6) * 14, PL / 2 + (sc.cy < PL / 2 ? -8 : 8), 1);
         else if (CEL_GROUP[kd]) moveTo(p, sc.cx + (sc.cx < PW / 2 ? 6 : -6), sc.cy + (sc.cy < PL / 2 ? 6 : -6), 1);
         else moveTo(p, sc.cx, sc.cy, 1);
@@ -12578,15 +12697,15 @@ const Game2D = (() => {
     }
     if (!G.auto && !replaying && G.ref) {
       const whistle = G.restartHold || G.state === 'goal';
-      items.push({ y: PY(G.ref.x, G.ref.y), off: Object.assign(G.ref, { shirt: '#f2d21b', shorts: '#15171a', socks: '#15171a', skin: SKINS[2], hair: '#2a1d14', whistle }) });
-      for (const l of G.lines) items.push({ y: PY(l.x, l.y), off: Object.assign(l, { shirt: '#f2d21b', shorts: '#15171a', socks: '#15171a', skin: SKINS[1], hair: '#222', flagC: true }) });
+      items.push({ y: PY(G.ref.x, G.ref.y), p: G.ref });
+      for (const l of G.lines) items.push({ y: PY(l.x, l.y), p: l });
       if (!G.solo && !G.tr) {
         for (const c of G.coaches) if (c.team === 1 || (S.coach && S.coach.look)) items.push({ y: PY(c.x, c.y), coach: c });
         for (const q of benchSeats()) items.push({ y: PY(q.x, q.y), seat: q });
       }
     }
     items.sort((u, v) => u.y - v.y);
-    for (const it of items) { if (it.coach) drawCoach(PX(it.coach.x, it.coach.y), it.y, s, it.coach); else if (it.off) drawOfficial(PX(it.off.x, it.off.y), it.y, s, it.off); else if (it.seat) drawSeated(it.seat, PX(it.seat.x, it.seat.y), it.y, s); else drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s); }
+    for (const it of items) { if (it.coach) drawCoach(PX(it.coach.x, it.coach.y), it.y, s, it.coach); else if (it.seat) drawSeated(it.seat, PX(it.seat.x, it.seat.y), it.y, s); else { drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s); if (it.p.flagC) drawFlag(PX(it.p.x, it.p.y), it.y, s, it.p); } }
     // the ball is always drawn last: with these tall cartoon players it would otherwise vanish behind the carrier
     drawBall(s);
     // shot power and sprint stamina of the controlled player
@@ -12747,7 +12866,7 @@ const Game2D = (() => {
   }
   function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
   function drawPlayer(p, X, Y, s) {
-    const kit = p.gk ? G.gkKits[p.side] : G.kits[p.side];
+    const kit = p.kitOv || (p.gk ? G.gkKits[p.side] : G.kits[p.side]);
     const rp = G.state === 'replay';
     const sliding = rp ? p.rSlide : p.slide > 0;
     const fallen = rp ? p.rFall : p.fall > 0;
@@ -12760,6 +12879,8 @@ const Game2D = (() => {
       const ct = G.time - cel.t0;
       if (cel.kind === 'flip') lift += ct < 0.9 ? Math.abs(Math.sin(ct * Math.PI / 0.9)) * s * 1.1 : 0;
       else if (cel.kind === 'dance' || cel.kind === 'robot' || cel.kind === 'conga') lift += Math.abs(Math.sin(ct * 7)) * s * 0.18;
+      else if (cel.kind === 'screw' || cel.kind === 'rocket') lift += ct < 1.2 ? Math.abs(Math.sin(ct * Math.PI / 1.2)) * s * (cel.kind === 'rocket' ? 1.6 : 1.3) : 0;
+      else if (cel.kind === 'drum' || cel.kind === 'fire' || cel.kind === 'wave' || cel.kind === 'tornado' || cel.kind === 'surf' || cel.kind === 'moon') lift += Math.abs(Math.sin(ct * 8)) * s * 0.2;
       else if (cel.kind === 'sky') lift += Math.abs(Math.sin(ct * 3)) * s * 0.1;
     }
     ctx.globalAlpha = alpha;
