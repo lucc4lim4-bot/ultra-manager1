@@ -14270,7 +14270,7 @@ act('lkSave', () => {
 });
 
 // ------------------------------------------------------------------ admin: inject money with a code
-const ADMIN_CODE = '120712';
+const ADMIN_CODE = '071212';
 const ADMIN_AMOUNTS = [[1e6, '€1 mi'], [10e6, '€10 mi'], [50e6, '€50 mi'], [100e6, '€100 mi'], [500e6, '€500 mi'], [1e9, '€1 bi']];
 act('adminOpen', () => {
   closeAllModals();
