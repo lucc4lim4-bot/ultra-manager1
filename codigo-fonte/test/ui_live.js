@@ -1,0 +1,55 @@
+// Browser test of the minute-by-minute live tracker.
+const { chromium } = require(process.env.PW || 'playwright');
+const fs = require('fs');
+const path = require('path');
+const OUT = process.env.SHOTS || '/tmp/shots';
+const dist = path.join(__dirname, '../dist');
+const body = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+fs.writeFileSync(path.join(dist, '_test.html'), `<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>${body}</body></html>`);
+const mobile = process.env.MOBILE === '1';
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext(mobile ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1366, height: 860 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g/.test(m.text()) && !/Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
+  const pre = mobile ? 'm_lv_' : 'lv_';
+  const shot = async (n, full) => { await page.screenshot({ path: path.join(OUT, pre + n + '.png'), fullPage: !!full }); };
+  const click = async (sel) => { await page.locator(sel).first().click(); await page.waitForTimeout(150); };
+  await page.goto('http://localhost:8765/_test.html');
+  await page.waitForSelector('[data-a="newCareer"]', { timeout: 15000 });
+  await click('[data-a="newCareer"]');
+  await page.fill('#w-name', 'Renato Teste');
+  await page.fill('#w-fav', 'Corinthians');
+  await click('button[type="submit"]');
+  await click('[data-a="wizNext"]'); await click('[data-a="wizNext"]');
+  await click('[data-a="wizSet"][data-k="mode"][data-v="normal"]'); await click('[data-a="wizNext"]'); await click('[data-a="wizNext"]');
+  await page.waitForSelector('[data-a="pickOffer"]', { timeout: 60000 });
+  await click('[data-a="pickOffer"]');
+  await page.waitForSelector('.hero-date', { timeout: 120000 });
+  for (let i = 0; i < 60; i++) {
+    if (await page.locator('[data-a="goMatch"]').count()) break;
+    const adv = page.locator('[data-a="advance"][data-m="match"]');
+    if (await adv.count()) await adv.first().click(); else await click('[data-a="advance"]');
+    await page.waitForTimeout(300);
+    if (await page.locator('#cel-ok').count()) await click('#cel-ok');
+  }
+  await click('[data-a="goMatch"]');
+  await click('[data-a="startLive"]');
+  await click('[data-a="liveSpeed"][data-v="4"]');
+  await page.waitForTimeout(2200);
+  await shot('01_first_half', true);
+  await page.waitForSelector('[data-a="liveSecondHalf"]', { timeout: 30000 });
+  await shot('02_halftime', true);
+  await click('[data-a="liveSecondHalf"]');
+  await click('[data-a="liveSpeed"][data-v="4"]');
+  await page.waitForTimeout(1500);
+  await click('[data-a="liveMent"][data-v="1"]');
+  await page.waitForTimeout(1200);
+  await shot('03_second_half', true);
+  await page.waitForSelector('[data-a="postContinue"]', { timeout: 40000 });
+  await shot('04_post');
+  console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
+  await browser.close();
+})();

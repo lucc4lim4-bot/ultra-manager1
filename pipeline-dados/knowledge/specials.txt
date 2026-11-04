@@ -1,0 +1,197 @@
+# Equipes sem dados no FC/FIFA — elencos montados a partir de conhecimento. Formato: @era:chave
+@2026:zenit
+GK|Denis Adamov|27|73|RUS
+GK|Mikhail Kerzhakov|39|68|RUS
+RB|Gustavo Mantuan|25|73|BRA
+RB|Vanja Drkušić|26|72|SVN
+CB|Nino|28|76|BRA
+CB|Strahinja Eraković|25|75|SRB
+CB|Nuraly Alip|26|72|KAZ
+LB|Douglas Santos|32|76|BRA
+CDM|Wilmar Barrios|32|76|COL
+CM|Wendel|28|78|BRA
+CM|Gerson|29|79|BRA
+CM|Daler Kuzyaev|33|72|RUS
+RW|Luiz Henrique|25|79|BRA
+RW|Andrey Mostovoy|28|74|RUS
+LW|Pedro|23|73|BRA
+LW|Maksim Glushenkov|26|74|RUS
+RW|Artur|29|73|BRA
+ST|Mateo Cassierra|28|75|COL
+ST|Luciano Gondou|25|73|ARG
+ST|Aleksandr Sobolev|29|71|RUS
+@2026:lokomotiv
+GK|Anton Mitryushkin|30|71|RUS
+GK|Daniil Veselov|21|62|RUS
+RB|Nikita Saltykov|22|66|RUS
+CB|César Montes|29|75|MEX
+CB|Lucas Fasson|25|71|BRA
+CB|Gediminas Karpukas|24|66|RUS
+CB|Maksim Nenakhov|27|67|RUS
+LB|Nair Tiknizyan|27|72|ARM
+CDM|Dmitri Barinov|29|71|RUS
+CM|Danil Prutsev|25|70|RUS
+CAM|Aleksei Batrakov|21|76|RUS
+RW|Sergei Pinyaev|21|70|RUS
+LW|Aleksandr Rudenko|26|68|RUS
+RW|Vladislav Sarveli|28|68|RUS
+ST|Dmitri Vorobyov|28|72|RUS
+ST|Artem Dzyuba|37|68|RUS
+ST|Nikolai Komlichenko|31|68|RUS
+@2026:cska
+GK|Igor Akinfeev|40|70|RUS
+GK|Vladislav Torop|22|64|RUS
+RB|Milan Gajić|29|71|SRB
+CB|Igor Diveev|26|72|RUS
+CB|Willyan Rocha|30|71|BRA
+CB|Danila Kozlov|21|65|RUS
+LB|Moisés|30|71|BRA
+CDM|Kristijan Bistrović|28|71|CRO
+CM|Ivan Oblyakov|27|72|RUS
+CM|Matvey Kislyak|20|71|RUS
+CAM|Ivan Gordon|21|66|RUS
+RW|Kirill Glebov|20|70|RUS
+LW|Tamerlan Musaev|25|69|RUS
+ST|Saúl Guarirapa|23|71|VEN
+ST|Fyodor Chalov|28|71|RUS
+@2026:alahly
+GK|Mohamed El Shenawy|37|74|EGY
+GK|Mostafa Shobeir|26|69|EGY
+RB|Mohamed Hany|30|71|EGY
+RB|Ahmed Nabil Koka|25|67|EGY
+CB|Yasser Ibrahim|33|71|EGY
+CB|Achraf Dari|27|73|MAR
+CB|Mohamed Rabia|27|69|EGY
+LB|Ali Maaloul|36|69|TUN
+LB|Omar Kamal|27|66|EGY
+CDM|Marwan Attia|28|72|EGY
+CDM|Aliou Dieng|28|71|MLI
+CM|Emam Ashour|28|76|EGY
+CAM|Mohamed Magdy Afsha|30|73|EGY
+CAM|Ahmed Sayed Zizo|30|74|EGY
+RW|Hussein El Shahat|34|70|EGY
+LW|Mahmoud Trezeguet|31|74|EGY
+RW|Percy Tau|32|71|RSA
+LW|Taher Mohamed|28|68|EGY
+ST|Mohamed Sherif|30|71|EGY
+ST|Graziano|28|68|EGY
+@2021:alahly
+GK|Mohamed El Shenawy|32|75|EGY
+GK|Ali Lotfy|32|66|EGY
+RB|Mohamed Hany|25|71|EGY
+CB|Badr Benoun|28|72|MAR
+CB|Yasser Ibrahim|28|70|EGY
+CB|Ayman Ashraf|30|68|EGY
+CB|Mahmoud Wahid|27|66|EGY
+LB|Ali Maaloul|31|73|TUN
+CDM|Amr El Solia|32|72|EGY
+CDM|Hamdi Fathi|27|70|EGY
+CDM|Aliou Dieng|24|70|MLI
+CAM|Mohamed Magdy Afsha|25|74|EGY
+RW|Hussein El Shahat|29|72|EGY
+LW|Taher Mohamed|24|68|EGY
+RW|Percy Tau|27|75|RSA
+LW|Walid Soliman|36|67|EGY
+ST|Mohamed Sherif|25|71|EGY
+ST|Walter Bwalya|26|68|COD
+ST|Junior Ajayi|25|68|NGA
+@2016:alahly
+GK|Sherif Ekramy|33|72|EGY
+GK|Ahmed Adel Abdel Moneim|29|66|EGY
+RB|Ahmed Fathi|31|71|EGY
+RB|Mohamed Hany|20|63|EGY
+CB|Saad Samir|27|69|EGY
+CB|Ahmed Hegazi|25|73|EGY
+CB|Mohamed Naguib|33|66|EGY
+LB|Ali Maaloul|26|70|TUN
+CDM|Hossam Ashour|30|69|EGY
+CDM|Amr El Solia|27|70|EGY
+CM|Hossam Ghaly|34|68|EGY
+CAM|Abdallah Said|30|72|EGY
+RW|Moamen Zakaria|28|70|EGY
+LW|Walid Soliman|31|68|EGY
+ST|Amr Gamal|24|68|EGY
+ST|Junior Ajayi|20|66|NGA
+ST|John Antwi|24|68|GHA
+ST|Malick Evouna|23|69|GAB
+@2026:mamelodi
+GK|Ronwen Williams|34|73|RSA
+GK|Reyaad Pieterse|33|66|RSA
+RB|Khuliso Mudau|31|70|RSA
+RB|Thapelo Morena|33|66|RSA
+CB|Mosa Lebusa|33|67|RSA
+CB|Grant Kekana|33|67|RSA
+CB|Keanu Cupido|28|67|RSA
+LB|Aubrey Modiba|30|70|RSA
+CDM|Bathusi Aubaas|31|67|RSA
+CM|Teboho Mokoena|29|73|RSA
+CM|Jayden Adams|25|69|RSA
+CM|Sphelele Mkhulise|30|68|RSA
+CAM|Marcelo Allende|26|72|CHI
+CAM|Lucas Ribeiro Costa|27|73|BRA
+CAM|Themba Zwane|36|69|RSA
+LW|Tashreeq Matthews|25|69|RSA
+ST|Iqraam Rayners|30|69|RSA
+ST|Arthur Sales|23|70|BRA
+ST|Brayan León|25|69|COL
+ST|Peter Shalulile|32|68|NAM
+@2021:mamelodi
+GK|Denis Onyango|36|71|UGA
+GK|Reyaad Pieterse|28|66|RSA
+RB|Khuliso Mudau|26|68|RSA
+RB|Thapelo Morena|28|68|RSA
+CB|Rushine De Reuck|25|68|RSA
+CB|Mosa Lebusa|28|68|RSA
+CB|Rivaldo Coetzee|24|67|RSA
+LB|Aubrey Modiba|25|68|RSA
+LB|Lyle Lakay|30|66|RSA
+CDM|Andile Jali|31|70|RSA
+CM|Hlompho Kekana|36|68|RSA
+CM|Sipho Mbule|23|68|RSA
+CM|Teboho Mokoena|24|68|RSA
+CAM|Themba Zwane|31|72|RSA
+CAM|Gaston Sirino|30|72|URU
+LW|Lebohang Maboe|27|68|RSA
+RW|Neo Maema|25|68|RSA
+ST|Peter Shalulile|28|72|NAM
+ST|Kermit Erasmus|31|68|RSA
+ST|Thabiso Kutumela|28|66|RSA
+@2016:mamelodi
+GK|Denis Onyango|31|72|UGA
+GK|Kennedy Mweene|32|67|ZAM
+RB|Anele Ngcongca|28|67|RSA
+RB|Thapelo Morena|23|65|RSA
+CB|Wayne Arendse|31|66|RSA
+CB|Ricardo Nascimento|29|68|BRA
+CB|Motjeka Madisha|21|65|RSA
+LB|Tebogo Langerman|30|66|RSA
+CDM|Hlompho Kekana|31|70|RSA
+CDM|Tiyani Mabunda|28|67|RSA
+CM|Oupa Manyisa|28|67|RSA
+CM|Bangaly Soumahoro|25|65|CIV
+LW|Khama Billiat|26|74|ZIM
+RW|Keagan Dolly|23|72|RSA
+RW|Percy Tau|22|68|RSA
+ST|Leonardo Castro|27|69|COL
+ST|Anthony Laffor|31|67|LBR
+@2021:zenit
+GK|Mikhail Kerzhakov|34|72|RUS
+GK|Denis Adamov|23|65|RUS
+RB|Vyacheslav Karavaev|26|74|RUS
+RB|Aleksei Sutormin|27|73|RUS
+CB|Dejan Lovren|32|78|CRO
+CB|Dmitri Chistyakov|27|73|RUS
+CB|Yaroslav Rakitskiy|32|75|UKR
+LB|Douglas Santos|27|77|BRA
+LB|Danil Krugovoy|23|72|RUS
+CDM|Wilmar Barrios|27|77|COL
+CM|Wendel|24|78|BRA
+CM|Daler Kuzyaev|28|75|RUS
+CM|Magomed Ozdoev|28|75|RUS
+CAM|Claudinho|24|79|BRA
+CAM|Aleksei Erokhin|31|73|RUS
+RW|Malcom|24|79|BRA
+RW|Andrey Mostovoy|23|74|RUS
+ST|Sardar Azmoun|26|80|IRN
+ST|Artem Dzyuba|32|77|RUS
+ST|Ivan Sergeev|26|71|RUS
