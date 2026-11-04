@@ -8874,11 +8874,11 @@ const Game2D = (() => {
     for (const o of G.players) if (!o.out && o.team !== p.team) { const d = dist(o, p); if (d < 3.5) s += (3.5 - d) / 3.5; }
     return s;
   }
-  function laneOpen(p, q) {
+  function laneOpen(p, q, noGk) {
     const dx = q.x - p.x, dy = q.y - p.y, L2 = dx * dx + dy * dy || 1;
     let m = 10;
     for (const o of G.players) {
-      if (o.out || o.team === p.team) continue;
+      if (o.out || o.team === p.team || (noGk && o.gk)) continue;
       const t = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / L2, 0, 1);
       m = Math.min(m, Math.hypot(o.x - (p.x + dx * t), o.y - (p.y + dy * t)));
     }
@@ -9015,6 +9015,7 @@ const Game2D = (() => {
     if (G.ufo) G.ufo.at = G.halfLen * (0.2 + Math.random() * 0.6);
     st.half = 1;
     G.spPerk = sponsPerk();
+    initStaff();
     // organised supporters' groups (Brazilian clubs only): they sit in the stands, wave flags and react to the match
     G.orgs = []; G.fanSup = 0; G.orgSay = '';
     if (!G.auto && !opts.train && G.m && S.teams[G.m.h] && S.teams[G.m.a]) {
@@ -9683,17 +9684,127 @@ const Game2D = (() => {
     cleanup(); G = null;
     if (cb) cb(res);
   }
-  // the coach stands on the touchline and follows the play (the user's own coach in the manager career)
-  function coachSpot() {
-    const b = G.ball, c = G.coachP || (G.coachP = { x: -2.4, y: clamp(b.y, 8, PL - 8) });
-    const tx = b.x < PW / 2 ? -2.4 : PW + 2.4, ty = clamp(b.y, 8, PL - 8); // the touchline nearest to the ball
-    if (Math.abs(c.x - tx) > 1) c.x = tx; // switches sides at once, never crossing the pitch
-    c.y += (ty - c.y) * 0.06;
-    return c;
+  // ---- the people around the pitch: referee, two assistants (flags), both coaches and the substitutes on their benches
+  const BENCH_X = -4.7, TECH_X = -2.1;
+  function initStaff() {
+    const mk = (x, y) => ({ x, y, vx: 0, vy: 0, ph: Math.random() * 6 });
+    G.ref = mk(PW / 2 + 8, PL / 2 - 6);
+    G.lines = [Object.assign(mk(-1.3, PL * 0.28), { lo: 2, hi: PL / 2 + 8, flag: 0 }), Object.assign(mk(PW + 1.3, PL * 0.72), { lo: PL / 2 - 8, hi: PL - 2, flag: 0 })];
+    G.coaches = [0, 1].map((team) => Object.assign(mk(TECH_X, PL / 2 + (team === 0 ? 11 : -11)), { team, y0: PL / 2 + (team === 0 ? 11 : -11), mode: 'walk', mt: 0 }));
+    G.oppLook = { skin: 1 + (hashStr(String(G.st.sides[1].id)) % 3), hair: hashStr('c' + G.st.sides[1].id) % 4, hs: hashStr('h' + G.st.sides[1].id) % 3, suit: ['#2b2f3a', '#3a3a3a', '#1f3b4d', '#4a2c2c'][hashStr('s' + G.st.sides[1].id) % 4], tie: '#d9d9d9' };
   }
-  function drawCoach(X, Y, s) {
-    const lk = S.coach && S.coach.look; if (!lk) return;
-    const celeb = G.state === 'goal' && G.nextKick === 1, bob = Math.sin(G.time * 2.2) * s * 0.03, up = celeb ? Math.abs(Math.sin(G.time * 9)) * s * 0.25 : 0;
+  function approach(o, tx, ty, sp, dt) {
+    const dx = tx - o.x, dy = ty - o.y, d = Math.hypot(dx, dy);
+    const want = Math.min(sp, d * 2.2);
+    const nx = d > 0.05 ? dx / d * want : 0, ny = d > 0.05 ? dy / d * want : 0;
+    o.vx += (nx - o.vx) * Math.min(1, dt * 5); o.vy += (ny - o.vy) * Math.min(1, dt * 5);
+    o.x += o.vx * dt; o.y += o.vy * dt;
+  }
+  function stepStaff(dt) {
+    if (!G.ref) return;
+    const b = G.ball, play = G.state === 'play' || G.state === 'penalty';
+    // referee: keeps a diagonal, a few metres from the play and never on top of the ball
+    const r = G.ref;
+    let tx = b.x + (b.x < PW / 2 ? 7 : -7), ty = b.y + (b.vy > 0 ? -6 : 6) * (b.owner ? 1 : 0.6);
+    if (G.state === 'goal' || G.state === 'halftime' || G.state === 'fulltime') { tx = PW / 2; ty = PL / 2 + 3; }
+    else if (G.restartHold && G.setKind === 'kickoff') { tx = PW / 2 + 5; ty = PL / 2 - 3; }
+    else if (G.pk || G.shootout) { tx = PW / 2 + 15; ty = G.pk ? (G.pk.up ? 14 : PL - 14) : 14; }
+    else if (G.restartHold && G.setKind === 'corner') { tx = b.x < PW / 2 ? 12 : PW - 12; ty = b.y < PL / 2 ? 14 : PL - 14; }
+    if (!G.pk && Math.hypot(tx - b.x, ty - b.y) < 7) { const n = nrm(tx - b.x || 1, ty - b.y); tx = b.x + n.x * 7; ty = b.y + n.y * 7; }
+    approach(r, clamp(tx, 3, PW - 3), clamp(ty, 3, PL - 3), play ? 5.6 : 3.6, dt);
+    // assistants: along the touchline, each one in his half, level with the ball
+    for (const l of G.lines) {
+      let ly = clamp(b.y, l.lo, l.hi);
+      approach(l, l.x, ly, 5.4, dt); l.x = l.x < 0 ? -1.3 : PW + 1.3;
+      const out = G.restartHold && G.state === 'play' && (G.setKind === 'throw' || G.setKind === 'corner' || G.setKind === 'goalkick');
+      const near = Math.abs(b.y - l.y) < Math.abs(b.y - G.lines.find((q) => q !== l).y);
+      const want = out && near ? 1 : 0;
+      l.flag += (want - l.flag) * Math.min(1, dt * 7);
+    }
+    // coaches: pace in the technical area, follow the play along the touchline, react to goals
+    for (const c of G.coaches) {
+      c.mt -= dt;
+      const mine = c.team;
+      let ty = c.y0 + clamp((b.y - PL / 2) * 0.32, -8, 8) + Math.sin(G.time * 0.6 + mine * 2) * 2.2;
+      let sp = 1.6, nx = TECH_X + Math.sin(G.time * 0.35 + mine) * 0.4;
+      c.mode = 'walk';
+      if (G.state === 'goal' && G.celebr) {
+        if (G.celebr.scorer.team === c.team) { c.mode = 'celeb'; ty = clamp(G.celebr.scorer.y, 12, PL - 12); sp = 4.4; nx = -1.6; }
+        else { c.mode = 'sad'; sp = 0.8; ty = c.y; }
+      } else if (c.mt <= 0 && Math.random() < dt * 0.25) { c.mt = 3 + Math.random() * 3; c.mode = 'point'; }
+      if (c.mt > 0 && c.mode === 'walk') c.mode = c.mt > 0 && c.mt < 5 && c.mt > 2.9 ? 'point' : 'walk';
+      approach(c, nx, clamp(ty, 6, PL - 6), sp, dt);
+    }
+  }
+  function skinFor(p) {
+    const h = hashStr(p.n + '|' + p.id);
+    const si = DARK.has(p.nat) ? 3 + (h % 3) : MIXED.has(p.nat) ? h % 6 : h % 3;
+    return { skin: SKINS[si], hair: HAIRS[(h >> 6) % HAIRS.length], hs: (h >> 11) % 5 };
+  }
+  // the substitutes (and the players already taken off) waiting on the bench, per team
+  function benchSeats() {
+    const out = [];
+    for (const team of [0, 1]) {
+      const k = sideOf(team), side = G.st.sides[k];
+      const ids = side.bench.filter((q) => !side.on.includes(q)).concat(side.out || []).filter((q, i, a) => a.indexOf(q) === i).slice(0, 12);
+      const y0 = PL / 2 + (team === 0 ? 11 : -11), n = ids.length;
+      ids.forEach((pid, i) => { const p = S.players[pid]; if (p) out.push({ x: BENCH_X, y: y0 + (i - (n - 1) / 2) * 1.55, side: k, p, i, off: (side.out || []).includes(pid) }); });
+    }
+    return out;
+  }
+  function drawBenchGround(s) {
+    for (const team of [0, 1]) {
+      const y0 = PL / 2 + (team === 0 ? 11 : -11);
+      const pts = [[-6.2, y0 - 9.5], [-3.5, y0 - 9.5], [-3.5, y0 + 9.5], [-6.2, y0 + 9.5]];
+      ctx.fillStyle = 'rgba(15,20,28,0.55)'; ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(1, s * 0.07);
+      ctx.beginPath(); pts.forEach(([x, y], i) => { const X = PX(x, y), Y = PY(x, y); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+      // the technical area line
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.moveTo(PX(-0.8, y0 - 8), PY(-0.8, y0 - 8)); ctx.lineTo(PX(-3.3, y0 - 8), PY(-3.3, y0 - 8)); ctx.lineTo(PX(-3.3, y0 + 8), PY(-3.3, y0 + 8)); ctx.lineTo(PX(-0.8, y0 + 8), PY(-0.8, y0 + 8)); ctx.stroke();
+    }
+  }
+  // a minimal full-body person for the officials
+  function drawOfficial(X, Y, s, o) {
+    ctx.globalAlpha = 1;
+    const run = Math.min(1, Math.hypot(o.vx || 0, o.vy || 0) / 4), ph = Math.sin(G.time * 11 + (o.ph || 0)) * run;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.5, s * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = o.socks || '#111'; ctx.fillRect(X - s * 0.26, Y - s * 0.7 + Math.max(0, ph) * s * 0.12, s * 0.2, s * 0.7 - Math.max(0, ph) * s * 0.12); ctx.fillRect(X + s * 0.06, Y - s * 0.7 + Math.max(0, -ph) * s * 0.12, s * 0.2, s * 0.7 - Math.max(0, -ph) * s * 0.12);
+    ctx.fillStyle = o.shorts || '#111'; ctx.fillRect(X - s * 0.3, Y - s * 1.05, s * 0.6, s * 0.4);
+    ctx.fillStyle = o.shirt; rr(X - s * 0.36, Y - s * 1.8, s * 0.72, s * 0.85, s * 0.1); ctx.fill();
+    ctx.strokeStyle = o.shirt; ctx.lineWidth = s * 0.15; ctx.lineCap = 'round';
+    ctx.beginPath();
+    const fl = o.flag || 0, up = o.armUp || 0;
+    if (o.flagC) { // assistant: flag in the right hand, raised when the ball is out
+      ctx.moveTo(X - s * 0.36, Y - s * 1.65); ctx.lineTo(X - s * 0.5, Y - s * 1.0 + ph * s * 0.08);
+      ctx.moveTo(X + s * 0.36, Y - s * 1.65); ctx.lineTo(X + s * (0.5 + fl * 0.15), Y - s * (1.0 + fl * 1.5));
+    } else if (up) { ctx.moveTo(X - s * 0.36, Y - s * 1.65); ctx.lineTo(X - s * 0.5, Y - s * 1.0); ctx.moveTo(X + s * 0.36, Y - s * 1.65); ctx.lineTo(X + s * 0.55, Y - s * 2.25); }
+    else { ctx.moveTo(X - s * 0.36, Y - s * 1.65); ctx.lineTo(X - s * 0.5, Y - s * 1.0 - ph * s * 0.1); ctx.moveTo(X + s * 0.36, Y - s * 1.65); ctx.lineTo(X + s * 0.5, Y - s * 1.0 + ph * s * 0.1); }
+    ctx.stroke(); ctx.lineCap = 'butt';
+    if (o.flagC) { const fx = X + s * (0.5 + fl * 0.15), fy = Y - s * (1.0 + fl * 1.5); ctx.fillStyle = '#e53935'; ctx.fillRect(fx - s * 0.02, fy - s * 0.5, s * 0.34, s * 0.5); ctx.fillStyle = '#ffd54a'; ctx.fillRect(fx - s * 0.02 + s * 0.17, fy - s * 0.5, s * 0.17, s * 0.5); }
+    ctx.fillStyle = o.skin || SKINS[2]; ctx.beginPath(); ctx.arc(X, Y - s * 2.15, s * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = o.hair || '#222'; ctx.beginPath(); ctx.arc(X, Y - s * 2.21, s * 0.41, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(X - s * 0.13, Y - s * 2.13, s * 0.035, 0, Math.PI * 2); ctx.arc(X + s * 0.13, Y - s * 2.13, s * 0.035, 0, Math.PI * 2); ctx.fill();
+    if (o.whistle) { ctx.fillStyle = '#ddd'; ctx.fillRect(X + s * 0.1, Y - s * 1.98, s * 0.2, s * 0.08); }
+  }
+  // a substitute sitting on the bench: shirt, shorts, legs, head
+  function drawSeated(q, X, Y, s) {
+    const kit = G.kits[q.side], lk = skinFor(q.p);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.45, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = kit.socks || '#eee'; ctx.fillRect(X - s * 0.24, Y - s * 0.4, s * 0.17, s * 0.4); ctx.fillRect(X + s * 0.07, Y - s * 0.4, s * 0.17, s * 0.4);
+    ctx.fillStyle = kit.shorts || '#222'; ctx.fillRect(X - s * 0.3, Y - s * 0.75, s * 0.6, s * 0.38);
+    // jacket for the ones who warm up on the bench (the ones taken off keep their shirt)
+    ctx.fillStyle = q.off ? kit.shirt : (kit.trim && q.i % 2 ? kit.trim : '#2a3342'); rr(X - s * 0.34, Y - s * 1.55, s * 0.68, s * 0.85, s * 0.1); ctx.fill();
+    if (q.off) { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillRect(X - s * 0.34, Y - s * 1.55, s * 0.68, s * 0.12); } // towel on the shoulders
+    ctx.fillStyle = lk.skin; ctx.beginPath(); ctx.arc(X, Y - s * 1.9, s * 0.38, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = lk.hair; ctx.beginPath(); ctx.arc(X, Y - s * 1.96, s * 0.39, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(X - s * 0.12, Y - s * 1.88, s * 0.033, 0, Math.PI * 2); ctx.arc(X + s * 0.12, Y - s * 1.88, s * 0.033, 0, Math.PI * 2); ctx.fill();
+    // they stand up and cheer for their own goal
+    if (G.state === 'goal' && G.celebr && G.celebr.scorer.team === (q.side === sideOf(0) ? 0 : 1)) { ctx.strokeStyle = lk.skin; ctx.lineWidth = s * 0.13; ctx.beginPath(); ctx.moveTo(X - s * 0.34, Y - s * 1.4); ctx.lineTo(X - s * 0.55, Y - s * 2.2); ctx.moveTo(X + s * 0.34, Y - s * 1.4); ctx.lineTo(X + s * 0.55, Y - s * 2.2); ctx.stroke(); }
+  }
+  function drawCoach(X, Y, s, c) {
+    const lk = c && c.team === 1 ? G.oppLook : S.coach && S.coach.look; if (!lk) return;
+    const celeb = !!c && c.mode === 'celeb', bob = Math.sin(G.time * 2.2) * s * 0.03, up = celeb ? Math.abs(Math.sin(G.time * 9)) * s * 0.25 : 0;
     ctx.globalAlpha = 1;
     ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.5, s * 0.2, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#23262b'; ctx.fillRect(X - s * 0.26, Y - s * 0.95 - up, s * 0.2, s * 0.95); ctx.fillRect(X + s * 0.06, Y - s * 0.95 - up, s * 0.2, s * 0.95);
@@ -9704,6 +9815,8 @@ const Game2D = (() => {
     ctx.strokeStyle = lk.suit || '#22304a'; ctx.lineWidth = s * 0.17; ctx.lineCap = 'round';
     ctx.beginPath();
     if (celeb) { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - up); ctx.lineTo(X - s * 0.62, Y - s * 2.2 - up); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - up); ctx.lineTo(X + s * 0.62, Y - s * 2.2 - up); }
+    else if (c && c.mode === 'sad') { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X - s * 0.45, Y - s * 2.2); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X + s * 0.45, Y - s * 2.2); }
+    else if (c && c.mode === 'point') { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X - s * 0.5, Y - s * 0.95); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X + s * 0.95, Y - s * 1.75 - Math.sin(G.time * 5) * s * 0.12); }
     else { ctx.moveTo(X - s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X - s * 0.5, Y - s * 0.95); ctx.moveTo(X + s * 0.4, Y - s * 1.6 - bob); ctx.lineTo(X + s * 0.5, Y - s * 0.95); }
     ctx.stroke(); ctx.lineCap = 'butt';
     const hy = Y - s * 2.25 - up - bob;
@@ -9722,6 +9835,7 @@ const Game2D = (() => {
   // ------------------------------------------------------------------ main step
   function step(dt) {
     G.time += dt;
+    if (G.state !== 'replay') stepStaff(dt);
     if (G.gkRush > 0) G.gkRush -= dt;
     if (G.gkRushCD > 0) G.gkRushCD -= dt;
     if (G.slowPk && (!G.pk || G.pk.phase !== 'flight')) { G.slow = 1; G.slowPk = 0; } // a goal or a save ends the penalty slow motion for good
@@ -9871,9 +9985,17 @@ const Game2D = (() => {
     const mag = Math.min(1, Math.hypot(sx, sy));
     if (mag > 0.05) { const n = nrm(sx, sy); sx = n.x * mag; sy = n.y * mag; } else { sx = 0; sy = 0; }
     const w = screenToWorld(sx, sy);
-    if (G.solo) G.ctrl = soloSprite(); // player career: you only ever control your own player
+    // GOALKEEPER DISTRIBUTION: while your keeper holds the ball you aim and play it like any other player, for a few seconds
+    let gkb = null;
+    if (!G.solo && !G.auto && b.owner && b.owner.team === 0 && b.owner.gk && G.state === 'play') {
+      if (!G.gkHad) { G.gkHad = true; G.gkCtlT = 0; hint('Você controla o goleiro: aponte e use PASSE, LANÇAR ou CHUTE (bola longa).'); }
+      G.gkCtlT += dt;
+      if (G.gkCtlT < 5.5) gkb = b.owner; else if (G.gkCtlT < 5.6) hint('');
+    } else if (G.gkHad && !(b.owner && b.owner.team === 0 && b.owner.gk)) { G.gkHad = false; hint(''); }
+    if (gkb) G.ctrl = gkb;
+    else if (G.solo) G.ctrl = soloSprite(); // player career: you only ever control your own player
     else if (b.owner && b.owner.team === 0 && !b.owner.gk) G.ctrl = b.owner;
-    if (G.solo) { /* fixed */ }
+    if (G.solo || gkb) { /* fixed */ }
     else if (!G.ctrl || G.ctrl.out || G.ctrl.gk) G.ctrl = nearestTo(0, b.x, b.y, true);
     else if (!(b.owner && b.owner.team === 0) && !(sx || sy) && !(G.manualT > 0)) {
       // idle stick: hand control to whoever reaches the ball first
@@ -9933,19 +10055,22 @@ const Game2D = (() => {
     if (I.skill) {
       const kind = I.skill;
       I.skill = null;
-      if (has && G.state === 'play' && !G.restartHold && c.skCD <= 0 && !c.sk) doSkill(c, w, kind);
+      if (has && !c.gk && G.state === 'play' && !G.restartHold && c.skCD <= 0 && !c.sk) doSkill(c, w, kind);
     }
     if (I.supShot) {
       I.supShot = false;
       const sh = I.supHold; I.supHold = 0;
-      if (canKick && superReady(c, true)) doSuperShoot(c, sh);
+      if (canKick && !c.gk && superReady(c, true)) doSuperShoot(c, sh);
     }
     if (I.shoot) {
       I.shoot = false;
       const pw = clamp(0.3 + I.hold * 0.7, 0.3, 1);
       const plc = !!I.plc; I.plc = false;
+      const chp = !!I.chipf; I.chipf = false;
       I.hold = 0;
-      if (canKick) doUserShoot(c, w, pw, plc);
+      if (canKick && c.gk) userPass(c, w, true);
+      else if (canKick && chp && !G.restartHold) chip(c);
+      else if (canKick) doUserShoot(c, w, pw, plc);
       else if (looseNear) I.buf = { k: 'shoot', t: G.time, pw };
       else if (!has && c.slide <= 0 && c.fall <= 0 && !G.restartHold && G.state === 'play') {
         const t = b.owner && b.owner.team === 1 ? b.owner : b;
@@ -10200,6 +10325,7 @@ const Game2D = (() => {
     b.curve = curve;
     b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, fk, sup: sup != null };
     st.stats.sh[sideOf(p.team)]++;
+    if (!G.auto && Math.random() < 0.7) sfx('ooh', 0.6 + power * 0.5);
     if (power > 0.8 && !G.auto) G.shake = 0.35;
     burst(b.x, b.y, 6, '#7fbf4a');
     if (sup != null) say(`${nameOf(p)} solta uma bomba!`, 1);
@@ -10329,14 +10455,26 @@ const Game2D = (() => {
   }
 
   // ------------------------------------------------------------------ AI
+  // the computer's game plan follows the match: losing late it pushes up and presses, winning late it drops and defends
+  function tacticBias(team) {
+    if (team === 0 && !G.auto) return 0;
+    const st = G.st, k = sideOf(team), diff = st.score[k] - st.score[1 - k], m = minuteInt();
+    if (m < 55) return diff < 0 ? 0.25 : 0;
+    const late = clamp((m - 55) / 35, 0, 1);
+    return diff < 0 ? Math.min(1, late * (0.55 + -diff * 0.25)) : diff > 0 ? -late * 0.6 : 0;
+  }
   function computeChasers() {
     const b = G.ball, own = b.owner;
+    // a team that has just lost the ball hunts it back for a few seconds (counter-press)
+    const ot = own ? own.team : -1;
+    if (ot !== -1 && ot !== G.prevOwnT) { if (G.prevOwnT !== undefined && G.prevOwnT !== -1) G.cpress = { team: 1 - ot, t: G.time + 3.2 }; G.prevOwnT = ot; }
     for (const team of [0, 1]) {
       let n;
       if (G.restartHold || (own && own.gk)) n = 0;
       else if (!own) n = team === 1 || G.auto ? 2 : 1;
       else if (own.team === team) n = 0;
       else n = team === 0 && !G.auto ? 1 : (team === 1 ? G.D.press : 2);
+      if (n && (team === 1 || G.auto)) { const bias = tacticBias(team); if (bias > 0.5) n++; if (G.cpress && G.cpress.team === team && G.time < G.cpress.t && Math.hypot(own ? own.x - b.x : 0, 0) < 1e9 && n < 4) n++; if (bias < -0.4 && n > 1) n--; }
       if (!n) { G.chasers[team] = []; continue; }
       G.chasers[team] = G.players.filter((p) => !p.out && p.team === team && !p.gk && !(team === 0 && !G.auto && p === G.ctrl))
         .map((p) => ({ p, d: Math.hypot(p.x - b.x, p.y - b.y) })).sort((a, c) => a.d - c.d).slice(0, n).map((x) => x.p);
@@ -10367,6 +10505,7 @@ const Game2D = (() => {
     if (p.slide > 0) return;
     if (!G.auto && p === G.ctrl) {
       const has = b.owner === p;
+      if (p.gk) { p.wx = 0; p.wy = 0; const wi = Math.hypot(p.inX || 0, p.inY || 0); if (wi > 0.1) { p.dx = p.inX / wi; p.dy = p.inY / wi; } return; }
       if (has && G.restartHold) { p.wx = 0; p.wy = 0; return; }
       const s = p.speed * (p.sprint ? 1 : 0.8) * (has ? 0.92 : 1) * (p.sta < 0.15 ? 0.94 : 1);
       p.wx = p.inX * s; p.wy = p.inY * s;
@@ -10402,8 +10541,9 @@ const Game2D = (() => {
     const b = G.ball;
     const bd = p.team === 0 ? 1 - b.y / PL : b.y / PL;
     let back, front;
-    if (attacking) { back = clamp(bd - 0.4, 0.14, 0.52); front = clamp(bd + 0.3, 0.5, 0.9); }
-    else { back = clamp(bd - 0.32, 0.06, 0.4); front = clamp(bd + 0.06, 0.3, 0.62); }
+    const tb = (p.team === 1 || G.auto) ? tacticBias(p.team) : 0;
+    if (attacking) { back = clamp(bd - 0.4 + tb * 0.08, 0.14, 0.56); front = clamp(bd + 0.3 + tb * 0.06, 0.5, 0.92); }
+    else { back = clamp(bd - 0.32 + tb * 0.1, 0.06, 0.46); front = clamp(bd + 0.06 + tb * 0.12, 0.3, 0.7); }
     const t = clamp((p.fy - 0.18) / 0.64, 0, 1);
     const depth = back + t * (front - back);
     const across = p.team === 0 ? p.fx : 1 - p.fx;
@@ -10455,14 +10595,26 @@ const Game2D = (() => {
         const off = idx === 0 ? 0.8 : idx === 1 ? 4 : 2.2;
         const side = idx === 2 ? (own.x < PW / 2 ? 2.5 : -2.5) : 0;
         tgt = { x: own.x + own.vx * 0.15 + n.x * off + side, y: own.y + own.vy * 0.15 + n.y * off };
+        if (idx === 1) { // the second man cuts the nearest passing lane instead of just following
+          let out = null, od2 = 1e9;
+          for (const q of G.players) { if (q.out || q.team === p.team || q === own || q.gk) continue; const dq = Math.hypot(q.x - own.x, q.y - own.y); if (dq > 4 && dq < 20 && dq < od2 && (q.y - own.y) * (p.team === 0 ? 1 : -1) > -4) { od2 = dq; out = q; } }
+          if (out) tgt = { x: own.x + (out.x - own.x) * 0.45, y: own.y + (out.y - own.y) * 0.45 };
+        }
         run = idx === 0 ? 1 : 0.9;
       } else if (own && (grp === 'DEF' || grp === 'MID')) {
-        let mk = null, md = 13;
+        let mk = null, md = -1e9;
+        const gyp = p.team === 0 ? PL : 0;
         for (const o of G.players) {
           if (o.out || o.team === p.team || o.gk || o === own) continue;
           const d = Math.hypot(o.x - tgt.x, o.y - tgt.y);
-          if (d < md) { md = d; mk = o; }
+          if (d > 15) continue;
+          // the most dangerous free man near my zone: close to my goal, with space, not already taken by a team-mate
+          let sc = (1 - Math.hypot(o.x - PW / 2, o.y - gyp) / 75) * 5 - d * 0.22;
+          if (o.markBy && o.markBy !== p && !o.markBy.out && o.markBy.team === p.team && G.time - o.markT < 0.6) sc -= 3.2;
+          if (grp === 'DEF' && Math.abs(o.y - gyp) > Math.abs(p.y - gyp) + 14) sc -= 2; // a centre-back does not follow a man deep into midfield
+          if (sc > md) { md = sc; mk = o; }
         }
+        if (mk) { mk.markBy = p; mk.markT = G.time; }
         if (mk) {
           const gy = p.team === 0 ? PL : 0;
           const n = nrm(PW / 2 - mk.x, gy - mk.y);
@@ -10735,6 +10887,7 @@ const Game2D = (() => {
     if (p.dv) { stepDive(p, dt); return; }
     if (b.owner === p) {
       p.wx = 0; p.wy = 0;
+      if (p.team === 0 && !G.auto && !G.solo && G.ctrl === p) return; // the user is aiming the distribution
       if (!G.restartHold && !inBoxOf(p.team, p.x, p.y)) { aiPass(p, true, false); return; } // at his feet outside the box: clear it
       p.holdT -= dt;
       if ((p.holdT <= 0 && G.state === 'play') || p.holdT <= -1.5) aiPass(p, Math.random() < 0.35, false);
@@ -10820,11 +10973,19 @@ const Game2D = (() => {
       const central = Math.abs(p.x - PW / 2) < 15;
       if (gk && dGoal < 24 && dGoal > 9 && central && Math.abs(gk.y - gy) > 5 && Math.random() < 0.5) { chip(p); return; }
       if (dGoal < 26 && central) {
-        const pShoot = dGoal < 11 ? 0.9 : dGoal < 17 ? 0.65 : 0.28;
+        const lane = laneOpen(p, { x: PW / 2, y: gy }, true);
+        let pShoot = (dGoal < 11 ? 0.9 : dGoal < 17 ? 0.65 : 0.28) * (lane < 1.2 ? 0.45 : 1) * (0.7 + p.sho / 230);
+        // a team-mate in a clearly better spot (closer, free, open lane): play him in
+        for (const q of G.players) {
+          if (q.out || q.team !== p.team || q === p || q.gk) continue;
+          const dq = Math.hypot(PW / 2 - q.x, gy - q.y);
+          if (dq < dGoal - 7 && Math.abs(q.x - PW / 2) < 14 && nearestOppDist(q) > 4.5 && laneOpen(p, q) > 2 && Math.random() < 0.35) { passTo(p, q, nrm(q.x - p.x, q.y - p.y), false, q.runT > 0); return; }
+        }
         if (Math.random() < pShoot) { const away = gk ? (gk.x > PW / 2 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1); shoot(p, away * (0.5 + Math.random() * 0.5), 0.5 + Math.random() * 0.5); return; }
       }
       if (!central && Math.abs(gy - p.y) < 22 && Math.random() < 0.3) { cross(p); return; }
       if (press > 0.85 && Math.random() < 0.7) { aiPass(p, false, false); return; }
+      if (G.D && p.team === 1 && tacticBias(1) < -0.4 && dGoal > 40 && Math.random() < 0.25) { aiPass(p, false, true); return; } // winning late: keep the ball
       if (Math.random() < 0.1) { aiPass(p, false, false); return; }
     }
     let tx = (PW / 2 - p.x) * (dGoal < 30 ? 0.5 : 0.2), ty = fwd * 10;
@@ -11426,6 +11587,10 @@ const Game2D = (() => {
       const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.6;
       SFX.crowdGain = c.createGain(); SFX.crowdGain.gain.value = 0.08;
       src.connect(bp); bp.connect(SFX.crowdGain); SFX.crowdGain.connect(SFX.master);
+      // a second "vowel" band makes the murmur sound like many voices
+      const bp2 = c.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 1500; bp2.Q.value = 1.2;
+      const g2 = c.createGain(); g2.gain.value = 0.55;
+      src.connect(bp2); bp2.connect(g2); g2.connect(SFX.crowdGain);
       src.start();
       SFX.crowd = src;
       if (c.state === 'suspended') c.resume().catch(() => {});
@@ -11466,6 +11631,36 @@ const Game2D = (() => {
         const peak = (kind === 'roar' ? 0.9 : kind === 'net' ? 0.5 : 0.45) * vol;
         g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.002, peak), t + (kind === 'net' ? 0.01 : 0.18)); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
         src.connect(f); f.connect(g); g.connect(SFX.master); src.start(t, Math.random()); src.stop(t + dur + 0.05);
+      } else if (kind === 'ooh') { // the stand gasps / shouts when a shot is on its way
+        const o = c.createBufferSource(); o.buffer = SFX.noise;
+        const f1 = c.createBiquadFilter(), f2 = c.createBiquadFilter(), g = c.createGain();
+        f1.type = 'bandpass'; f1.Q.value = 3; f2.type = 'bandpass'; f2.Q.value = 3;
+        f1.frequency.setValueAtTime(420, t); f1.frequency.linearRampToValueAtTime(620, t + 0.8);
+        f2.frequency.setValueAtTime(800, t); f2.frequency.linearRampToValueAtTime(1100, t + 0.8);
+        g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.003, 0.55 * vol), t + 0.25); g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+        o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(SFX.master); o.start(t, Math.random()); o.stop(t + 1.15);
+      } else if (kind === 'chant') { // "olê olê olê": a mass of sung voices on a simple rhythm, with drums
+        const base = 150 + Math.random() * 50, steps = [0, 0, 0, null, 2, 2, 2, null, 4, 4, 2, 0], dt0 = 0.27;
+        const amp = 0.05 * vol;
+        steps.forEach((semi, i) => {
+          if (semi === null) return;
+          const tt = t + i * dt0, dur = dt0 * 0.85, f0 = base * Math.pow(2, semi / 12);
+          const g = c.createGain(), fa = c.createBiquadFilter(), fb = c.createBiquadFilter();
+          fa.type = 'bandpass'; fa.frequency.value = 700; fa.Q.value = 4; fb.type = 'bandpass'; fb.frequency.value = 1250; fb.Q.value = 5;
+          g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(amp, tt + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, tt + dur);
+          for (let v = 0; v < 6; v++) {
+            const o = c.createOscillator(); o.type = 'sawtooth';
+            o.frequency.setValueAtTime(f0 * (1 + (Math.random() - 0.5) * 0.04) * (v % 3 === 2 ? 2 : 1), tt);
+            o.connect(fa); o.connect(fb); o.start(tt); o.stop(tt + dur + 0.03);
+          }
+          fa.connect(g); fb.connect(g); g.connect(SFX.master);
+          if (i % 2 === 0 && G.orgs && G.orgs.length) { // the organised groups bring a bass drum
+            const d = c.createOscillator(), dg = c.createGain();
+            d.type = 'sine'; d.frequency.setValueAtTime(110, tt); d.frequency.exponentialRampToValueAtTime(48, tt + 0.14);
+            dg.gain.setValueAtTime(0.2 * vol, tt); dg.gain.exponentialRampToValueAtTime(0.001, tt + 0.2);
+            d.connect(dg); dg.connect(SFX.master); d.start(tt); d.stop(tt + 0.22);
+          }
+        });
       } else if (kind === 'post') {
         const o = c.createOscillator(), g = c.createGain();
         o.type = 'triangle'; o.frequency.setValueAtTime(980, t); o.frequency.exponentialRampToValueAtTime(760, t + 0.5);
@@ -11480,7 +11675,13 @@ const Game2D = (() => {
     G.moodT = 0.25;
     const b = G.ball;
     const danger = Math.max(0, 1 - Math.min(b.y, PL - b.y) / 30);
-    SFX.crowdGain.gain.setTargetAtTime(0.06 + danger * 0.1 + (G.orgs ? G.orgs.length * 0.025 : 0), SFX.ctx.currentTime, 0.4);
+    G.swell = clamp((G.swell || 0.5) + (Math.random() - 0.5) * 0.35, 0.15, 1); // the murmur breathes: swells and drops
+    SFX.crowdGain.gain.setTargetAtTime((0.05 + danger * 0.1 + (G.orgs ? G.orgs.length * 0.025 : 0)) * (0.7 + G.swell * 0.7), SFX.ctx.currentTime, 0.3);
+    G.chantT = (G.chantT == null ? 4 : G.chantT) - 0.25;
+    if (G.chantT <= 0 && (G.state === 'play' || G.state === 'goal' ? G.state === 'play' : false)) {
+      G.chantT = 9 + Math.random() * 12;
+      sfx('chant', clamp(0.7 + danger * 0.6 + (G.fanSup || 0) * 0.3, 0.4, 1.4));
+    }
   }
   function sfxClose() { try { if (SFX.crowd) SFX.crowd.stop(); if (SFX.ctx) SFX.ctx.close(); } catch (e) { /* ignore */ } Object.assign(SFX, { ctx: null, master: null, crowd: null, crowdGain: null, noise: null }); }
 
@@ -11572,7 +11773,7 @@ const Game2D = (() => {
       <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
       <div class="g2d-controls"><div class="joy" id="g2-joy" data-k="joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
-        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR<small>↓ goleiro sai</small></button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE</button><button class="pad shoot" data-k="shoot">CHUTE<small>↑ colocado</small></button></div></div>
+        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR<small>↓ goleiro sai</small></button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE<small>↑ enfiada</small></button><button class="pad shoot" data-k="shoot">CHUTE<small>↑ colocado · ↓ cavadinha</small></button></div></div>
       <div class="g2-laybar" id="g2-laybar" hidden><div class="t">Arraste os botões para onde quiser · toque num botão e use − / + para o tamanho</div><div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn sm" data-l="minus">−</button><button class="btn sm" data-l="plus">+</button><button class="btn sm" data-l="reset">Padrão</button><button class="btn sm gold" data-l="done">Pronto</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
@@ -11617,17 +11818,22 @@ const Game2D = (() => {
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault(); btn.classList.add('on'); y0 = e.clientY; drag = 0;
         try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not capturable */ }
-        if (k !== 'swap') press(k, true);
+        if (k !== 'swap' && k !== 'pass') press(k, true);
       });
       btn.addEventListener('pointermove', (e) => {
         if (!G || !btn.classList.contains('on')) return;
         const dy = e.clientY - y0;
-        if (k === 'shoot') { const on = dy < -26; if (on !== !!G.input.plc) { G.input.plc = on; btn.classList.toggle('plc', on); } }
+        if (k === 'shoot') {
+          const on = dy < -26, ch = dy > 26;
+          if (on !== !!G.input.plc) { G.input.plc = on; btn.classList.toggle('plc', on); }
+          if (ch !== !!G.input.chipf) { G.input.chipf = ch; btn.classList.toggle('plc', ch); }
+        } else if (k === 'pass') { drag = dy < -26 ? 1 : 0; btn.classList.toggle('plc', !!drag); }
         else if (k === 'swap') { drag = dy > 26 ? 1 : 0; btn.classList.toggle('plc', !!drag); }
       });
       const up = () => {
         if (!btn.classList.contains('on')) return; btn.classList.remove('on'); btn.classList.remove('plc');
         if (k === 'swap') { if (drag) startGkRush(); else press('swap', true); drag = 0; return; }
+        if (k === 'pass') { press(drag ? 'lob' : 'pass', true); drag = 0; return; }
         press(k, false);
       };
       btn.addEventListener('pointerup', up);
@@ -11776,6 +11982,7 @@ const Game2D = (() => {
     if (k === 'v' && down) callForBall();
     if (k === 'g' && down) startGkRush();
     if (k === 'h') G.input.plc = down;
+    if (k === 'b') G.input.chipf = down;
     if (k === 'i' && down) G.input.skill = 'feint';
     if (k === 'o' && down) G.input.skill = 'spin';
     if (k === 'k' || k === ' ') press('shoot', down);
@@ -12091,6 +12298,7 @@ const Game2D = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const s = SC;
     drawOrgs(s);
+    if (!G.auto && !G.solo && !G.tr && G.state !== 'replay') drawBenchGround(s);
     const b = G.ball;
     const replaying = G.state === 'replay';
     // controlled player ring, pass preview and the target of a pass in flight
@@ -12128,9 +12336,17 @@ const Game2D = (() => {
       const outNow = replaying ? p.rOut : p.out;
       if (!outNow || (G.state === 'ufo' && G.ufo && G.ufo.vic === p)) items.push({ y: PY(p.x, p.y), p });
     }
-    if (!G.solo && !G.tr && !G.auto && S.coach && S.coach.look && !replaying) { const cs = coachSpot(); items.push({ y: PY(cs.x, cs.y), coach: cs }); }
+    if (!G.auto && !replaying && G.ref) {
+      const whistle = G.restartHold || G.state === 'goal';
+      items.push({ y: PY(G.ref.x, G.ref.y), off: Object.assign(G.ref, { shirt: '#f2d21b', shorts: '#15171a', socks: '#15171a', skin: SKINS[2], hair: '#2a1d14', whistle }) });
+      for (const l of G.lines) items.push({ y: PY(l.x, l.y), off: Object.assign(l, { shirt: '#f2d21b', shorts: '#15171a', socks: '#15171a', skin: SKINS[1], hair: '#222', flagC: true }) });
+      if (!G.solo && !G.tr) {
+        for (const c of G.coaches) if (c.team === 1 || (S.coach && S.coach.look)) items.push({ y: PY(c.x, c.y), coach: c });
+        for (const q of benchSeats()) items.push({ y: PY(q.x, q.y), seat: q });
+      }
+    }
     items.sort((u, v) => u.y - v.y);
-    for (const it of items) { if (it.coach) drawCoach(PX(it.coach.x, it.coach.y), it.y, s); else drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s); }
+    for (const it of items) { if (it.coach) drawCoach(PX(it.coach.x, it.coach.y), it.y, s, it.coach); else if (it.off) drawOfficial(PX(it.off.x, it.off.y), it.y, s, it.off); else if (it.seat) drawSeated(it.seat, PX(it.seat.x, it.seat.y), it.y, s); else drawPlayer(it.p, PX(it.p.x, it.p.y), it.y, s); }
     // the ball is always drawn last: with these tall cartoon players it would otherwise vanish behind the carrier
     drawBall(s);
     // shot power and sprint stamina of the controlled player
