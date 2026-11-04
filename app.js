@@ -12987,6 +12987,110 @@ const Game2D = (() => {
     ctx.beginPath(); ctx.ellipse(X - br * 0.35, by - br * 0.4, br * 0.22, br * 0.13, -0.6, 0, Math.PI * 2); ctx.fill();
   }
   function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  // ---- goal celebrations: poses and effects drawn with the canvas (no emoji) ----
+  const CEL_MOVE = new Set(['moon', 'conga', 'dance', 'robot', 'surf']);
+  const celH = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  // which celebration a player is performing (the scorer, or a teammate in a group celebration) and its clock
+  function celOf(p) {
+    const c = G.celebr;
+    if (G.state !== 'goal' || !c || !c.kind || p.out) return null;
+    if (p === c.scorer) return { kind: c.kind, ct: G.time - c.t0, lead: true };
+    if (p.team === c.scorer.team && !p.gk && CEL_GROUP[c.kind] && c.kind !== 'huddle') return { kind: c.kind, ct: G.time - c.t0 - (p.fx || 0) * 0.35, lead: false };
+    return null;
+  }
+  // body transform: rotation (rad) and squash around the hip, pivot height in body units
+  function celBody(kind, ct) {
+    const S = Math.sin, B = { rot: 0, sx: 1, sy: 1, dy: 0, piv: 0.7 };
+    switch (kind) {
+      case 'slide': B.rot = -0.6 * Math.min(1, ct / 0.15); B.sy = 0.9; break;
+      case 'plane': B.rot = S(ct * 2.2) * 0.28; B.piv = 0.9; break;
+      case 'flip': if (ct < 0.9) { B.rot = -Math.PI * 2 * ct / 0.9; B.sy = 0.86; B.piv = 1.0; } break;
+      case 'dance': B.rot = S(ct * 7) * 0.12; break;
+      case 'sky': B.rot = -0.12; B.sy = 0.93; break;
+      case 'huddle': B.rot = S(ct * 5) * 0.06; break;
+      case 'heart': B.sy = 1 + S(ct * 8) * 0.03; break;
+      case 'baby': B.rot = S(ct * 3) * 0.14; break;
+      case 'robot': B.rot = Math.round(S(ct * 4) * 2) / 2 * 0.14; break;
+      case 'bow': { const b = clamp(S(Math.min(ct, 1.8) / 1.8 * Math.PI) * 1.4, 0, 1); B.sy = 1 - 0.3 * b; B.rot = b * 0.18; break; }
+      case 'conga': B.rot = S(ct * 5) * 0.1; break;
+      case 'surf': B.rot = S(ct * 2.5) * 0.2; B.sy = 0.92; break;
+      case 'screw': B.sx = 0.35 + 0.65 * Math.abs(Math.cos(ct * 10)); break;
+      case 'tornado': B.sx = 0.3 + 0.7 * Math.abs(Math.cos(ct * 13)); break;
+      case 'cry': B.dy = S(ct * 30) * 0.02; B.sy = 0.95; break;
+      case 'zen': B.sy = 0.64; B.dy = -0.22; break;
+      case 'rocket': B.sy = ct < 0.3 ? 0.8 : 1.14; break;
+      case 'fire': B.rot = S(ct * 9) * 0.05; break;
+      case 'moon': B.rot = -0.1; break;
+      case 'drum': B.rot = S(ct * 8) * 0.04; break;
+      case 'king': B.sy = 1.04; break;
+    }
+    return B;
+  }
+  // arm targets relative to the shoulder in body units: [elbow x, elbow y, hand x, hand y]; sx = -1 left arm, +1 right arm
+  function celArm(kind, ct, sx) {
+    const S = Math.sin;
+    switch (kind) {
+      case 'slide': return [sx * 0.45, -0.25, sx * 0.8, -0.65 + S(ct * 8) * 0.08];
+      case 'plane': return [sx * 0.55, -0.02, sx * 1.15, -0.04 + sx * S(ct * 2.2) * 0.1];
+      case 'flip': return [sx * 0.2, 0.3, sx * 0.1, 0.55];
+      case 'shush': return sx > 0 ? [-0.1, -0.2, -0.4, -0.52] : [0.15, 0.3, -0.25, 0.42];
+      case 'dance': { const u = S(ct * 7 + (sx > 0 ? 0 : Math.PI)); return [sx * 0.45, -0.3 + u * 0.2, sx * 0.7, -0.75 + u * 0.35]; }
+      case 'sky': return [sx * 0.25, -0.35, sx * 0.1, -0.95];
+      case 'huddle': return [sx * 0.5, 0.0, sx * 0.9, 0.3];
+      case 'heart': return [sx * 0.55, -0.45, sx * 0.07, -0.88];
+      case 'baby': return [sx * 0.4, 0.35, -sx * 0.1 + S(ct * 3) * 0.08, 0.55];
+      case 'salute': return sx > 0 ? [0.3, -0.35, -0.22, -0.64] : [sx * 0.25, 0.3, sx * 0.3, 0.6];
+      case 'robot': { const k = S(ct * 4 + (sx > 0 ? 0 : Math.PI)) > 0; return [sx * 0.6, -0.12, sx * 0.6, k ? -0.62 : 0.1]; }
+      case 'bow': return [sx * 0.2, 0.35, sx * 0.18, 0.62];
+      case 'conga': return [sx * 0.5, 0.1, sx * 0.9, 0.3 + S(ct * 5) * 0.1];
+      case 'surf': return [sx * 0.5, -0.1, sx * 1.0, -0.1 + sx * S(ct * 2.5) * 0.15];
+      case 'archer': { const pu = Math.min(1, ct / 0.8); return sx < 0 ? [-0.55, -0.05, -1.15, -0.08] : [0.2, -0.08, 0.45 - pu * 0.9 + (ct > 0.9 ? 0.5 : 0), -0.1]; }
+      case 'screw': case 'tornado': return [sx * 0.55, -0.25, sx * 0.95, -0.55];
+      case 'cry': return [sx * 0.35, -0.1, sx * 0.1, -0.52 + S(ct * 30) * 0.02];
+      case 'zen': return [sx * 0.55, 0.15, sx * 0.4, 0.45];
+      case 'wave': { const u = Math.max(0, S(ct * 5)); return [sx * 0.3, -0.35 - u * 0.1, sx * 0.2, -0.9 - u * 0.2]; }
+      case 'rocket': return ct < 0.3 ? [sx * 0.3, 0.2, sx * 0.3, 0.5] : [sx * 0.2, -0.45, sx * 0.1, -1.0];
+      case 'fire': return [sx * 0.5, -0.3, sx * 0.7, -0.75 + S(ct * 9 + sx) * 0.1];
+      case 'moon': return sx > 0 ? [0.25, -0.35, -0.3, -0.62] : [sx * 0.35, 0.1, sx * 0.55, 0.38];
+      case 'drum': { const u = S(ct * 14 + (sx > 0 ? 0 : Math.PI)); return [sx * 0.4, 0.15, sx * 0.3, 0.35 + u * 0.14]; }
+      case 'king': return [sx * 0.6, -0.15, sx * 0.9, -0.7];
+    }
+    return null;
+  }
+  const heartP = (x, y, r) => { ctx.beginPath(); ctx.moveTo(x, y + r * 0.9); ctx.bezierCurveTo(x - r * 1.3, y + r * 0.1, x - r * 0.7, y - r * 0.9, x, y - r * 0.35); ctx.bezierCurveTo(x + r * 0.7, y - r * 0.9, x + r * 1.3, y + r * 0.1, x, y + r * 0.9); ctx.closePath(); };
+  const starP = (x, y, r, rot = 0) => { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = rot - Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); } ctx.closePath(); };
+  const flameP = (x, y, w, h) => { ctx.beginPath(); ctx.moveTo(x - w, y); ctx.quadraticCurveTo(x - w * 1.1, y - h * 0.5, x, y - h); ctx.quadraticCurveTo(x + w * 1.1, y - h * 0.5, x + w, y); ctx.closePath(); };
+  const flameAt = (x, y, w, h) => { flameP(x, y, w, h); ctx.fillStyle = '#ff7a1a'; ctx.fill(); flameP(x, y, w * 0.6, h * 0.65); ctx.fillStyle = '#ffd23a'; ctx.fill(); };
+  // particle effects of the celebration of the player at (X, Y) (feet); s = body size
+  function celFx(kind, ct, X, Y, s, lift, kit) {
+    const S = Math.sin, C = Math.cos, hy = Y - s * 1.9;
+    ctx.save(); ctx.lineCap = 'round';
+    const rise = (n, per, fn) => { for (let i = 0; i < n; i++) { const age = ((ct / per) + i / n) % 1; fn(i, age); } };
+    switch (kind) {
+      case 'heart': rise(7, 1.6, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = i % 2 ? '#ff4d79' : '#ff8fb1'; heartP(X + S(i * 2.3 + ct * 2) * s * 0.7, hy - s * 0.6 - a * s * 2.2, s * (0.22 + 0.12 * celH(i))); ctx.fill(); }); break;
+      case 'plane': { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = s * 0.06; for (let i = 0; i < 4; i++) { const yy = Y - s * (0.9 + i * 0.3), o = (ct * 6 + i) % 2; ctx.beginPath(); ctx.moveTo(X - s * (1.3 + o), yy); ctx.lineTo(X - s * (2.2 + o), yy); ctx.stroke(); } break; }
+      case 'flip': { if (ct < 0.9) { ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = s * 0.07; ctx.beginPath(); ctx.arc(X, Y - s * 1.0, s * 1.15, -Math.PI * 0.2 + ct * 7, Math.PI * 0.7 + ct * 7); ctx.stroke(); } else if (ct < 1.5) { const a = (ct - 0.9) / 0.6; ctx.fillStyle = 'rgba(210,200,170,' + (0.5 * (1 - a)) + ')'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(X + (i - 2.5) * s * 0.4 * (0.5 + a), Y - s * 0.1 - a * s * 0.3, s * (0.18 + a * 0.18), 0, 7); ctx.fill(); } } break; }
+      case 'shush': { ctx.lineWidth = s * 0.07; for (let i = 0; i < 3; i++) { const a = ((ct * 1.4) + i / 3) % 1; ctx.strokeStyle = 'rgba(255,255,255,' + (0.7 * (1 - a)) + ')'; ctx.beginPath(); ctx.arc(X, hy + s * 0.2, s * (0.7 + a * 1.4), Math.PI * 0.1, Math.PI * 0.9); ctx.stroke(); } break; }
+      case 'dance': { ctx.font = `bold ${Math.round(s * 0.7)}px sans-serif`; ctx.textAlign = 'center'; rise(4, 1.5, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = ['#ffe14d', '#ff5d9e', '#5dd6ff', '#8dff6a'][i]; ctx.fillText(i % 2 ? '♪' : '♫', X + (i - 1.5) * s * 0.7 + S(ct * 3 + i) * s * 0.2, hy - s * 0.4 - a * s * 1.8); }); rise(5, 0.8, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = '#fff'; starP(X + (celH(i) - 0.5) * s * 2.4, Y - s * (0.4 + celH(i + 9) * 1.8), s * 0.1 * (1 - a)); ctx.fill(); }); break; }
+      case 'sky': { const g = ctx.createLinearGradient(0, Y - s * 6, 0, Y); g.addColorStop(0, 'rgba(255,240,150,0)'); g.addColorStop(1, 'rgba(255,240,150,0.45)'); ctx.fillStyle = g; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(X + i * s * 0.18, Y - s * 6); ctx.lineTo(X + i * s * 0.9 - s * 0.2, Y); ctx.lineTo(X + i * s * 0.9 + s * 0.2, Y); ctx.closePath(); ctx.fill(); } rise(6, 1.2, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = '#fff6b0'; starP(X + (celH(i) - 0.5) * s * 1.6, Y - s * 2 - a * s * 2, s * 0.14); ctx.fill(); }); break; }
+      case 'slide': { rise(9, 0.7, (i, a) => { ctx.globalAlpha = 0.7 * (1 - a); ctx.fillStyle = i % 3 ? '#5d9a3a' : '#9b7b4a'; ctx.beginPath(); ctx.arc(X - s * (0.2 + a * 1.6) * (celH(i) + 0.4), Y - s * (0.1 + a * 0.7 * celH(i + 3)), s * 0.1, 0, 7); ctx.fill(); }); break; }
+      case 'huddle': case 'fire': { rise(kind === 'fire' ? 7 : 5, 0.9, (i, a) => { ctx.globalAlpha = 1 - a; if (kind === 'fire') { flameAt(X + (i - 3) * s * 0.4, Y - s * 0.3 - a * s * 0.4, s * 0.2 * (1 - a * 0.5), s * (0.9 + 0.4 * celH(i + ct * 4 | 0))); } else { ctx.fillStyle = '#ffe14d'; starP(X + (celH(i) - 0.5) * s * 2, hy - a * s * 1.2, s * 0.16, ct); ctx.fill(); } }); break; }
+      case 'baby': { ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = s * 0.04; ctx.beginPath(); ctx.ellipse(X + S(ct * 3) * s * 0.1, Y - s * 0.95, s * 0.42, s * 0.2, S(ct * 3) * 0.2, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#f2c9a0'; ctx.beginPath(); ctx.arc(X + s * 0.28 + S(ct * 3) * s * 0.1, Y - s * 1.0, s * 0.13, 0, 7); ctx.fill(); ctx.font = `bold ${Math.round(s * 0.5)}px sans-serif`; ctx.textAlign = 'center'; rise(3, 2, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = '#cfe8ff'; ctx.fillText('z', X + s * (0.5 + i * 0.3), hy - s * 0.4 - a * s * 1.4); }); break; }
+      case 'salute': { const a = 0.5 + 0.5 * S(ct * 6); ctx.globalAlpha = a; ctx.fillStyle = '#fff'; starP(X + s * 0.32, hy - s * 0.32, s * 0.2, ct); ctx.fill(); break; }
+      case 'robot': { ctx.strokeStyle = '#9fe8ff'; ctx.lineWidth = s * 0.05; for (let i = 0; i < 2; i++) { const cx = X + (i ? s * 0.9 : -s * 0.9), cy = Y - s * 1.2 - i * s * 0.5, ro = ct * (i ? -3 : 3); ctx.beginPath(); for (let k = 0; k < 8; k++) { const a = ro + k * Math.PI / 4; ctx.moveTo(cx + C(a) * s * 0.22, cy + S(a) * s * 0.22); ctx.lineTo(cx + C(a) * s * 0.33, cy + S(a) * s * 0.33); } ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, s * 0.22, 0, 7); ctx.stroke(); } if (Math.floor(ct * 6) % 2) { ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(X, hy - s * 0.62, s * 0.07, 0, 7); ctx.fill(); } break; }
+      case 'bow': case 'conga': case 'wave': { const cols = ['#ff5d5d', '#ffd23a', '#5dd6ff', '#8dff6a', '#ff7ad9']; rise(12, 1.8, (i, a) => { ctx.globalAlpha = 1 - a * a; ctx.fillStyle = cols[i % 5]; ctx.save(); ctx.translate(X + (celH(i) - 0.5) * s * 3.2, Y - s * 3.2 + a * s * 3.1); ctx.rotate(ct * 3 + i); ctx.fillRect(-s * 0.07, -s * 0.12, s * 0.14, s * 0.24); ctx.restore(); }); if (kind === 'wave') { ctx.lineWidth = s * 0.07; for (let i = 0; i < 3; i++) { const a = (ct * 0.9 + i / 3) % 1; ctx.strokeStyle = 'rgba(120,200,255,' + (0.6 * (1 - a)) + ')'; ctx.beginPath(); ctx.ellipse(X, Y, s * (0.6 + a * 3.5), s * (0.25 + a * 1.4), 0, 0, 7); ctx.stroke(); } } break; }
+      case 'surf': { ctx.lineWidth = s * 0.1; for (let i = 0; i < 3; i++) { ctx.strokeStyle = i ? 'rgba(180,230,255,0.7)' : 'rgba(40,140,230,0.8)'; ctx.beginPath(); for (let k = -6; k <= 6; k++) { const xx = X + k * s * 0.22, yy = Y + s * (0.04 + i * 0.1) + S(k * 0.9 - ct * 5 + i) * s * 0.07; k === -6 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy); } ctx.stroke(); } ctx.fillStyle = '#f2c14e'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.02, s * 0.9, s * 0.1, S(ct * 2.5) * 0.12, 0, 7); ctx.fill(); break; }
+      case 'archer': { ctx.strokeStyle = '#7a4b22'; ctx.lineWidth = s * 0.08; const bx = X - s * 1.3, by = Y - s * 1.32; ctx.beginPath(); ctx.arc(bx + s * 0.28, by, s * 0.65, Math.PI * 0.62, Math.PI * 1.38); ctx.stroke(); ctx.strokeStyle = '#eee'; ctx.lineWidth = s * 0.03; const pu = Math.min(1, ct / 0.8); ctx.beginPath(); ctx.moveTo(bx + s * 0.08, by - s * 0.56); ctx.lineTo(ct < 0.9 ? bx + s * (0.4 + pu * 1.0) : bx + s * 0.1, by); ctx.lineTo(bx + s * 0.08, by + s * 0.56); ctx.stroke(); const ar = (xx) => { ctx.strokeStyle = '#c9a36b'; ctx.lineWidth = s * 0.05; ctx.beginPath(); ctx.moveTo(xx, by); ctx.lineTo(xx + s * 1.0, by); ctx.stroke(); ctx.fillStyle = '#ddd'; ctx.beginPath(); ctx.moveTo(xx - s * 0.12, by); ctx.lineTo(xx + s * 0.05, by - s * 0.09); ctx.lineTo(xx + s * 0.05, by + s * 0.09); ctx.closePath(); ctx.fill(); }; if (ct < 0.9) ar(bx + s * (0.2 + pu * 1.0) - s * 0.3); else { const f = ct - 0.9; ctx.globalAlpha = Math.max(0, 1 - f * 1.2); ar(bx - s * 0.3 - f * s * 7); } break; }
+      case 'screw': case 'tornado': { for (let i = 0; i < 4; i++) { const a = ((ct * 1.6) + i / 4) % 1, yy = Y - s * (0.2 + a * 2.2); ctx.strokeStyle = kind === 'tornado' ? 'rgba(210,215,225,' + (0.75 * (1 - a)) + ')' : 'rgba(255,255,255,' + (0.7 * (1 - a)) + ')'; ctx.lineWidth = s * 0.09; ctx.beginPath(); ctx.ellipse(X, yy, s * (0.5 + a * (kind === 'tornado' ? 1.1 : 0.5)), s * 0.16, 0, 0, 7); ctx.stroke(); } break; }
+      case 'cry': { rise(8, 0.8, (i, a) => { ctx.globalAlpha = 1 - a * 0.5; ctx.fillStyle = '#6fc3ff'; const sd = i % 2 ? 1 : -1; ctx.beginPath(); ctx.ellipse(X + sd * s * (0.16 + a * 0.5 * celH(i)), hy + s * 0.14 + a * s * 1.5, s * 0.05, s * 0.09, 0, 0, 7); ctx.fill(); }); ctx.globalAlpha = Math.min(1, ct / 2) * 0.5; ctx.fillStyle = '#6fc3ff'; ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * (0.3 + Math.min(1, ct / 2) * 0.7), s * 0.14, 0, 0, 7); ctx.fill(); break; }
+      case 'zen': { for (let i = 0; i < 3; i++) { const a = ((ct * 0.7) + i / 3) % 1; ctx.strokeStyle = 'rgba(190,150,255,' + (0.7 * (1 - a)) + ')'; ctx.lineWidth = s * 0.07; ctx.beginPath(); ctx.arc(X, Y - s * 1.1, s * (0.9 + a * 1.4), 0, 7); ctx.stroke(); } ctx.fillStyle = 'rgba(255,170,205,0.9)'; for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI; ctx.save(); ctx.translate(X, Y + s * 0.04); ctx.rotate(a + Math.PI); ctx.beginPath(); ctx.ellipse(s * 0.55, 0, s * 0.3, s * 0.1, 0, 0, 7); ctx.fill(); ctx.restore(); } break; }
+      case 'rocket': { const lf = Math.max(0, lift); rise(10, 0.5, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = a < 0.4 ? '#ffb02e' : 'rgba(200,200,205,0.8)'; ctx.beginPath(); ctx.arc(X + (celH(i) - 0.5) * s * 0.6, Y - s * 0.1 + a * (s * 0.6 + lf), s * (0.16 + a * 0.25), 0, 7); ctx.fill(); }); if (lf > 0) { ctx.globalAlpha = 1; flameAt(X, Y + lf * 0.6, s * 0.25, s * 0.9 + lf * 0.4); } break; }
+      case 'moon': { rise(6, 1.2, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = '#fff'; starP(X + (celH(i) - 0.5) * s * 2.2, Y - s * (0.3 + celH(i + 4) * 2), s * 0.13 * (1 - a * 0.4)); ctx.fill(); }); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = s * 0.12; ctx.beginPath(); ctx.moveTo(X + s * 0.6, Y + s * 0.02); ctx.lineTo(X + s * 1.8, Y + s * 0.02); ctx.stroke(); break; }
+      case 'drum': { for (let i = 0; i < 3; i++) { const a = ((ct * 2.8) + i / 3) % 1; ctx.strokeStyle = 'rgba(255,225,77,' + (0.8 * (1 - a)) + ')'; ctx.lineWidth = s * 0.08; ctx.beginPath(); ctx.ellipse(X, Y - s * 0.95, s * (0.4 + a * 1.2), s * (0.18 + a * 0.5), 0, 0, 7); ctx.stroke(); } ctx.fillStyle = '#b33a2e'; ctx.strokeStyle = '#eee'; ctx.lineWidth = s * 0.05; ctx.beginPath(); ctx.ellipse(X, Y - s * 0.8, s * 0.38, s * 0.15, 0, 0, 7); ctx.fill(); ctx.stroke(); break; }
+      case 'king': { const cx = X, cy = hy - s * 0.5; ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = s * 0.04; ctx.beginPath(); ctx.moveTo(cx - s * 0.32, cy + s * 0.2); ctx.lineTo(cx - s * 0.36, cy - s * 0.2); ctx.lineTo(cx - s * 0.16, cy); ctx.lineTo(cx, cy - s * 0.3); ctx.lineTo(cx + s * 0.16, cy); ctx.lineTo(cx + s * 0.36, cy - s * 0.2); ctx.lineTo(cx + s * 0.32, cy + s * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#e2001a'; ctx.beginPath(); ctx.arc(cx, cy + s * 0.08, s * 0.05, 0, 7); ctx.fill(); rise(6, 1, (i, a) => { ctx.globalAlpha = 1 - a; ctx.fillStyle = '#ffe98a'; starP(X + (celH(i) - 0.5) * s * 2, hy - s * 0.5 - a * s * 1.3, s * 0.13, ct); ctx.fill(); }); break; }
+    }
+    ctx.restore();
+  }
   function drawPlayer(p, X, Y, s) {
     const kit = p.kitOv || (p.gk ? G.gkKits[p.side] : G.kits[p.side]);
     const rp = G.state === 'replay';
@@ -12997,6 +13101,8 @@ const Game2D = (() => {
     let lift = 0, alpha = 1;
     if (G.state === 'ufo' && G.ufo && G.ufo.vic === p) { lift = Math.max(0, G.ufo.t - 0.6) * s * 3.2; alpha = clamp(1 - (G.ufo.t - 1.1) / 0.6, 0, 1); if (alpha <= 0) return; }
     const cel = G.state === 'goal' && G.celebr && G.celebr.kind && p === G.celebr.scorer ? G.celebr : null;
+    const cp = celOf(p);
+    if (cp && !cp.lead && cp.kind === 'wave') lift += Math.max(0, Math.sin(cp.ct * 5)) * s * 0.55;
     if (cel) {
       const ct = G.time - cel.t0;
       if (cel.kind === 'flip') lift += ct < 0.9 ? Math.abs(Math.sin(ct * Math.PI / 0.9)) * s * 1.1 : 0;
@@ -13023,7 +13129,6 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.78 + pu * 0.12), s * (0.34 + pu * 0.06), 0, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = 'rgba(80,220,255,0.9)'; ctx.beginPath(); ctx.moveTo(X, Y - s * 2.75 - pu * s * 0.1); ctx.lineTo(X - s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.lineTo(X + s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.closePath(); ctx.fill();
     }
-    if (cel) { ctx.font = `${Math.round(s * 0.95)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(CELEBS[cel.kind][0], X, Y - lift - s * 2.5); }
     Y -= lift + ((!diving && p.gk) ? (rp ? p.rGz || 0 : p.gz || 0) * s * 0.55 : 0);
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
@@ -13113,9 +13218,10 @@ const Game2D = (() => {
       return;
     }
     const spd = Math.hypot(p.vx, p.vy);
-    const moving = spd > 0.5;
-    const run = clamp(spd / 6, 0, 1.25); // 0 standing .. 1 sprint
-    const tt = p.anim * 3.2;
+    const cm = cp && CEL_MOVE.has(cp.kind);
+    const moving = spd > 0.5 || cm;
+    const run = cm ? Math.max(0.55, clamp(spd / 6, 0, 1.25)) : clamp(spd / 6, 0, 1.25); // 0 standing .. 1 sprint
+    const tt = cm ? cp.ct * 8 : p.anim * 3.2;
     const sk = !rp && p.sk ? p.sk : null;
     const skP = sk ? 1 - sk.t / sk.T : 0; // progress of a dribble move
     const spin = sk && sk.kind === 'spin';
@@ -13136,6 +13242,7 @@ const Game2D = (() => {
       lean += bd.x * s * 0.22 * (skP < 0.35 ? -0.7 * (skP / 0.35) : -0.7 + 1.7 * ((skP - 0.35) / 0.65));
     }
     ctx.save();
+    if (cp) { const B = celBody(cp.kind, cp.ct); if (B.rot || B.sx !== 1 || B.sy !== 1 || B.dy) { const py = Y - s * B.piv; ctx.translate(X, py + B.dy * s); ctx.rotate(B.rot); ctx.scale(B.sx, B.sy); ctx.translate(-X, -py); } }
     if (spin) { const ca = Math.abs(Math.cos(skP * Math.PI * 2 + Math.atan2(sk.dy, sk.dx))); ctx.translate(X, Y); ctx.scale(0.62 + 0.38 * ca, 1); ctx.translate(-X, -Y); }
     const hipY = Y - s * 0.68 - jump;
     const lw2 = Math.max(1, s * 0.03);
@@ -13227,7 +13334,9 @@ const Game2D = (() => {
       const st = moving ? Math.sin(tt + phase) : 0;
       let hx = shx + sx * s * 0.1 + sd.x * s * 0.22 * st * run, hy2 = shy + s * 0.58 - Math.max(0, st) * s * 0.18 * run;
       let ex = shx + sx * s * 0.16 + sd.x * s * 0.1 * st * run, ey = shy + s * 0.3;
-      if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
+      const ca = cp ? celArm(cp.kind, cp.ct, sx) : null;
+      if (ca) { ex = shx + ca[0] * s; ey = shy + ca[1] * s; hx = shx + ca[2] * s; hy2 = shy + ca[3] * s; }
+      else if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
       else if (p.gk && G.pk && p === G.pk.gk && !diving) { hx = shx + sx * s * (0.62 + Math.sin(G.time * 6) * 0.04); hy2 = shy - s * 0.12; ex = shx + sx * s * 0.4; ey = shy + s * 0.1; }
       else if (p.gk && !moving) { hx = shx + sx * s * 0.3; hy2 = shy + s * 0.34; ex = shx + sx * s * 0.2; ey = shy + s * 0.22; }
       else if (kicking) { hx = shx + sx * s * 0.34 - sd.x * s * 0.15 * kr; hy2 = shy + s * 0.4; ex = shx + sx * s * 0.28; ey = shy + s * 0.22; }
@@ -13291,6 +13400,7 @@ const Game2D = (() => {
       else if (kicking && kr > 0.4) { ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = Math.max(1, s * 0.04); ctx.beginPath(); ctx.moveTo(hx0 - s * 0.08 + ex, hy + s * 0.22); ctx.lineTo(hx0 + s * 0.08 + ex, hy + s * 0.22); ctx.stroke(); }
     }
     ctx.restore();
+    if (cp && cp.lead && cp.ct >= 0) celFx(cp.kind, cp.ct, X, Y, s, lift, kit);
     // a skill move leaves a little trail
     if (sk && !rp) { ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 * (1 - skP)) + ')'; ctx.lineWidth = s * 0.12; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(X - sdir(sk.dx, sk.dy).x * s * 0.9, Y - s * 0.1 - sdir(sk.dx, sk.dy).y * s * 0.4); ctx.lineTo(X, Y - s * 0.1); ctx.stroke(); ctx.lineCap = 'butt'; }
     ctx.globalAlpha = 1;
