@@ -2599,10 +2599,14 @@ function aiOffersForUser() {
     const val = playerValue(p);
     const fee = loanOffer ? 0 : roundMoney(val * rfloat(0.82, 1.25) * (p.tl ? 0.92 : 1));
     const o = { id: nextId('of'), pid: p.id, from: buyer.id, fee, loan: loanOffer, status: 'open', d: S.date, maxPay: roundMoney(Math.max(fee, val * rfloat(1.05, 1.45))), rounds: 0 };
+    if (!loanOffer && rnd() < 0.3) { // a swap: the club puts one of its players in the deal
+      const cand = squadOf(buyer.id).filter((q) => q.id !== p.id && !q.loan && swapValue(q) >= fee * 0.2 && swapValue(q) <= fee * 0.75 && q.o >= p.o - 12);
+      if (cand.length) { const q = pick(cand); o.swap = q.id; o.cash = Math.max(0, fee - swapValue(q)); o.fee = o.cash + swapValue(q); o.maxPay = Math.max(o.maxPay, o.fee); }
+    }
     S.tr.offers.push(o);
     addInbox('offer', teamName(buyer.id), loanOffer ? `Proposta de empréstimo por ${p.n}` : `Proposta por ${p.n}`,
       loanOffer ? `${teamName(buyer.id)} quer ${p.n} emprestado até o fim da temporada e promete minutos. Jogador emprestado que joga evolui mais rápido.` :
-        `${teamName(buyer.id)} oferece ${fmtMoney(fee)} por ${p.n} (valor de mercado: ${fmtMoney(val)}).`, { offer: o.id });
+        (o.swap ? `${teamName(buyer.id)} oferece ${S.players[o.swap].n} (${S.players[o.swap].o} de overall, ${S.players[o.swap].age} anos) mais ${fmtMoney(o.cash)} por ${p.n} (valor de mercado: ${fmtMoney(val)}).` : `${teamName(buyer.id)} oferece ${fmtMoney(fee)} por ${p.n} (valor de mercado: ${fmtMoney(val)}).`), { offer: o.id });
   }
 }
 function respondOffer(offerId, action, counterFee) {
@@ -2615,6 +2619,17 @@ function respondOffer(offerId, action, counterFee) {
     if (!isWindowOpen()) return { msg: 'A janela de transferências está fechada.' };
     o.status = 'done';
     if (o.loan) executeTransfer(p, o.from, 0, { loanFrom: p.t, until: seasonEndDay() });
+    else if (o.swap) {
+      const q = S.players[o.swap], ut = S.teams[p.t];
+      if (q && q.t === o.from && squadOf(ut.id).length < 36) {
+        const cash = o.cash || 0;
+        executeTransfer(p, o.from, cash, { w: wageDemand(p, S.teams[o.from]) });
+        executeTransfer(q, ut.id, 0, { w: q.w || wageDemand(q, ut), ct: q.ct || seasonEndYear() + 2 });
+        S.board.conf = clamp(S.board.conf + 1, 0, 100);
+        return { msg: `Troca fechada: ${p.n} vai ${tA(o.from, 'ao')} e ${q.n} chega${cash ? ` (mais ${fmtMoney(cash)})` : ''}.`, done: true };
+      }
+      executeTransfer(p, o.from, o.cash || 0, { w: wageDemand(p, S.teams[o.from]) });
+    }
     else executeTransfer(p, o.from, o.fee, { w: wageDemand(p, S.teams[o.from]) });
     S.board.conf = clamp(S.board.conf + (o.fee > playerValue(p) ? 2 : 0), 0, 100);
     return { msg: o.loan ? `${p.n} foi emprestado ${tA(o.from, 'ao')}.` : `${p.n} foi vendido ${tA(o.from, 'ao')} por ${fmtMoney(o.fee)}.`, done: true };
@@ -2622,7 +2637,7 @@ function respondOffer(offerId, action, counterFee) {
   if (action === 'counter') {
     o.rounds++;
     if (counterFee <= o.maxPay) {
-      o.fee = roundMoney(counterFee);
+      o.fee = roundMoney(counterFee); if (o.swap) o.cash = Math.max(0, o.fee - swapValue(S.players[o.swap]));
       return { msg: `${teamName(o.from)} aceitou pagar ${fmtMoney(o.fee)}. Confirme para concluir a venda.`, accepted: true };
     }
     if (o.rounds >= 3 || counterFee > o.maxPay * 1.6) { o.status = 'rejected'; return { msg: `${teamName(o.from)} desistiu da negociação.` }; }
@@ -2634,6 +2649,9 @@ function respondOffer(offerId, action, counterFee) {
 }
 
 // ---------------------------------------------------------------- user buying
+// a player offered in a swap: the other club values him a bit under the market (older players even less)
+function swapValue(q) { return roundMoney(playerValue(q) * (q.age <= 29 ? 0.9 : q.age <= 32 ? 0.72 : 0.5)); }
+function swapTotal(pids) { return sum(pids || [], (id) => (S.players[id] ? swapValue(S.players[id]) : 0)); }
 function clubResponse(p, fee, loan) {
   const seller = S.teams[p.t];
   if (!p.t) return { ok: true, free: true };
@@ -2695,24 +2713,29 @@ function lowerWageBudget(t, perWeek) {
   t.budget += back;
   return { ok: true, msg: `Folha salarial reduzida em ${fmtMoney(perWeek)}/semana. ${fmtMoney(back)} voltaram para o orçamento de transferências.` };
 }
-function userSign(p, fee, wage, years, loan) {
+function userSign(p, fee, wage, years, loan, swap) {
   const t = S.teams[S.user.team];
+  swap = (swap || []).filter((id) => S.players[id] && S.players[id].t === t.id);
+  const out = swap.map((id) => S.players[id]);
+  if (!loan && p.t && fee < 0 && S.teams[p.t] && S.teams[p.t].budget < -fee) return { ok: false, msg: `${teamName(p.t)} não tem caixa para pagar a diferença.` };
   if (!isWindowOpen() && p.t) return { ok: false, msg: 'A janela de transferências está fechada.' };
   if (!loan && fee > t.budget) return { ok: false, msg: 'Orçamento de transferências insuficiente.' };
-  if (wageBill(t.id) + wage > t.wb * 1.02) {
+  if (wageBill(t.id) - sum(out, (q) => q.w || 0) + wage > t.wb * 1.02) {
     const need = niceWage(wageBill(t.id) + wage - t.wb);
     return { ok: false, wbNeed: need, msg: `O salário estoura a folha salarial definida pela diretoria (faltam ${fmtMoney(need)}/semana). Você pode remanejar verba do orçamento de transferências para a folha.` };
   }
-  if (squadOf(t.id).length >= 36) return { ok: false, msg: 'O elenco já tem 36 jogadores (limite).' };
+  if (squadOf(t.id).length - out.length >= 36) return { ok: false, msg: 'O elenco já tem 36 jogadores (limite).' };
   if (loan) {
     const from = p.t;
     executeTransfer(p, t.id, 0, { loanFrom: from, until: seasonEndDay() });
     p.w = wage;
   } else {
+    const dest = p.t;
     executeTransfer(p, t.id, fee, { w: wage, ct: seasonEndYear() + years - 1 });
+    for (const q of out) executeTransfer(q, dest, 0, { w: q.w, ct: q.ct });
   }
   addNews(pick([`${t.n} anuncia ${p.n}`, `Oficial: ${p.n} é ${tA(t, 'do')}`]), `${p.n} (${POS_LONG[p.p].toLowerCase()}, ${p.o} de overall) chega ${loan ? 'por empréstimo' : fee ? `por ${fmtMoney(fee)}` : 'sem custos'} para reforçar ${tA(t)} de ${S.coach.name}.`, 'transfer', [t.id], { cat: 'Mercado da bola', fee });
-  return { ok: true, msg: `${p.n} assinou com ${tA(t)}!` };
+  return { ok: true, msg: out.length ? `${p.n} assinou com ${tA(t)}! Na troca saíram ${out.map((q) => q.n).join(', ')}.` : `${p.n} assinou com ${tA(t)}!` };
 }
 function renewContract(p, wage, years) {
   const t = S.teams[p.t];
@@ -5573,6 +5596,62 @@ function sponsAfterMatch(m) {
   if (goalsFor > goalsAg) { const t = S.teams[uid]; t.budget += s.shirt.winBonus; s.total += s.shirt.winBonus; s.wins = (s.wins || 0) + 1; }
 }
 
+/* ---------- logo emblems: a symbol per brand (drawn from these paths, 100x100 box) ---------- */
+const SP_ICONS = (() => {
+  const ell = (cx, cy, rx, ry) => `M${cx - rx} ${cy} a${rx} ${ry} 0 1 0 ${2 * rx} 0 a${rx} ${ry} 0 1 0 ${-2 * rx} 0Z`;
+  const ring = (r, r2) => `M50 ${50 - r} a${r} ${r} 0 1 1 -0.01 0Z M50 ${50 - r2} a${r2} ${r2} 0 1 0 0.01 0Z`;
+  const gear = (() => { let o = ''; for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, r = i % 2 ? 30 : 42, w = 0.17; o += (i ? 'L' : 'M') + (50 + Math.cos(a - w) * r).toFixed(1) + ' ' + (50 + Math.sin(a - w) * r).toFixed(1) + 'L' + (50 + Math.cos(a + w) * r).toFixed(1) + ' ' + (50 + Math.sin(a + w) * r).toFixed(1); } return o + 'Z' + ell(50, 50, 13, 13); })();
+  const sun = (() => { let o = ell(50, 50, 19, 19); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, c = Math.cos(a), s = Math.sin(a); o += `M${(50 + c * 28 - s * 6).toFixed(1)} ${(50 + s * 28 + c * 6).toFixed(1)}L${(50 + c * 44).toFixed(1)} ${(50 + s * 44).toFixed(1)}L${(50 + c * 28 + s * 6).toFixed(1)} ${(50 + s * 28 - c * 6).toFixed(1)}Z`; } return o; })();
+  const I = {
+    bolt: 'M58 6 L20 56 H46 L38 94 L80 40 H54Z',
+    flame: 'M50 6 C58 28 80 38 80 62 C80 80 66 94 50 94 C34 94 20 80 20 62 C20 48 30 40 36 26 C40 34 44 38 48 40 C46 30 46 18 50 6Z',
+    drop: 'M50 6 C50 6 22 44 22 63 A28 28 0 0 0 78 63 C78 44 50 6 50 6Z',
+    leaf: 'M16 84 C10 42 42 12 90 10 C92 58 62 90 22 86Z M24 80 C40 56 56 42 76 30 C56 46 40 60 24 80Z',
+    star: 'M50 6 L62 37 L95 38 L69 58 L78 90 L50 71 L22 90 L31 58 L5 38 L38 37Z',
+    sun, gear,
+    crown: 'M10 76 L14 28 L34 52 L50 20 L66 52 L86 28 L90 76Z M10 82 H90 V92 H10Z',
+    wave: 'M6 52 C22 30 36 30 50 50 C64 70 78 70 94 48 L94 70 C78 92 64 92 50 72 C36 52 22 52 6 74Z',
+    mountain: 'M4 86 L36 28 L50 52 L62 36 L96 86Z',
+    wing: 'M6 62 C30 64 46 50 50 20 C58 44 76 56 96 54 C78 68 62 74 52 94 C44 78 28 68 6 62Z',
+    paw: ell(50, 66, 22, 18) + ell(22, 44, 8, 11) + ell(40, 28, 8, 11) + ell(60, 28, 8, 11) + ell(78, 44, 8, 11),
+    bank: 'M50 6 L94 32 H6Z M14 42 H30 V76 H14Z M42 42 H58 V76 H42Z M70 42 H86 V76 H70Z M6 84 H94 V94 H6Z',
+    diamond: 'M50 6 L92 38 L50 94 L8 38Z M50 24 L72 38 L50 70 L28 38Z',
+    heart: 'M50 90 C6 58 12 20 34 18 C44 17 50 28 50 28 C50 28 56 17 66 18 C88 20 94 58 50 90Z',
+    plane: 'M50 4 L58 34 L96 58 V68 L58 58 L56 80 L70 90 V96 L50 90 L30 96 V90 L44 80 L42 58 L4 68 V58 L42 34Z',
+    arrow: 'M10 56 L50 8 L90 56 H68 V92 H32 V56Z',
+    play: 'M24 8 L92 50 L24 92Z',
+    globe: ring(44, 34) + 'M46 22 H54 V78 H46Z M22 46 H78 V54 H22Z',
+    eye: 'M4 50 C26 20 74 20 96 50 C74 80 26 80 4 50Z' + ell(50, 50, 15, 15),
+    target: ring(44, 34) + ring(22, 10),
+    shieldx: 'M50 4 L90 16 V50 C90 76 68 90 50 96 C32 90 10 76 10 50 V16Z M43 26 H57 V43 H74 V57 H57 V76 H43 V57 H26 V43 H43Z',
+    hex: 'M50 4 L90 27 V73 L50 96 L10 73 V27Z M50 30 L68 40 V60 L50 70 L32 60 V40Z',
+    rocket: 'M50 4 C70 20 74 48 68 72 H32 C26 48 30 20 50 4Z' + ell(50, 38, 8, 8) + 'M32 72 L18 92 L40 82Z M68 72 L82 92 L60 82Z',
+    cup: 'M24 8 H76 V34 C76 54 64 62 56 64 V76 H70 V90 H30 V76 H44 V64 C36 62 24 54 24 34Z',
+    cloud: 'M26 76 C8 76 6 50 26 48 C26 28 56 22 66 40 C86 36 96 62 78 76Z',
+    chevrons: 'M10 12 L50 44 L90 12 V32 L50 64 L10 32Z M10 48 L50 80 L90 48 V68 L50 100 L10 68Z',
+    bars: 'M10 62 H30 V92 H10Z M40 40 H60 V92 H40Z M70 14 H90 V92 H70Z',
+    swirl: 'M50 6 A44 44 0 1 1 6 50 A30 30 0 1 1 36 80 A18 18 0 1 1 52 52 A8 8 0 1 1 50 40 L50 44 A4 4 0 1 0 50 52Z',
+    house: 'M50 6 L94 46 H80 V92 H20 V46 H6Z M42 62 H58 V92 H42Z',
+    tree: 'M50 4 L82 44 H68 L90 74 H58 V94 H42 V74 H10 L32 44 H18Z',
+  };
+  return I;
+})();
+const SP_ICON_KEYS = {
+  cash: ['bank', 'diamond', 'shieldx', 'crown', 'hex', 'star', 'cup', 'bars', 'house', 'gear'],
+  energy: ['bolt', 'flame', 'drop', 'leaf', 'sun', 'heart', 'rocket', 'tree', 'swirl', 'chevrons'],
+  boots: ['arrow', 'wing', 'star', 'mountain', 'paw', 'cup', 'rocket', 'chevrons', 'flame', 'bolt'],
+  media: ['play', 'wave', 'eye', 'globe', 'target', 'cloud', 'bolt', 'swirl', 'bars', 'gear'],
+  bonus: ['plane', 'globe', 'sun', 'mountain', 'wave', 'star', 'arrow', 'rocket', 'cloud', 'tree'],
+};
+// the symbol of brand index b: deterministic, tied to its sector
+function spIconOf(b) {
+  const br = SP_BRANDS[b]; if (!br) return 'star';
+  const keys = SP_ICON_KEYS[br[3]] || SP_ICON_KEYS.cash;
+  let h = 2166136261; const s = br[0];
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return keys[(h >>> 0) % keys.length];
+}
+
 /* ===================== torcida: humor, reclamações, eventos inesperados e torcidas organizadas (só no Brasil) ===================== */
 // S.fans = { team, mood 0-100, org 0-100, recent: [letters], lastEv, lastCompl, lastOrg, ev: n, hist: [{d,t,r}] }
 const FAN_ORGS = {
@@ -6540,6 +6619,7 @@ act('openMenu', () => {
     <button class="menu-btn" data-a="exportSave"><span class="ic">⤒</span><span>Exportar save<small>Baixar arquivo para guardar ou levar a outro aparelho</small></span></button>
     <button class="menu-btn" data-a="openTraining"><span class="ic">🎯</span><span>Treinos<small>Pênalti, falta e passe${S.pl ? ' (dão XP ao jogador)' : ''}</small></span></button>
     ${S.pl ? '<button class="menu-btn" data-a="openPlLook"><span class="ic">🎨</span><span>Personalizar jogador<small>Pele, cabelo, barba, chuteira, número</small></span></button>' : '<button class="menu-btn" data-a="openCoachLook"><span class="ic">🧢</span><span>Perfil do técnico<small>Nome, nacionalidade, estilo e aparência</small></span></button>'}
+    <button class="menu-btn" data-a="openKit"><span class="ic">👕</span><span>Uniforme<small>Cores e padrões da camisa, calção e meias (casa e fora)</small></span></button>
     <button class="menu-btn" data-a="openCrestsInGame"><span class="ic">🛡</span><span>Escudos dos times<small>Use imagens suas, uma a uma ou em lote</small></span></button>
     <button class="menu-btn" data-a="openStoreInGame"><span class="ic">🛒</span><span>Loja de times<small>${INFINITE_COINS ? 'FutCoins infinitas' : WALLET.coins + ' FutCoins disponíveis'}</small></span></button>
     <button class="menu-btn" data-a="howTo"><span class="ic">?</span><span>Como jogar</span></button>
@@ -6808,7 +6888,7 @@ function viewMessage(m) {
       const p = S.players[o.pid];
       actions = `<div class="panel" style="background:var(--panel2);margin-top:14px">
         <div class="row wrap">${p ? `${ovrBadge(p.o)} ${posBadge(p.p)} <b>${esc(p.n)}</b> <span class="muted">${p.age} anos · valor ${money(playerValue(p))}</span>` : ''}</div>
-        <div class="row wrap" style="margin-top:10px"><span>Proposta atual: <b>${o.loan ? 'Empréstimo' : money(o.fee)}</b></span></div>
+        <div class="row wrap" style="margin-top:10px"><span>Proposta atual: <b>${o.loan ? 'Empréstimo' : o.swap && S.players[o.swap] ? `${esc(S.players[o.swap].n)} (${S.players[o.swap].o}) + ${money(o.cash || 0)}` : money(o.fee)}</b></span>${o.swap && S.players[o.swap] ? `<span class="muted">valor total ${money(o.fee)}</span>` : ''}</div>
         <div class="row wrap" style="margin-top:12px">
           <button class="btn primary sm" data-a="offerAct" data-o="${o.id}" data-x="accept">Aceitar</button>
           <button class="btn sm" data-a="offerAct" data-o="${o.id}" data-x="reject">Recusar</button>
@@ -7238,39 +7318,54 @@ function openBidModal(pid, loan) {
   const p = S.players[pid];
   const ask = askingPrice(p);
   const ut = S.teams[S.user.team];
-  UI.neg = { pid, loan, fee: loan ? 0 : roundMoney(playerValue(p)), msg: '', stage: 'club' };
+  UI.neg = { pid, loan, fee: loan ? 0 : roundMoney(playerValue(p)), msg: '', stage: 'club', swap: [] };
   openModal(() => {
     const n = UI.neg;
     return modalShell(loan ? `Empréstimo: ${esc(p.n)}` : `Proposta por ${esc(p.n)}`, `
       <div class="row wrap">${crest(p.t, 30)}<b>${esc(teamName(p.t))}</b><span class="muted">· valor ${money(playerValue(p))} · contrato até ${p.ct}</span></div>
       ${windowInfo().open ? '' : `<div class="chip" style="margin-top:10px;color:var(--warn)">${windowInfo().text}</div>`}
       ${loan ? '<p>Empréstimo até o fim da temporada. Você paga o salário do jogador.</p>' : `
-      <div class="field" style="margin-top:14px"><label for="bid-fee">Valor da proposta</label>
-      <div class="row"><input id="bid-fee" class="input" type="number" min="0" step="100000" value="${n.fee}" style="max-width:220px"><span class="muted">${money(n.fee)} · seu orçamento: ${money(ut.budget)}</span></div></div>`}
+      <div class="field" style="margin-top:14px"><label for="bid-fee">Dinheiro na proposta <span class="muted">(negativo = o clube paga a diferença)</span></label>
+      <div class="row"><input id="bid-fee" class="input" type="number" step="100000" value="${n.fee}" style="max-width:220px"><span class="muted">${money(n.fee)} · seu orçamento: ${money(ut.budget)}</span></div></div>
+      ${bidSwapHtml(p, n)}`}
       ${n.msg ? `<div class="panel" style="margin-top:12px;background:var(--panel2)">${esc(n.msg)}</div>` : ''}`,
       `<button class="btn" data-a="closeModal">Cancelar</button><button class="btn primary" data-a="sendBid">${loan ? 'Pedir empréstimo' : 'Enviar proposta'}</button>`);
   });
 }
+// swap: pick your own players to include in the offer (the club values each a bit under the market)
+function bidSwapHtml(p, n) {
+  const sq = squadOf(S.user.team).filter((q) => !q.loan && q.id !== p.id).sort(by((q) => playerValue(q), -1));
+  const tot = swapTotal(n.swap);
+  return `<div style="margin-top:14px"><div class="muted up" style="font-size:11px;margin-bottom:6px">Incluir jogadores na troca <span style="text-transform:none">(${n.swap.length ? `${n.swap.length} selecionado${n.swap.length > 1 ? 's' : ''}: ${money(tot)} na avaliação do clube` : 'opcional'})</span></div>
+    <div class="col" style="gap:4px;max-height:210px;overflow:auto">${sq.map((q) => `<label class="row" style="gap:8px;padding:5px 8px;border-radius:8px;background:var(--panel2);cursor:pointer"><input type="checkbox" data-a="bidSwap" data-id="${q.id}" ${n.swap.includes(q.id) ? 'checked' : ''}>${ovrBadge(q.o)} ${posBadge(q.p)}<span class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(q.n)}</span><span class="muted" style="font-size:12px">${q.age} · ${money(swapValue(q))}</span></label>`).join('')}</div></div>`;
+}
+act('bidSwap', (el) => {
+  const n = UI.neg, id = +el.dataset.id, f = $('#bid-fee');
+  if (f) n.fee = Math.round(+f.value || 0);
+  n.swap = el.checked ? n.swap.concat(id) : n.swap.filter((x) => x !== id);
+  refreshModal();
+});
 act('sendBid', () => {
   const n = UI.neg;
   const p = S.players[n.pid];
-  if (!n.loan) n.fee = Math.max(0, Math.round(+($('#bid-fee').value) || 0));
-  const r = clubResponse(p, n.fee, n.loan);
+  if (!n.loan) n.fee = Math.round(+($('#bid-fee').value) || 0);
+  if (!n.loan && n.fee < 0 && !n.swap.length) n.fee = 0;
+  const r = clubResponse(p, n.fee + (n.loan ? 0 : swapTotal(n.swap)), n.loan);
   if (r.ok) {
     closeModal();
-    openContractModal(p.id, n.loan ? 'loan' : 'transfer', n.fee);
-    toast(`${teamName(p.t)} aceitou! Agora negocie com o jogador.`);
+    openContractModal(p.id, n.loan ? 'loan' : 'transfer', n.fee, n.swap);
+    toast(`${teamName(p.t)} aceitou${n.swap.length ? ' a troca' : ''}! Agora negocie com o jogador.`);
     return;
   }
   n.msg = r.msg + (r.counter ? ` Contraproposta: ${money(r.counter)}.` : '');
-  if (r.counter) n.fee = r.counter;
+  if (r.counter) n.fee = r.counter - swapTotal(n.swap);
   refreshModal();
 });
-function openContractModal(pid, kind, fee = 0) {
+function openContractModal(pid, kind, fee = 0, swap = []) {
   const p = S.players[pid];
   const ut = S.teams[S.user.team];
   const demand = playerWageDemand(p, ut, 'titular');
-  UI.ctr = { pid, kind, fee, wage: kind === 'renew' ? Math.max(p.w || 0, demand) : demand, years: kind === 'loan' ? 1 : 3, role: 'titular', msg: '' };
+  UI.ctr = { pid, kind, fee, swap, wage: kind === 'renew' ? Math.max(p.w || 0, demand) : demand, years: kind === 'loan' ? 1 : 3, role: 'titular', msg: '' };
   openModal(() => {
     const c = UI.ctr;
     const title = kind === 'renew' ? `Renovar com ${esc(p.n)}` : kind === 'loan' ? `Salário no empréstimo de ${esc(p.n)}` : `Contrato de ${esc(p.n)}`;
@@ -7281,7 +7376,7 @@ function openContractModal(pid, kind, fee = 0) {
         <div class="field"><label for="ct-y">Duração</label><select id="ct-y" class="input" ${kind === 'loan' ? 'disabled' : ''}>${[1, 2, 3, 4, 5].map((y) => `<option value="${y}" ${y === c.years ? 'selected' : ''}>${y} ${y === 1 ? 'ano' : 'anos'}</option>`).join('')}</select></div>
         <div class="field"><label for="ct-r">Papel no elenco</label><select id="ct-r" class="input">${[['titular', 'Titular'], ['rotacao', 'Rotação'], ['reserva', 'Reserva']].map(([k, l]) => `<option value="${k}" ${k === c.role ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       </div>
-      <p class="muted" style="font-size:13px">Folha atual ${money(wageBill(ut.id))} de ${money(ut.wb)}/semana. ${fee ? `Taxa acordada: ${money(fee)}.` : ''}</p>
+      <p class="muted" style="font-size:13px">Folha atual ${money(wageBill(ut.id))} de ${money(ut.wb)}/semana. ${swap.length ? `Troca acordada: ${swap.map((id) => esc(S.players[id].n)).join(', ')}${fee ? ` e ${fee > 0 ? 'mais' : 'o clube paga'} ${money(Math.abs(fee))}` : ''}.` : fee ? `Taxa acordada: ${money(fee)}.` : ''}</p>
       ${c.msg ? `<div class="panel" style="background:var(--panel2)">${esc(c.msg)}${c.wbNeed ? `<div class="row wrap" style="gap:8px;margin-top:8px"><button class="btn sm primary" data-a="ctrRaiseWb" ${wageRaiseCost(c.wbNeed) > ut.budget ? 'disabled' : ''}>Ampliar a folha em ${money(c.wbNeed)}/sem e assinar</button><span class="muted" style="font-size:13px">custa ${money(wageRaiseCost(c.wbNeed))} do orçamento (${money(ut.budget)} disponíveis)</span></div>` : ''}</div>` : ''}`,
       `<button class="btn" data-a="closeModal">Cancelar</button><button class="btn primary" data-a="sendContract">Oferecer contrato</button>`);
   });
@@ -7311,7 +7406,7 @@ function sendContract() {
   }
   const r = playerContractResponse(p, ut, c.wage, c.years, c.role);
   if (!r.ok) { c.msg = r.msg + (r.demand ? ` Pedido: ${money(r.demand)}/sem.` : ''); if (r.demand) c.wage = r.demand; refreshModal(); return; }
-  const done = userSign(p, c.fee || 0, c.wage, c.years, c.kind === 'loan');
+  const done = userSign(p, c.fee || 0, c.wage, c.years, c.kind === 'loan', c.swap);
   if (!done.ok) { c.msg = done.msg; c.wbNeed = done.wbNeed || 0; refreshModal(); return; }
   closeAllModals();
   render();
@@ -7443,7 +7538,7 @@ function viewOffersIn() {
   return `<div class="col">${offers.map((o) => {
     const p = S.players[o.pid];
     if (!p) return '';
-    return `<div class="panel"><div class="row wrap">${crest(o.from, 34)}<div class="grow"><b>${esc(teamName(o.from))}</b> quer ${playerLink(p)} <span class="muted">(${p.o} · ${POS_PT[p.p]} · valor ${money(playerValue(p))})</span><div class="muted" style="font-size:13px">${fmtDate(o.d, 'dm')} · ${o.loan ? 'Empréstimo até o fim da temporada' : `Oferta: <b style="color:var(--text)">${money(o.fee)}</b>`}</div></div>
+    return `<div class="panel"><div class="row wrap">${crest(o.from, 34)}<div class="grow"><b>${esc(teamName(o.from))}</b> quer ${playerLink(p)} <span class="muted">(${p.o} · ${POS_PT[p.p]} · valor ${money(playerValue(p))})</span><div class="muted" style="font-size:13px">${fmtDate(o.d, 'dm')} · ${o.loan ? 'Empréstimo até o fim da temporada' : o.swap && S.players[o.swap] ? `Troca: <b style="color:var(--text)">${esc(S.players[o.swap].n)} (${S.players[o.swap].o}, ${S.players[o.swap].age} anos) + ${money(o.cash || 0)}</b>` : `Oferta: <b style="color:var(--text)">${money(o.fee)}</b>`}</div></div>
       <button class="btn sm primary" data-a="offerAct" data-o="${o.id}" data-x="accept">Aceitar</button><button class="btn sm" data-a="offerAct" data-o="${o.id}" data-x="reject">Recusar</button>
       ${o.loan ? '' : `<input class="input" style="max-width:150px" id="ctr-${o.id}" type="number" min="0" step="100000" value="${Math.round(o.fee * 1.2)}"><button class="btn sm" data-a="offerAct" data-o="${o.id}" data-x="counter">Contrapropor</button>`}</div></div>`;
   }).join('')}</div>`;
@@ -8667,24 +8762,25 @@ function g2LayoutEdit(root, onDone) {
   bar.addEventListener('click', onBar);
 }
 
-// the shapes of the generated brand logos, drawn small on the shirts
-function drawBrandMark(ctx, lg, x, y, r) {
-  ctx.fillStyle = lg.c1; ctx.strokeStyle = lg.c2; ctx.lineWidth = Math.max(1, r * 0.35);
+// the emblems of the generated brands (frame + symbol), drawn small on the shirts
+const BRAND_P2D = {};
+function drawBrandMark(ctx, lg, x, y, r, b) {
+  const fr = lg.sh % 9, ink = Math.abs(lum(lg.c1) - lum(lg.c2)) > 0.28 ? lg.c2 : (lum(lg.c1) > 0.5 ? '#111' : '#fff');
+  ctx.save();
+  ctx.fillStyle = lg.c1; ctx.strokeStyle = lg.c1; ctx.lineWidth = Math.max(1, r * 0.3);
   ctx.beginPath();
-  const poly = (n, rot, k) => { for (let i = 0; i < n; i++) { const a = rot + i * Math.PI * 2 / n, rr2 = k && i % 2 ? r * k : r; const px = x + Math.cos(a) * rr2, py = y + Math.sin(a) * rr2; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.closePath(); };
-  switch (lg.sh) {
-    case 0: ctx.arc(x, y, r, 0, Math.PI * 2); break;
-    case 1: ctx.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7); break;
-    case 2: poly(4, 0, 0); break;
-    case 3: poly(3, -Math.PI / 2, 0); break;
-    case 4: poly(6, 0, 0); break;
-    case 5: ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y - r); ctx.lineTo(x + r, y); ctx.quadraticCurveTo(x + r, y + r, x, y + r * 1.2); ctx.quadraticCurveTo(x - r, y + r, x - r, y); ctx.closePath(); break;
-    case 6: ctx.arc(x, y, r, 0, Math.PI * 2); break;
-    case 7: poly(8, -Math.PI / 2, 0.45); break;
-    default: ctx.rect(x - r, y - r * 0.9, r * 0.5, r * 1.8); ctx.rect(x - r * 0.25, y - r * 0.9, r * 0.5, r * 1.8); ctx.rect(x + r * 0.5, y - r * 0.9, r * 0.5, r * 1.8); break;
-  }
-  ctx.fill();
-  if (lg.sh === 6) { ctx.beginPath(); ctx.arc(x, y, r * 0.5, 0, Math.PI * 2); ctx.fillStyle = lg.c2; ctx.fill(); } else ctx.stroke();
+  if (fr === 1) { ctx.rect(x - r * 0.9, y - r * 0.9, r * 1.8, r * 1.8); ctx.fill(); }
+  else if (fr === 2 || fr === 7) { for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; ctx.lineTo(x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r * 1.1); } ctx.closePath(); ctx.fill(); }
+  else if (fr === 3) { ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y - r); ctx.lineTo(x + r, y); ctx.quadraticCurveTo(x + r, y + r, x, y + r * 1.15); ctx.quadraticCurveTo(x - r, y + r, x - r, y); ctx.closePath(); ctx.fill(); }
+  else if (fr === 4) { ctx.arc(x, y, r * 0.9, 0, Math.PI * 2); ctx.stroke(); }
+  else if (fr !== 5) { ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+  const key = b != null && b >= 0 ? spIconOf(b) : 'star';
+  if (!BRAND_P2D[key]) BRAND_P2D[key] = new Path2D(SP_ICONS[key]);
+  const k = (fr === 5 ? 0.0125 : 0.0105) * r * 1.6;
+  ctx.translate(x - 50 * k, y - 50 * k); ctx.scale(k, k);
+  ctx.fillStyle = fr === 4 || fr === 5 ? lg.c1 : ink;
+  ctx.fill(BRAND_P2D[key], 'evenodd');
+  ctx.restore();
 }
 const Game2D = (() => {
   const PL = 105, PW = 68, GOAL_W = 7.32, GOAL_H = 2.44, BOX_W = 40.32, BOX_D = 16.5;
@@ -8757,7 +8853,8 @@ const Game2D = (() => {
       const alt = aT.c2 && cdist(aT.c2, home.shirt) > 150 ? aT.c2 : (lum(home.shirt) > 0.55 ? '#1f2d6e' : '#f4f4f4');
       away = kit(alt, alt === aT.c2 ? aT.c1 : (lum(alt) > 0.5 ? '#1f2d6e' : '#ffffff'));
     }
-    return [home, away];
+    const cu = (t, role, base) => { const c = t && kitCustom(t.id, role); return c ? Object.assign({}, base, c) : base; };
+    return [cu(hT, 'home', home), cu(aT, 'away', away)];
   }
   function gkKitFor(team, kits) {
     const opts = team === 0 ? ['#2fd27a', '#a35cff', '#ff8a1f'] : ['#ffb21f', '#ff4fa3', '#22c3d6'];
@@ -8877,6 +8974,7 @@ const Game2D = (() => {
       if (G.orgs.length) G.orgSay = mine ? (mine.mood < 32 ? `A ${mine.name} chegou ao estádio de cara fechada: hoje vão cobrar o time.` : `A ${mine.name} lota a arquibancada e canta sem parar.`) : `A ${G.orgs[0].name} marca presença na arquibancada.`;
     }
     G.spTag = [sponsTag(st.sides[0].id), sponsTag(st.sides[1].id)];
+    G.spBr = [0, 1].map((k) => sponsBrandOf(st.sides[k].id));
     G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : SP_BRANDS[b][4]; });
     buildPlayers();
     resetKickoff(0);
@@ -12148,7 +12246,7 @@ const Game2D = (() => {
       ctx.save(); ctx.translate(X, Y - s * 0.3); ctx.rotate(ang);
       ctx.fillStyle = kit.socks; ctx.fillRect(-s * 0.3, s * 0.35, s * 0.18, s * 0.55); ctx.fillRect(s * 0.12, s * 0.35, s * 0.18, s * 0.55);
       ctx.fillStyle = kit.shorts; rr(-s * 0.36, s * 0.1, s * 0.72, s * 0.32, s * 0.08); ctx.fill();
-      ctx.fillStyle = kit.shirt; rr(-s * 0.4, -s * 0.55, s * 0.8, s * 0.7, s * 0.18); ctx.fill(); ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+      ctx.fillStyle = kit.shirt; rr(-s * 0.4, -s * 0.55, s * 0.8, s * 0.7, s * 0.18); ctx.fill(); if (kit.pat) { ctx.save(); rr(-s * 0.4, -s * 0.55, s * 0.8, s * 0.7, s * 0.18); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, -s * 0.4, -s * 0.55, s * 0.8, s * 0.7); ctx.restore(); } ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
       if (p.gk) { ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.arc(-s * 0.5, -s * 1.05, s * 0.16, 0, Math.PI * 2); ctx.arc(s * 0.5, -s * 1.05, s * 0.16, 0, Math.PI * 2); ctx.fill(); }
       ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(0, -s * 0.85, s * 0.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(0, -s * 0.9, s * 0.38, Math.PI, 2 * Math.PI); ctx.fill();
@@ -12243,6 +12341,7 @@ const Game2D = (() => {
     const tx = X + lean * 0.7, ty = Y - s * 1.46 - jump - bob;
     ctx.fillStyle = kit.shirt;
     rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
+    if (kit.pat) { ctx.save(); rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, tx - s * 0.42, ty, s * 0.84, s * 0.78); ctx.restore(); }
     // cylinder-like shading: lit from the upper left, darker on the right and at the waist
     const tg = ctx.createLinearGradient(tx - s * 0.42, 0, tx + s * 0.42, 0);
     tg.addColorStop(0, 'rgba(255,255,255,0.24)'); tg.addColorStop(0.35, 'rgba(255,255,255,0.04)'); tg.addColorStop(0.65, 'rgba(0,0,0,0.04)'); tg.addColorStop(1, 'rgba(0,0,0,0.3)');
@@ -12257,7 +12356,7 @@ const Game2D = (() => {
     const spt = !p.gk && sd.y >= -0.35 && G.spTag ? G.spTag[p.side] : '';
     if (spt && s > 11) { // the shirt sponsor: its logo mark and name
       const lg = G.spLogo && G.spLogo[p.side];
-      if (lg) drawBrandMark(ctx, lg, tx, ty + s * 0.25, s * 0.13);
+      if (lg) drawBrandMark(ctx, lg, tx, ty + s * 0.25, s * 0.14, G.spBr[p.side]);
       ctx.fillStyle = lum(kit.shirt) > 0.6 ? 'rgba(17,17,17,0.9)' : 'rgba(255,255,255,0.92)';
       ctx.font = `800 ${Math.max(5, Math.round(s * 0.23))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -14190,27 +14289,32 @@ act('admInject', async () => {
 
 /* ===================== sponsorship tab (Escritório → Patrocínios) ===================== */
 // logo of a generated brand (SVG): shape in two colours with the initial letter
-function brandLogo(b, size = 48) {
-  const br = SP_BRANDS[b], lg = br[4], ini = esc(br[2].charAt(0));
-  const c1 = lg.c1, c2 = lg.c2;
+function brandLogo(b, size = 48, word) {
+  const br = SP_BRANDS[b], lg = br[4], c1 = lg.c1, c2 = lg.c2;
+  const ic = SP_ICONS[spIconOf(b)];
   const pts = (n, rot, k) => Array.from({ length: n }, (_, i) => { const a = rot + i * Math.PI * 2 / n, r = k && i % 2 ? 40 * k : 40; return `${(50 + Math.cos(a) * r).toFixed(1)},${(50 + Math.sin(a) * r).toFixed(1)}`; }).join(' ');
-  let shape;
-  switch (lg.sh) {
-    case 0: shape = `<circle cx="50" cy="50" r="42" fill="${c1}"/>`; break;
-    case 1: shape = `<rect x="10" y="10" width="80" height="80" rx="12" fill="${c1}"/>`; break;
-    case 2: shape = `<polygon points="${pts(4, 0, 0)}" fill="${c1}"/>`; break;
-    case 3: shape = `<polygon points="${pts(3, -Math.PI / 2, 0)}" fill="${c1}" transform="translate(0 6)"/>`; break;
-    case 4: shape = `<polygon points="${pts(6, 0, 0)}" fill="${c1}"/>`; break;
-    case 5: shape = `<path d="M14 12 H86 V50 Q86 82 50 92 Q14 82 14 50Z" fill="${c1}"/>`; break;
-    case 6: shape = `<circle cx="50" cy="50" r="42" fill="${c1}"/><circle cx="50" cy="50" r="30" fill="none" stroke="${c2}" stroke-width="5"/>`; break;
-    case 7: shape = `<polygon points="${pts(8, -Math.PI / 2, 0.55)}" fill="${c1}"/>`; break;
-    default: shape = `<rect x="12" y="14" width="22" height="72" rx="5" fill="${c1}"/><rect x="39" y="14" width="22" height="72" rx="5" fill="${c1}"/><rect x="66" y="14" width="22" height="72" rx="5" fill="${c1}"/>`;
+  // symbol colour: the second colour when it contrasts with the frame, otherwise white or black
+  const contrast = (bg, fg) => Math.abs(lum(bg) - lum(fg)) > 0.28 ? fg : (lum(bg) > 0.5 ? '#111' : '#fff');
+  let frame = '', ink = contrast(c1, c2), sc = 0.56, tr = 22;
+  switch (lg.sh % 9) {
+    case 0: frame = `<circle cx="50" cy="50" r="46" fill="${c1}"/>`; break;
+    case 1: frame = `<rect x="6" y="6" width="88" height="88" rx="20" fill="${c1}"/>`; break;
+    case 2: frame = `<polygon points="${pts(6, Math.PI / 6, 0).replace(/(\d+\.?\d*),(\d+\.?\d*)/g, (m, x, y) => `${(50 + (x - 50) * 1.12).toFixed(1)},${(50 + (y - 50) * 1.12).toFixed(1)}`)}" fill="${c1}"/>`; break;
+    case 3: frame = `<path d="M10 8 H90 V50 Q90 84 50 96 Q10 84 10 50Z" fill="${c1}"/>`; tr = 18; sc = 0.5; break;
+    case 4: frame = `<circle cx="50" cy="50" r="43" fill="none" stroke="${c1}" stroke-width="9"/>`; ink = c1; sc = 0.46; tr = 27; break;
+    case 5: frame = `<rect x="6" y="64" width="88" height="9" rx="4.5" fill="${c2}"/>`; ink = c1; sc = 0.62; tr = 14; break;
+    case 6: frame = `<circle cx="50" cy="50" r="46" fill="${c1}"/><circle cx="50" cy="50" r="38" fill="none" stroke="${c2}" stroke-width="3"/>`; sc = 0.5; tr = 25; break;
+    case 7: frame = `<polygon points="${pts(12, -Math.PI / 2, 0.82)}" fill="${c1}" transform="translate(50 50) scale(1.1) translate(-50 -50)"/>`; sc = 0.48; tr = 26; break;
+    default: frame = `<circle cx="50" cy="50" r="46" fill="${c1}"/><path d="M50 4 A46 46 0 0 1 50 96Z" fill="${c2}" opacity="0.9"/>`; ink = '#ffffff'; sc = 0.5; tr = 25; break;
   }
-  const edge = lg.sh <= 5 || lg.sh === 7 ? `<g fill="none" stroke="${c2}" stroke-width="4" opacity="0.85"><circle cx="50" cy="50" r="46" stroke-dasharray="0.1 0" opacity="0"/></g>` : '';
-  return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">${shape}${edge}<text x="50" y="${lg.sh === 3 ? 66 : 62}" text-anchor="middle" font-size="${lg.sh === 8 ? 46 : 44}" font-weight="900" fill="${lg.sh === 6 ? c2 : c2}" stroke="rgba(0,0,0,0.25)" stroke-width="1.5" paint-order="stroke" font-family="Arial Black,Arial,sans-serif">${ini}</text></svg>`;
+  const sym = `<g transform="translate(${tr} ${tr}) scale(${sc})"><path d="${ic}" fill="${ink}" fill-rule="evenodd" stroke="rgba(0,0,0,0.22)" stroke-width="2.4" paint-order="stroke"/></g>`;
+  if (!word) return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">${frame}${sym}</svg>`;
+  const nm = br[2].toUpperCase(), fs = Math.min(20, 98 / (Math.max(4, nm.length) * 0.84));
+  return `<svg width="${size}" height="${Math.round(size * 1.28)}" viewBox="0 0 100 128" aria-hidden="true">${frame}${sym}<text x="50" y="118" text-anchor="middle" font-size="${fs.toFixed(1)}" font-weight="900" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="3" paint-order="stroke" letter-spacing="1" font-family="Arial Black,Arial,sans-serif">${esc(nm)}</text></svg>`;
 }
 function spShirtSvg(t, tag, size = 84, b) {
-  const c1 = t.c1 || '#2f7bff', c2 = t.c2 || '#ffffff';
+  const kc = t.id && typeof kitCustom === 'function' ? kitCustom(t.id, 'home') : null;
+  const c1 = kc ? kc.shirt : (t.c1 || '#2f7bff'), c2 = kc ? kc.trim : (t.c2 || '#ffffff');
   const dark = typeof lum === 'function' ? lum(c1) < 0.6 : true;
   return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><path d="M30 12 L10 26 L20 44 L30 38 L30 90 L70 90 L70 38 L80 44 L90 26 L70 12 C64 20 36 20 30 12Z" fill="${c1}" stroke="rgba(0,0,0,0.35)" stroke-width="2"/>
     <path d="M30 12 C36 20 64 20 70 12" fill="none" stroke="${c2}" stroke-width="3"/>
@@ -14226,7 +14330,7 @@ function viewSponsors() {
   const perkChip = (b) => { const pk = SP_PERKS[brand(b)[3]]; return `<span class="chip" title="${esc(pk.desc)}">${pk.ico} ${pk.label}</span>`; };
   const contract = (slot) => {
     const c = s[slot], br = brand(c.b), left = Math.max(0, Math.ceil((c.end - S.date) / 365 * 10) / 10);
-    return `<div class="row wrap" style="gap:16px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 92, c.b) : `<div style="font-size:42px">🏟</div>`}<div title="${esc(br[0])}">${brandLogo(c.b, 56)}</div>
+    return `<div class="row wrap" style="gap:16px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 92, c.b) : `<div style="font-size:42px">🏟</div>`}<div title="${esc(br[0])}">${brandLogo(c.b, 56, true)}</div>
       <div class="grow" style="min-width:220px"><div class="disp" style="font-size:24px;font-weight:800">${slot === 'std' ? esc(c.name) : esc(br[0])}</div>
         <div class="muted" style="font-size:13px">${slot === 'std' ? `Patrocinador: ${esc(br[0])} · antes: ${esc(c.orig || '')}` : `Na camisa: ${esc(br[1])}`}</div>
         <div class="row wrap" style="gap:8px;margin-top:8px"><span class="chip">${money(c.perYear)}/ano</span><span class="chip">${left} ${left === 1 ? 'ano' : 'anos'} restantes</span>${slot === 'shirt' ? `<span class="chip">+${money(c.winBonus)} por vitória</span>${perkChip(c.b)}` : ''}</div>
@@ -14238,7 +14342,7 @@ function viewSponsors() {
     if (!list.length) return '<div class="muted">Sem propostas no momento. Novas chegam em breve.</div>';
     return `<div class="col" style="gap:10px">${list.map((o) => {
       const br = brand(o.b);
-      return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 64, o.b) : '<div style="font-size:32px">🏟</div>'}${brandLogo(o.b, 48)}
+      return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 64, o.b) : '<div style="font-size:32px">🏟</div>'}${brandLogo(o.b, 48, true)}
         <div class="grow" style="min-width:200px"><b style="font-size:17px">${slot === 'std' ? esc(sponsStdName(o)) : esc(br[0])}</b>${slot === 'std' ? `<div class="muted" style="font-size:12px">${esc(br[0])}</div>` : ''}
           <div class="row wrap" style="gap:6px;margin-top:6px"><span class="chip">${money(o.perYear)}/ano</span><span class="chip">${o.yrs} ${o.yrs === 1 ? 'ano' : 'anos'}</span><span class="chip">luvas ${money(o.signing)}</span>${slot === 'shirt' ? `<span class="chip">+${money(o.winBonus)}/vitória</span>${perkChip(o.b)}` : ''}</div></div>
         <button class="btn gold" data-a="spSign" data-slot="${slot}" data-id="${o.id}">Fechar contrato</button></div></div>`;
@@ -14320,6 +14424,85 @@ function fanMsgActions(m) {
 }
 act('fanAns', (el) => { const r = fanAnswer(+el.dataset.id, +el.dataset.i); if (r) toast(r.length > 120 ? r.slice(0, 117) + '…' : r); render(); });
 
+/* ===================== uniforme do seu clube: cores e padrões (casa e fora) ===================== */
+const KIT_PATS = ['Liso', 'Listras verticais', 'Listras horizontais', 'Faixa diagonal', 'Metades', 'Faixa no peito', 'Listras finas', 'Xadrez'];
+function kitCustom(teamId, role) { return S.kits && S.kits[teamId] && S.kits[teamId][role] || null; }
+function kitHex(c) { try { const [r, g, b] = hexToRgb(c); return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); } catch (e) { return '#ffffff'; } }
+// default colours of a club's kit (what the match uses when nothing is customised)
+function kitBase(t, role) {
+  const c1 = kitHex(t.c1 || '#c0392b'), c2 = kitHex(t.c2 || '#ffffff');
+  const far = (a, b) => { const A = hexToRgb(a), B = hexToRgb(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]) > 90; };
+  if (role === 'away') {
+    const shirt = far(c2, c1) ? c2 : (lum(c1) > 0.55 ? '#1f2d6e' : '#f4f4f4');
+    const trim = shirt === c2 ? c1 : (lum(shirt) > 0.5 ? '#1f2d6e' : '#ffffff');
+    return { shirt, trim, shorts: far(trim, shirt) ? trim : (lum(shirt) > 0.5 ? '#1f2d6e' : '#ffffff'), socks: shirt, pat: 0 };
+  }
+  const trim = far(c2, c1) ? c2 : (lum(c1) > 0.5 ? '#1b2440' : '#ffffff');
+  return { shirt: c1, trim, shorts: far(c2, c1) ? c2 : (lum(c1) > 0.5 ? '#1b2440' : '#ffffff'), socks: c1, pat: 0 };
+}
+function kitEffective(t, role) { return Object.assign(kitBase(t, role), kitCustom(t.id, role) || {}); }
+// pattern over a shirt-shaped box (shared by the 2D game and the previews)
+function kitPattern(ctx, pat, col, x, y, w, h) {
+  if (!pat) return;
+  ctx.save(); ctx.fillStyle = col; ctx.strokeStyle = col;
+  if (pat === 1) { for (let i = 1; i < 7; i += 2) ctx.fillRect(x + i * w / 7, y, w / 7, h); }
+  else if (pat === 2) { for (let i = 1; i < 6; i += 2) ctx.fillRect(x, y + i * h / 6, w, h / 6); }
+  else if (pat === 3) { ctx.lineWidth = w * 0.3; ctx.beginPath(); ctx.moveTo(x - w * 0.1, y + h * 0.05); ctx.lineTo(x + w * 1.1, y + h * 0.95); ctx.stroke(); }
+  else if (pat === 4) ctx.fillRect(x + w / 2, y, w / 2, h);
+  else if (pat === 5) ctx.fillRect(x, y + h * 0.28, w, h * 0.24);
+  else if (pat === 6) { for (let i = 1; i < 15; i += 2) ctx.fillRect(x + i * w / 15, y, w / 15, h); }
+  else if (pat === 7) { for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) if ((i + j) % 2) ctx.fillRect(x + i * w / 6, y + j * h / 5, w / 6, h / 5); }
+  ctx.restore();
+}
+function kitSvg(k, size = 150, num) {
+  // same pattern logic as the canvas, as SVG
+  const id = 'kp' + Math.floor(Math.random() * 1e6), B = { x: 22, y: 8, w: 56, h: 52 };
+  let pt = '';
+  const f = k.trim;
+  switch (k.pat) {
+    case 1: for (let i = 1; i < 7; i += 2) pt += `<rect x="${B.x + i * B.w / 7}" y="${B.y}" width="${B.w / 7}" height="${B.h}" fill="${f}"/>`; break;
+    case 2: for (let i = 1; i < 6; i += 2) pt += `<rect x="${B.x}" y="${B.y + i * B.h / 6}" width="${B.w}" height="${B.h / 6}" fill="${f}"/>`; break;
+    case 3: pt = `<line x1="${B.x - 6}" y1="${B.y + 3}" x2="${B.x + B.w + 6}" y2="${B.y + B.h - 3}" stroke="${f}" stroke-width="${B.w * 0.3}"/>`; break;
+    case 4: pt = `<rect x="${B.x + B.w / 2}" y="${B.y}" width="${B.w / 2}" height="${B.h}" fill="${f}"/>`; break;
+    case 5: pt = `<rect x="${B.x}" y="${B.y + B.h * 0.28}" width="${B.w}" height="${B.h * 0.24}" fill="${f}"/>`; break;
+    case 6: for (let i = 1; i < 15; i += 2) pt += `<rect x="${B.x + i * B.w / 15}" y="${B.y}" width="${B.w / 15}" height="${B.h}" fill="${f}"/>`; break;
+    case 7: for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) if ((i + j) % 2) pt += `<rect x="${B.x + i * B.w / 6}" y="${B.y + j * B.h / 5}" width="${B.w / 6}" height="${B.h / 5}" fill="${f}"/>`; break;
+  }
+  const shirt = 'M30 6 L8 20 L16 40 L26 34 L26 62 L74 62 L74 34 L84 40 L92 20 L70 6 C64 14 36 14 30 6Z';
+  return `<svg width="${size}" height="${Math.round(size * 1.3)}" viewBox="0 0 100 130" aria-hidden="true"><defs><clipPath id="${id}"><path d="${shirt}"/></clipPath></defs>
+    <rect x="30" y="94" width="14" height="30" rx="3" fill="${k.socks}" stroke="rgba(0,0,0,.35)"/><rect x="56" y="94" width="14" height="30" rx="3" fill="${k.socks}" stroke="rgba(0,0,0,.35)"/>
+    <rect x="26" y="64" width="48" height="34" rx="6" fill="${k.shorts}" stroke="rgba(0,0,0,.35)"/>
+    <path d="${shirt}" fill="${k.shirt}"/><g clip-path="url(#${id})">${pt}</g><path d="${shirt}" fill="none" stroke="rgba(0,0,0,.4)" stroke-width="1.6"/>
+    <path d="M30 6 C36 14 64 14 70 6" fill="none" stroke="${k.trim}" stroke-width="3"/>
+    ${num != null ? `<text x="50" y="46" text-anchor="middle" font-size="22" font-weight="900" font-family="Arial Black,Arial,sans-serif" fill="${lum(k.shirt) > 0.55 ? '#111' : '#fff'}">${num}</text>` : ''}</svg>`;
+}
+function kitHtml() {
+  const K = UI.kit, t = S.teams[K.team], v = K.v[K.role];
+  const col = (k, lab) => `<label class="field" style="min-width:110px"><span class="muted up" style="font-size:11px">${lab}</span><input type="color" value="${kitHex(v[k])}" data-a="kitCol" data-k="${k}" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--line2);background:none;padding:2px"></label>`;
+  return modalShell('👕 Uniforme', `<div class="row wrap" style="gap:8px;margin-bottom:12px"><div class="seg"><button class="${K.role === 'home' ? 'on' : ''}" data-a="kitRole" data-v="home">Uniforme 1 (casa)</button><button class="${K.role === 'away' ? 'on' : ''}" data-a="kitRole" data-v="away">Uniforme 2 (fora)</button></div><span class="muted">${esc(t.n)}</span></div>
+    <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center">${kitSvg(v, 170, 10)}</div>
+    <div class="col grow" style="min-width:230px;gap:12px"><div class="row wrap" style="gap:10px">${col('shirt', 'Camisa')}${col('trim', 'Detalhes')}${col('shorts', 'Calção')}${col('socks', 'Meias')}</div>
+      <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Padrão da camisa (usa a cor dos detalhes)</div><div class="seg wrapseg">${KIT_PATS.map((n, i) => `<button class="${v.pat === i ? 'on' : ''}" data-a="kitPat" data-v="${i}">${n}</button>`).join('')}</div></div>
+      <p class="muted" style="font-size:12px;margin:0">O uniforme aparece no jogo 2D, nas telas do clube e na camisa do patrocinador. Se o adversário usar cor parecida, o jogo continua escolhendo o uniforme dele pelo padrão.</p></div></div>`,
+    '<button class="btn" data-a="kitReset">Restaurar padrão</button><button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="kitSave">Salvar uniforme</button>');
+}
+act('openKit', () => {
+  const tid = S.user && S.user.team; if (!tid || !S.teams[tid]) return;
+  const t = S.teams[tid];
+  UI.kit = { team: tid, role: 'home', v: { home: kitEffective(t, 'home'), away: kitEffective(t, 'away') } };
+  closeAllModals();
+  openModal(() => kitHtml(), { size: 'narrow' });
+});
+act('kitRole', (el) => { UI.kit.role = el.dataset.v; refreshModal(); });
+act('kitPat', (el) => { UI.kit.v[UI.kit.role].pat = +el.dataset.v; refreshModal(); });
+act('kitCol', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = el.value; refreshModal(); });
+act('kitReset', () => { const t = S.teams[UI.kit.team]; UI.kit.v[UI.kit.role] = kitBase(t, UI.kit.role); refreshModal(); });
+act('kitSave', () => {
+  const K = UI.kit; if (!S.kits) S.kits = {};
+  S.kits[K.team] = { home: Object.assign({}, K.v.home), away: Object.assign({}, K.v.away) };
+  closeAllModals(); toast('Uniforme salvo.'); render();
+});
+
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); });
@@ -14338,6 +14521,6 @@ window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); 
   render();
 })();
 // test hook: the browser tests open the page with ?debug=1 to move the calendar on directly
-try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState, plWeek: () => plWeek(), fans: { week: () => fanWeek(), after: (m) => fanAfterMatch(m), init: () => fanInit(), orgs: (id) => fanOrgsOf(id), send: (i, o) => { const L = o ? FAN_ORG_EVENTS : FAN_EVENTS; const e = L[i % L.length]; const ev = o ? e.build(fanOrgsOf(S.user.team)[0] || 'Organizada') : e.build(); if (ev) fanSend(Object.assign({ id: e.id }, ev)); return !!ev; }, counts: () => [FAN_EVENTS.length, FAN_ORG_EVENTS.length] }, sp: { month: () => sponsMonth(), after: (m) => sponsAfterMatch(m), bonus: (id) => sponsRatingBonus(id), perk: () => sponsPerk(), count: () => SP_BRANDS.length } }; } catch (e) { /* no location outside the browser */ }
+try { if (/[?&]debug=1\b/.test(location.search)) window.__um = { get S() { return S; }, fastForward, render, UI, dayOf, importNewClubs, askPens, startMatchState, plWeek: () => plWeek(), fans: { week: () => fanWeek(), after: (m) => fanAfterMatch(m), init: () => fanInit(), orgs: (id) => fanOrgsOf(id), send: (i, o) => { const L = o ? FAN_ORG_EVENTS : FAN_EVENTS; const e = L[i % L.length]; const ev = o ? e.build(fanOrgsOf(S.user.team)[0] || 'Organizada') : e.build(); if (ev) fanSend(Object.assign({ id: e.id }, ev)); return !!ev; }, counts: () => [FAN_EVENTS.length, FAN_ORG_EVENTS.length] }, tr: { sign: (pid, fee, swap) => { S.tr.window = 1; return userSign(S.players[pid], fee, 1000, 3, false, swap); }, swapTotal: (a) => swapTotal(a), swapValue: (id) => swapValue(S.players[id]), offers: () => { for (let i = 0; i < 400; i++) aiOffersForUser(); return S.tr.offers.filter((o) => o.swap).length; }, respond: (id, a) => respondOffer(id, a), resp: (pid, fee) => clubResponse(S.players[pid], fee, false) }, sp: { logo: (b, s, w) => brandLogo(b, s, w), month: () => sponsMonth(), after: (m) => sponsAfterMatch(m), bonus: (id) => sponsRatingBonus(id), perk: () => sponsPerk(), count: () => SP_BRANDS.length } }; } catch (e) { /* no location outside the browser */ }
 
 })();
