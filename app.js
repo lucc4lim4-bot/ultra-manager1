@@ -8864,7 +8864,7 @@ const Game2D = (() => {
       const alt = aT.c2 && cdist(aT.c2, home.shirt) > 150 ? aT.c2 : (lum(home.shirt) > 0.55 ? '#1f2d6e' : '#f4f4f4');
       away = kit(alt, alt === aT.c2 ? aT.c1 : (lum(alt) > 0.5 ? '#1f2d6e' : '#ffffff'));
     }
-    const cu = (t, role, base) => { const c = t && kitCustom(t.id, role); return c ? Object.assign({}, base, c) : base; };
+    const cu = (t, role, base) => { const c = t && typeof kitCustom === 'function' ? kitCustom(t.id, role) : null; return c ? Object.assign({}, base, c) : base; };
     return [cu(hT, 'home', home), cu(aT, 'away', away)];
   }
   function gkKitFor(team, kits) {
@@ -9383,12 +9383,12 @@ const Game2D = (() => {
       gk.dive = { x0: gk.x, x1, T, t: T, hz };
     }
     k.phase = 'flight'; k.t = 0; k.outcome = outcome;
-    G.slow = 0.55; // slow motion on the kick
+    G.slow = 0.55; G.slowPk = 1; // slow motion on the kick
     sfx('kick', 0.9);
     hint('');
   }
   function finishKick() {
-    G.slow = 1;
+    G.slow = 1; G.slowPk = 0;
     const k = G.pk;
     if (!k) return;
     if (k.shootout) { shootoutResult(); return; }
@@ -9677,6 +9677,7 @@ const Game2D = (() => {
   // ------------------------------------------------------------------ main step
   function step(dt) {
     G.time += dt;
+    if (G.slowPk && (!G.pk || G.pk.phase !== 'flight')) { G.slow = 1; G.slowPk = 0; } // a goal or a save ends the penalty slow motion for good
     if (G.orgs) { for (const o of G.orgs) if (o.cheer > 0) o.cheer -= dt; if (G.orgSay && G.time > 2.5) { say(G.orgSay, 1); G.orgSay = ''; } }
     if (G.msgT > 0) { G.msgT -= dt; if (G.msgT <= 0) setMsg(''); }
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 3);
