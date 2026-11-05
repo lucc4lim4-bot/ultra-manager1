@@ -1210,7 +1210,7 @@ function simulateRange(st, m, toMin) {
           if (pid) sendOff(st, k, pid, minute, false);
         }
       }
-      if (rnd() < 0.0011) { // injury
+      if (rnd() < 0.0006) { // injury
         const pid = pickAny(side, false);
         if (pid && !st.injured.includes(pid)) {
           st.injured.push(pid);
@@ -1431,7 +1431,7 @@ const INJURIES = [
 ];
 function injurePlayer(p, day) {
   const r = rnd();
-  const pool = r < 0.55 ? INJURIES.filter((x) => x[2] <= 28) : r < 0.97 ? INJURIES.filter((x) => x[2] <= 90) : INJURIES;
+  const pool = r < 0.64 ? INJURIES.filter((x) => x[2] <= 28) : r < 0.985 ? INJURIES.filter((x) => x[2] <= 90) : INJURIES;
   const [name, a, b] = pick(pool);
   p.inj = day + rint(a, b);
   p.injN = name;
