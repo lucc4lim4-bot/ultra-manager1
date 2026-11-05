@@ -2670,7 +2670,10 @@ function aiOffersForUser() {
   if (!ut || ut.isNat) return;
   const sq = squadOf(ut.id);
   const lvl = teamRating(ut.id);
+  // players borrowed from another club are not ours to sell: drop old offers for them (also from older saves)
+  for (const o of S.tr.offers) { const q = S.players[o.pid]; if (o.status === 'open' && q && q.loan && q.t === ut.id && q.loan.from !== ut.id) o.status = 'void'; }
   for (const p of sq) {
+    if (p.loan && p.loan.from !== ut.id) continue;
     if (S.tr.offers.some((o) => o.pid === p.id && o.status === 'open')) continue;
     if (p.joined && S.date - p.joined < 60) continue;
     let pr = 0.0025 + (p.tl ? 0.03 : 0) + Math.max(0, p.o - lvl) * 0.002 + (p.age <= 23 && p.pot >= 84 ? 0.004 : 0);
