@@ -11332,7 +11332,8 @@ const Game2D = (() => {
     const d = p.dv;
     d.t += dt;
     const k = clamp(d.t / d.T, 0, 1);
-    p.x = d.x0 + (d.x1 - d.x0) * (1 - (1 - k) * (1 - k));
+    const ease = 1 - Math.pow(1 - k, 2.6); // explosive push-off, then the body glides
+    p.x = d.x0 + (d.x1 - d.x0) * ease + (d.t > d.T ? d.dir * 0.4 * (1 - Math.exp(-(d.t - d.T) * 6)) : 0); // slides a little after landing
     p.gz = d.t <= d.T ? d.h * Math.sin(Math.PI * k) : 0;
     p.vx = p.vy = p.wx = p.wy = 0;
     p.diveT = Math.max(0, d.T + d.land - d.t);
@@ -11607,8 +11608,11 @@ const Game2D = (() => {
       if (Math.random() < dt * 40) burst(p.x - p.sx * 0.5, p.y - p.sy * 0.5, 1, '#9cc766');
       if (p.slide <= 0) { p.fall = Math.max(p.fall, 0.4); p.vx *= 0.3; p.vy *= 0.3; }
     } else {
-      const acc = (p.fall > 0 ? 6 : 24) * dt;
       let dvx = p.wx - p.vx, dvy = p.wy - p.vy;
+      // pushing off from standing is slower than braking or cutting back: that gives the run its weight
+      const braking = dvx * p.vx + dvy * p.vy < 0;
+      const spNow = Math.hypot(p.vx, p.vy);
+      const acc = (p.fall > 0 ? 6 : braking ? 32 : 21 * (1 - 0.35 * Math.min(1, spNow / 7))) * dt;
       const dl = Math.hypot(dvx, dvy);
       if (dl > acc) { dvx *= acc / dl; dvy *= acc / dl; }
       p.vx += dvx; p.vy += dvy;
@@ -11616,7 +11620,12 @@ const Game2D = (() => {
     p.x = clamp(p.x + p.vx * dt, -3, PW + 3);
     p.y = clamp(p.y + p.vy * dt, -3, PL + 3);
     const sp = Math.hypot(p.vx, p.vy);
-    if (sp > 0.4 && p.slide <= 0 && !(G.ball.owner === p && G.restartHold)) { p.dx = p.vx / sp; p.dy = p.vy / sp; }
+    if (sp > 0.4 && p.slide <= 0 && !(G.ball.owner === p && G.restartHold)) {
+      // the body turns towards where he runs instead of snapping (faster when slow)
+      const tx = p.vx / sp, ty = p.vy / sp, k = Math.min(1, dt * (sp > 5 ? 11 : 16));
+      let nx = p.dx + (tx - p.dx) * k, ny = p.dy + (ty - p.dy) * k; const nl = Math.hypot(nx, ny);
+      if (nl > 0.05) { p.dx = nx / nl; p.dy = ny / nl; } else { p.dx = tx; p.dy = ty; }
+    }
     p.anim += sp * dt * 1.9;
   }
   function separate() {
@@ -11657,8 +11666,8 @@ const Game2D = (() => {
     if (b.curve) { const n = nrm(-b.vy, b.vx); b.vx += n.x * b.curve * dt; b.vy += n.y * b.curve * dt; b.curve *= Math.exp(-2.2 * dt); if (Math.abs(b.curve) < 0.05) b.curve = 0; }
     if (b.z > 0 || b.vz > 0) {
       b.vz -= 9.8 * dt; b.z += b.vz * dt;
-      const drag = Math.exp(-0.12 * dt); b.vx *= drag; b.vy *= drag;
-      if (b.z <= 0) { b.z = 0; if (b.vz < -1.6) { b.vz = -b.vz * 0.48; b.vx *= 0.82; b.vy *= 0.82; } else b.vz = 0; }
+      const hs = Math.hypot(b.vx, b.vy), drag = Math.exp(-(0.07 + 0.0045 * hs) * dt); b.vx *= drag; b.vy *= drag; // air drag grows with speed
+      if (b.z <= 0) { b.z = 0; if (b.vz < -1.1) { b.vz = -b.vz * 0.52; b.vx *= 0.86; b.vy *= 0.86; } else b.vz = 0; }
     } else {
       const sp = Math.hypot(b.vx, b.vy);
       if (sp > 0) { const ns = Math.max(0, sp - (G.fr[0] + G.fr[1] * sp) * dt); b.vx *= ns / sp; b.vy *= ns / sp; }
@@ -12115,21 +12124,26 @@ const Game2D = (() => {
   function startReplay() {
     recStart();
     const start = Math.max(0, G.recGoalIdx - 105);
-    G.replay = { i: start, t: 0, end: G.rec.length - 1, netDone: false };
+    G.replay = { i: start, t: 0, end: G.rec.length - 1, netDone: false, pass: 1 };
     G.state = 'replay';
     G.net = null;
     showReplayTag(true);
   }
   function replayStep(dt) {
     const r = G.replay;
-    r.t += dt * 30 * 0.65;
+    r.t += dt * 30 * (r.pass === 2 ? 0.3 : 0.65);
     const i = Math.min(r.end, r.i + Math.floor(r.t));
     const f = G.rec[i];
     if (f) applyFrame(f);
     if (!r.netDone && i >= G.recGoalIdx) { r.netDone = true; net(G.goalTop, G.goalX); sfx('net', 0.7); sfx('roar', 0.4); }
     stepFx(0);
     camera(dt);
-    if (i >= r.end) endReplay();
+    if (i >= r.end) {
+      if (r.pass === 1 && G.recGoalIdx >= 0) { // second time: the last moments of the move in slow motion
+        Object.assign(r, { pass: 2, i: Math.max(0, G.recGoalIdx - 55), t: 0, end: Math.min(G.rec.length - 1, G.recGoalIdx + 40), netDone: false });
+        G.net = null; if (hud.tag) hud.tag.textContent = 'REPLAY · CÂMERA LENTA';
+      } else { if (hud.tag) hud.tag.textContent = 'REPLAY'; endReplay(); }
+    }
   }
   function applyFrame(f) {
     const b = G.ball;
