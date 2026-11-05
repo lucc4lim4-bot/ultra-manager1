@@ -9626,7 +9626,7 @@ const Game2D = (() => {
     if (!taker) { resetKickoff(team); return; }
     const fwd = team === 0 ? -1 : 1;
     for (const p of G.players) Object.assign(p, { wall: false, cornerSpot: null, cr: null, dv: null, gz: 0, plan: null, claim: null, diveT: 0, sk: null });
-    G.cornerPlay = null; G.thr = null; G.fkAim = null; G.wallCtl = null; G.wallList = null;
+    G.cornerPlay = null; G.cAim = null; G.thr = null; G.fkAim = null; G.wallCtl = null; G.wallList = null;
     if (kind === 'throw') { taker.x = x < PW / 2 ? -0.35 : PW + 0.35; taker.y = y; taker.dx = x < PW / 2 ? 1 : -1; taker.dy = 0; }
     else if (kind === 'corner') { const n = nrm(PW / 2 - x, (y < PL / 2 ? 11 : PL - 11) - y); taker.x = x - n.x * 0.75; taker.y = y - n.y * 0.75; taker.dx = n.x; taker.dy = n.y; }
     else { taker.x = x; taker.y = y - fwd * 0.7; taker.dx = 0; taker.dy = fwd; }
@@ -9653,7 +9653,7 @@ const Game2D = (() => {
       taker.decT = 0.7 + Math.random() * 0.5;
       setupCorner(team, x, y, taker);
       if (G.dbg) G.dbg.corners++;
-      if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; hint('Escanteio: aperte qualquer botão para cruzar na área. Se quiser, aponte o direcional antes (1º pau, meio ou 2º pau).'); }
+      if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; const z6 = cornerZones(x, y).six; G.cAim = { x: z6.x, y: z6.y }; hint('Escanteio: mova o direcional para mirar (a seta mostra onde a bola cai e a distância). Qualquer botão cruza.'); }
       if (!G.auto && team === 1) G.ctrl = nearestTo(0, PW / 2, y < PL / 2 ? 6 : PL - 6, true);
     } else if (kind === 'throw') {
       if (!G.auto && !G.solo && team === 0) hint('Lateral: aponte e segure o direcional (quanto mais tempo, mais longe). A seta mostra onde cai. PASSE/CHUTE arremessa.');
@@ -9819,7 +9819,12 @@ const Game2D = (() => {
       G.cornerPlay = null;
       return;
     }
-    const z = Z[zone] || Z.six;
+    let z = Z[zone] || Z.six;
+    if (p.team === 0 && !G.auto && G.cAim && zone !== 'short') {
+      let nk = 'six', nd = 1e9;
+      for (const k of ['near', 'six', 'far', 'spot']) { const d = Math.hypot(Z[k].x - G.cAim.x, Z[k].y - G.cAim.y); if (d < nd) { nd = d; nk = k; } }
+      z = { x: G.cAim.x, y: G.cAim.y, h: 1.95, name: Z[nk].name }; zone = nk;
+    }
     // the attacker closest to the area goes for the ball
     const box = G.players.filter((q) => !q.out && q.team === p.team && !q.gk && q !== p && q.cr && ['near', 'six', 'far', 'spot', 'back'].includes(q.cr.role));
     box.sort((a, c) => Math.hypot(a.x - z.x, a.y - z.y) - Math.hypot(c.x - z.x, c.y - z.y));
@@ -10429,7 +10434,7 @@ const Game2D = (() => {
       case 'goal':
         G.stateT -= dt; idle(dt);
         if (!G.auto && G.stateT > 1.4) record(dt);
-        if (G.stateT <= 0) { if (!G.auto && G.replayOn && G.recGoalIdx >= 40) startReplay(); else resetKickoff(G.nextKick); }
+        if (G.stateT <= 0) { if (!G.auto && G.replayOn && G.recGoalIdx >= 8) startReplay(); else resetKickoff(G.nextKick); }
         return;
       case 'replay': replayStep(dt); return;
       case 'halftime': case 'fulltime': idle(dt); return;
@@ -10566,6 +10571,11 @@ const Game2D = (() => {
       if (G.wallCtl) wallCtlStep(w, dt);
       else if (G.fkAim && b.owner && b.owner.team === 0) G.fkAim.x = clamp(G.fkAim.x + w.x * dt * 5.2, -(GOAL_W / 2 - 0.35), GOAL_W / 2 - 0.35);
       else if (G.setKind === 'throw' && b.owner && b.owner.team === 0) throwAimStep(w, dt);
+      else if (G.setKind === 'corner' && G.cAim && b.owner && b.owner.team === 0) {
+        const gl = b.y < PL / 2 ? 0 : PL, inw = gl === 0 ? 1 : -1, k = G.cAim;
+        k.x = clamp(k.x + w.x * dt * 14, PW / 2 - 17, PW / 2 + 17);
+        k.y = gl + inw * clamp((k.y - gl) * inw + w.y * inw * dt * 14, 2.2, 26);
+      }
     }
     // GOALKEEPER DISTRIBUTION: while your keeper holds the ball you aim and play it like any other player, for a few seconds
     let gkb = null;
@@ -10918,12 +10928,13 @@ const Game2D = (() => {
 
   // ------------------------------------------------------------------ ball actions
   function kick(p, vx, vy, vz) {
-    const b = G.ball;
+    const b = G.ball, wasThrow = G.restartHold && G.setKind === 'throw';
+    if (wasThrow) { vz = Math.max(vz, 1.6); b.z = 1.9; }
     Object.assign(b, { owner: null, vx, vy, vz, z: Math.max(b.z, vz > 0 ? 0.05 : 0), last: p, lastTeam: p.team, shot: null, target: null, passer: null, curve: 0, cross: null, offs: null });
     G.flight++;
     p.cool = 0.32;
     p.kickT = 0.25;
-    G.restartHold = false; G.thr = null; G.fkAim = null; G.wallCtl = null;
+    G.restartHold = false; G.thr = null; G.fkAim = null; G.wallCtl = null; G.cAim = null;
     if (G.state === 'kickoff' || G.state === 'setpiece') G.state = 'play';
     const n = nrm(vx, vy);
     if (n.x || n.y) { p.dx = n.x; p.dy = n.y; }
@@ -11837,7 +11848,7 @@ const Game2D = (() => {
     const b = G.ball;
     if (b.owner) {
       const o = b.owner;
-      if (G.restartHold && G.restartSpot) { b.x = G.restartSpot.x; b.y = G.restartSpot.y; b.z = 0; b.vx = b.vy = b.vz = 0; return; }
+      if (G.restartHold && G.restartSpot) { b.x = G.restartSpot.x; b.y = G.restartSpot.y; b.z = G.setKind === 'throw' ? 2.05 : 0; b.vx = b.vy = b.vz = 0; return; }
       if (o.gk && inBoxOf(o.team, o.x, o.y)) { b.x = o.x + o.dx * 0.28; b.y = o.y + o.dy * 0.28; b.z = 1.0 + o.gz; b.vx = o.vx; b.vy = o.vy; b.vz = 0; return; } // in his hands
       const sp = Math.hypot(o.vx, o.vy);
       const off = 0.5 + Math.min(0.35, sp * 0.045) + Math.sin(o.anim * 2.2) * 0.07;
@@ -13238,7 +13249,7 @@ const Game2D = (() => {
       ctx.fillStyle = col; ctx.fillRect(bx, by, s * 2.2 * Math.min(1, pw), s * 0.32);
       ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(bx + s * 2.2 * 0.88, by, Math.max(1, s * 0.05), s * 0.32);
     }
-    if (!G.auto && !replaying && G.restartHold && G.setKind === 'corner' && G.restartTeam === 0 && b.owner && b.owner.team === 0 && G.restartSpot) {
+    if (!G.auto && !replaying && !G.cAim && G.restartHold && G.setKind === 'corner' && G.restartTeam === 0 && b.owner && b.owner.team === 0 && G.restartSpot) {
       const Z = cornerZones(G.restartSpot.x, G.restartSpot.y);
       for (const k of ['near', 'six', 'far', 'spot']) {
         const z = Z[k], X = PX(z.x, z.y), Y = PY(z.x, z.y), on = (G.cornerAim || 'six') === k;
@@ -13256,7 +13267,7 @@ const Game2D = (() => {
         }
       }
     }
-    if (!G.auto && !replaying && G.restartHold && G.state === 'play') {
+    if (!G.auto && !replaying && G.restartHold && (G.state === 'play' || G.state === 'setpiece')) {
       const lab = (txt, X, Y, col) => { ctx.font = `800 ${Math.round(s * 0.46)}px "Barlow Condensed", "Arial Narrow", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = Math.max(2, s * 0.1); ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.strokeText(txt, X, Y); ctx.fillStyle = col; ctx.fillText(txt, X, Y); };
       const arrow = (x0, y0, x1, y1, bend, col) => {
         const X0 = PX(x0, y0), Y0 = PY(x0, y0), X1 = PX(x1, y1), Y1 = PY(x1, y1);
@@ -13274,6 +13285,13 @@ const Game2D = (() => {
         const X = PX(gx, 0), Y = PY(gx, 0);
         ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = Math.max(2, s * 0.1);
         ctx.beginPath(); ctx.arc(X, Y, s * 0.7, 0, Math.PI * 2); ctx.moveTo(X - s * 0.95, Y); ctx.lineTo(X + s * 0.95, Y); ctx.moveTo(X, Y - s * 0.95); ctx.lineTo(X, Y + s * 0.95); ctx.stroke();
+      }
+      if (G.setKind === 'corner' && G.cAim && ow && ow.team === 0 && G.restartSpot) {
+        const k = G.cAim, X = PX(k.x, k.y), Y = PY(k.x, k.y);
+        arrow(G.restartSpot.x, G.restartSpot.y, k.x, k.y, 3, '#ffe14d');
+        ctx.strokeStyle = '#ffe14d'; ctx.fillStyle = 'rgba(255,225,77,0.25)'; ctx.lineWidth = Math.max(2, s * 0.1);
+        ctx.beginPath(); ctx.ellipse(X, Y, s * 1.0, s * 0.48, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        lab(`${Math.round(Math.hypot(k.x - G.restartSpot.x, k.y - G.restartSpot.y))} m`, X, Y - s * 0.6, '#ffe14d');
       }
       if (G.setKind === 'throw' && G.thr && G.thr.set && ow && ow.team === 0) {
         const t = G.thr;
@@ -13692,6 +13710,7 @@ const Game2D = (() => {
     const rainbow = sk && sk.kind === 'rainbow';
     const rollOn = sk && sk.kind === 'roll' && G.ball.owner === p;
     const rollB = rollOn ? { x: PX(G.ball.x, G.ball.y), y: PY(G.ball.x, G.ball.y) } : null;
+    const throwUp = G.restartHold && G.setKind === 'throw' && G.ball.owner === p && G.state !== 'replay' && !rp;
     const rcard = p === G.ref && G.refCard && G.refCard.show ? G.refCard : null;
     const celebrating = G.state === 'goal' && G.celebr && p.team === G.celebr.scorer.team && !p.gk;
     const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
@@ -13799,6 +13818,7 @@ const Game2D = (() => {
       let ex = shx + sx * s * 0.16 + sd.x * s * 0.12 * st * run, ey = shy + s * 0.3 - Math.max(0, st) * s * 0.07 * run; // elbows pump when sprinting
       const ca = cp ? celArm(cp.kind, cp.ct, sx) : null;
       if (ca) { ex = shx + ca[0] * s; ey = shy + ca[1] * s; hx = shx + ca[2] * s; hy2 = shy + ca[3] * s; }
+      else if (throwUp) { const w2 = Math.sin(G.time * 5) * 0.02; hx = shx + sx * s * (0.14 + w2); hy2 = shy - s * 0.98; ex = shx + sx * s * 0.34; ey = shy - s * 0.4; }
       else if (rcard && sx === 1) { const w = Math.sin(G.time * 14) * 0.05; hx = shx + s * (0.26 + w); hy2 = shy - s * 0.95; ex = shx + s * 0.3; ey = shy - s * 0.4; }
       else if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
       else if (p.gk && G.pk && p === G.pk.gk && !diving) { hx = shx + sx * s * (0.62 + Math.sin(G.time * 6) * 0.04); hy2 = shy - s * 0.12; ex = shx + sx * s * 0.4; ey = shy + s * 0.1; }
