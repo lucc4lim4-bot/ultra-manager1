@@ -1096,8 +1096,10 @@ function computeRates(st, m) {
   const neutral = !!m.n;
   const homeAdv = neutral ? 1 : 1.0;
   const zo = S.zoeira;
-  let xh = 1.42 * Math.exp(0.066 * (R[0].A - R[1].D)) * Math.exp(0.02 * (R[0].M - R[1].M));
-  let xa = (neutral ? 1.42 : 1.1) * Math.exp(0.066 * (R[1].A - R[0].D)) * Math.exp(0.02 * (R[1].M - R[0].M));
+  // match-day form: every side has a good or a bad day (about ±14% of its attack), so the favourite does not win everything
+  const dayForm = () => Math.exp((rnd() + rnd() + rnd() - 1.5) * 0.34);
+  let xh = 1.42 * Math.exp(0.045 * (R[0].A - R[1].D)) * Math.exp(0.017 * (R[0].M - R[1].M)) * dayForm();
+  let xa = (neutral ? 1.42 : 1.1) * Math.exp(0.045 * (R[1].A - R[0].D)) * Math.exp(0.017 * (R[1].M - R[0].M)) * dayForm();
   xh *= homeAdv;
   // mentality: + attacking raises both own xg and opponent xg
   const mh = st.sides[0].mentality || 0, ma = st.sides[1].mentality || 0;
@@ -7319,8 +7321,15 @@ function viewSquad() {
   else if (sub === 'stats') body = viewStats();
   else if (sub === 'callup') body = viewCallup();
   const back = UI.returnToMatch ? `<div class="panel row wrap" style="margin-bottom:12px;border-color:var(--accent-hi)"><b class="grow">Ajuste a escalação e volte para a partida.</b><button class="btn primary" data-a="backToMatch">Voltar à partida</button></div>` : '';
-  return `${back}<div class="subtabs">${tabs.map(([k, l]) => `<button class="${sub === k ? 'on' : ''}" data-a="subtab" data-g="squad" data-k="${k}">${l}</button>`).join('')}</div>${body}`;
+  const own = t.isNat ? [] : squadOf(t.id).filter((q) => !q.loan || q.loan.from === t.id), allOn = own.length && own.every((q) => q.rn);
+  const rnBar = sub === 'hub' && own.length ? `<div class="panel row wrap" style="margin-bottom:12px;align-items:center"><div class="grow"><b>Renovação automática</b><div class="muted" style="font-size:12px">No fim da temporada o clube renova sozinho, no salário que cada jogador pedir (se a folha comportar).</div></div><button class="btn ${allOn ? '' : 'primary'}" data-a="rnAll">${allOn ? 'Desligar para todos' : 'Renovar com todo mundo automático'}</button></div>` : '';
+  return `${back}${rnBar}<div class="subtabs">${tabs.map(([k, l]) => `<button class="${sub === k ? 'on' : ''}" data-a="subtab" data-g="squad" data-k="${k}">${l}</button>`).join('')}</div>${body}`;
 }
+act('rnAll', () => {
+  const t = S.teams[S.user.team], own = squadOf(t.id).filter((q) => !q.loan || q.loan.from === t.id), on = !own.every((q) => q.rn);
+  for (const q of own) q.rn = on ? 1 : 0;
+  toast(on ? `Renovação automática ligada para ${own.length} jogadores.` : 'Renovação automática desligada para todos.'); render();
+});
 act('subtab', (el) => { UI.sub[el.dataset.g] = el.dataset.k; UI.sel = null; render(); });
 
 // ------------------------------------------------------------------ lineup editor
@@ -7665,7 +7674,7 @@ function openPlayerModal(pid) {
 act('pTL', (el) => { const p = S.players[+el.dataset.id]; p.tl = p.tl ? 0 : 1; if (p.tl) p.ll = 0; refreshModal(); toast(p.tl ? `${p.n} está à venda.` : `${p.n} saiu da lista.`); });
 act('pRn', (el) => {
   const p = S.players[+el.dataset.id];
-  if (!p.rn && squadOf(S.user.team).filter((q) => q.rn).length >= 8) { toast('Máximo de 8 jogadores com renovação automática.'); return; }
+  if (!p.rn && false) { return; }
   p.rn = p.rn ? 0 : 1; refreshModal();
   toast(p.rn ? `${p.n}: o contrato será renovado automaticamente no fim da temporada.` : `${p.n}: renovação automática desligada.`);
 });
