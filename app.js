@@ -9626,7 +9626,7 @@ const Game2D = (() => {
     if (!taker) { resetKickoff(team); return; }
     const fwd = team === 0 ? -1 : 1;
     for (const p of G.players) Object.assign(p, { wall: false, cornerSpot: null, cr: null, dv: null, gz: 0, plan: null, claim: null, diveT: 0, sk: null });
-    G.cornerPlay = null;
+    G.cornerPlay = null; G.thr = null; G.fkAim = null; G.wallCtl = null; G.wallList = null;
     if (kind === 'throw') { taker.x = x < PW / 2 ? -0.35 : PW + 0.35; taker.y = y; taker.dx = x < PW / 2 ? 1 : -1; taker.dy = 0; }
     else if (kind === 'corner') { const n = nrm(PW / 2 - x, (y < PL / 2 ? 11 : PL - 11) - y); taker.x = x - n.x * 0.75; taker.y = y - n.y * 0.75; taker.dx = n.x; taker.dy = n.y; }
     else { taker.x = x; taker.y = y - fwd * 0.7; taker.dx = 0; taker.dy = fwd; }
@@ -9655,9 +9655,15 @@ const Game2D = (() => {
       if (G.dbg) G.dbg.corners++;
       if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; hint('Escanteio: aperte qualquer botão para cruzar na área. Se quiser, aponte o direcional antes (1º pau, meio ou 2º pau).'); }
       if (!G.auto && team === 1) G.ctrl = nearestTo(0, PW / 2, y < PL / 2 ? 6 : PL - 6, true);
+    } else if (kind === 'throw') {
+      if (!G.auto && !G.solo && team === 0) hint('Lateral: aponte e segure o direcional (quanto mais tempo, mais longe). A seta mostra onde cai. PASSE/CHUTE arremessa.');
     } else if (kind === 'free') {
       const gy = team === 0 ? 0 : PL;
-      if (Math.hypot(PW / 2 - x, gy - y) < 30) { buildWall(team, x, y); G.fk = { taker, t: G.time }; if (team === 0 && !G.auto) hint('Falta perigosa: CHUTE bate direto no gol, por cima da barreira (segure para mais força).'); }
+      if (Math.hypot(PW / 2 - x, gy - y) < 30) { buildWall(team, x, y); G.fk = { taker, t: G.time };
+        if (team === 0 && !G.auto && !G.solo) { G.fkAim = { x: 0 }; hint('Falta perigosa: aponte ◄ ► para mirar (seta no gol). CHUTE bate direto, por cima da barreira (segure para mais força).'); }
+        else if (team === 0 && !G.auto) hint('Falta perigosa: CHUTE bate direto no gol, por cima da barreira (segure para mais força).');
+        if (team === 1 && !G.auto && !G.solo) { G.wallCtl = { hold: 6, shift: 0, jump: false }; hint('Falta contra você! ◄ ► move a barreira. PASSE/CHUTE = barreira pula (de novo = firme) e libera a cobrança.'); }
+      }
     }
     // the computer side changes players during stoppages in the second half
     if (!G.auto && G.half === 2 && minuteNow() > 58 && minuteNow() < 88 && Math.random() < 0.25) cpuSub(minuteInt());
@@ -9668,7 +9674,8 @@ const Game2D = (() => {
     const n = nrm(PW / 2 - x, gy - y);
     const wx = x + n.x * 9.2, wy = y + n.y * 9.2;
     const defs = G.players.filter((p) => !p.out && !p.gk && p.team !== team).sort((a, c) => Math.hypot(a.x - wx, a.y - wy) - Math.hypot(c.x - wx, c.y - wy)).slice(0, 4);
-    defs.forEach((p, i) => { const off = (i - (defs.length - 1) / 2) * 0.75; p.x = wx - n.y * off; p.y = wy + n.x * off; p.vx = p.vy = 0; p.wall = true; p.dx = -n.x; p.dy = -n.y; });
+    defs.forEach((p, i) => { const off = (i - (defs.length - 1) / 2) * 0.75; p.x = wx - n.y * off; p.y = wy + n.x * off; p.vx = p.vy = 0; p.wall = true; p.dx = -n.x; p.dy = -n.y; p.bx = p.x; p.jmp = 0; });
+    G.wallList = defs;
   }
 
   // ------------------------------------------------------------------ corners
@@ -10262,15 +10269,24 @@ const Game2D = (() => {
     else if (G.restartHold && G.setKind === 'kickoff') { tx = PW / 2 + 5; ty = PL / 2 - 3; }
     else if (G.pk || G.shootout) { tx = PW / 2 + 15; ty = G.pk ? (G.pk.up ? 14 : PL - 14) : 14; }
     else if (G.restartHold && G.setKind === 'corner') { tx = b.x < PW / 2 ? 12 : PW - 12; ty = b.y < PL / 2 ? 14 : PL - 14; }
-    if (!G.pk && Math.hypot(tx - b.x, ty - b.y) < 7) { const n = nrm(tx - b.x || 1, ty - b.y); tx = b.x + n.x * 7; ty = b.y + n.y * 7; }
-    approach(r, clamp(tx, 3, PW - 3), clamp(ty, 3, PL - 3), play ? 5.6 : 3.6, dt);
+    const rc = G.refCard;
+    if (rc) {
+      rc.t += dt; rc.show = rc.t > 0.9 && rc.t < 2.6 ? 1 : 0;
+      if (rc.t >= 2.8) G.refCard = null;
+      else { tx = rc.x + (rc.x < PW / 2 ? 2.2 : -2.2); ty = rc.y + 0.4; }
+    }
+    if (!rc && !G.pk && Math.hypot(tx - b.x, ty - b.y) < 7) { const n = nrm(tx - b.x || 1, ty - b.y); tx = b.x + n.x * 7; ty = b.y + n.y * 7; }
+    approach(r, rc ? tx : clamp(tx, 3, PW - 3), rc ? ty : clamp(ty, 3, PL - 3), rc ? 6 : play ? 5.6 : 3.6, dt);
+    if (rc && rc.show) { const n = nrm(rc.x - r.x, rc.y - r.y); r.dx = n.x; r.dy = n.y; }
     // assistants: along the touchline, each one in his half, level with the ball
+    if (G.offsideT > 0) G.offsideT -= dt;
     for (const l of G.lines) {
       let ly = clamp(b.y, l.lo, l.hi);
+      if (G.offsideT > 0) ly = clamp(G.offY, l.lo, l.hi);
       approach(l, l.x, ly, 5.4, dt); l.x = l.x < 0 ? -1.3 : PW + 1.3;
       const out = G.restartHold && G.state === 'play' && (G.setKind === 'throw' || G.setKind === 'corner' || G.setKind === 'goalkick');
       const near = Math.abs(b.y - l.y) < Math.abs(b.y - G.lines.find((q) => q !== l).y);
-      const want = out && near ? 1 : 0;
+      const want = (out && near) || (G.offsideT > 0 && near) ? 1 : 0;
       l.flag += (want - l.flag) * Math.min(1, dt * 7);
     }
     // coaches: pace in the technical area, follow the play along the touchline, react to goals
@@ -10546,6 +10562,11 @@ const Game2D = (() => {
     const mag = Math.min(1, Math.hypot(sx, sy));
     if (mag > 0.05) { const n = nrm(sx, sy); sx = n.x * mag; sy = n.y * mag; } else { sx = 0; sy = 0; }
     const w = screenToWorld(sx, sy);
+    if (!G.auto && !G.solo && G.restartHold && G.state === 'play') {
+      if (G.wallCtl) wallCtlStep(w, dt);
+      else if (G.fkAim && b.owner && b.owner.team === 0) G.fkAim.x = clamp(G.fkAim.x + w.x * dt * 5.2, -(GOAL_W / 2 - 0.35), GOAL_W / 2 - 0.35);
+      else if (G.setKind === 'throw' && b.owner && b.owner.team === 0) throwAimStep(w, dt);
+    }
     // GOALKEEPER DISTRIBUTION: while your keeper holds the ball you aim and play it like any other player, for a few seconds
     let gkb = null;
     if (!G.solo && !G.auto && b.owner && b.owner.team === 0 && b.owner.gk && G.state === 'play') {
@@ -10609,6 +10630,7 @@ const Game2D = (() => {
     }
     const looseNear = !b.owner && dist(c, b) < 3 && b.z < 1.8;
     const aerial = !has && !b.owner && G.land && !c.gk && G.state === 'play' && Math.hypot(c.x - G.land.x, c.y - G.land.y) < 8;
+    if (G.wallCtl && G.restartHold && (I.pass || I.lob || I.shoot)) { I.pass = I.lob = I.shoot = false; I.hold = 0; I.shootDown = false; wallCtlAct(); return; }
     if (aerial && (I.pass || I.lob || I.shoot)) { // header ordered: goes to the landing spot and sends it away / on target when it arrives
       const k = I.shoot ? 'shoot' : I.lob ? 'lob' : 'pass';
       c.hdr = { k, w: { x: w.x, y: w.y }, until: G.time + G.land.t + 0.9 };
@@ -10793,8 +10815,70 @@ const Game2D = (() => {
     G.gkRush = 2.8; G.gkRushCD = 5;
     banner('GOLEIRO SAI!', 0.9);
   }
+  // THROW-IN: aim with the stick (holding it longer throws further); the arrow shows where the ball will come down
+  function throwAimStep(w, dt) {
+    const c = G.ball.owner;
+    if (!c) return;
+    const inw = c.x < PW / 2 ? 1 : -1;
+    let t = G.thr;
+    if (!t) t = G.thr = { dx: inw, dy: 0, d: 12, set: false, was: false };
+    if (w.x || w.y) {
+      const mg = Math.min(1, Math.hypot(w.x, w.y));
+      let n = nrm(w.x, w.y);
+      if (n.x * inw < 0.18) n = { x: 0.18 * inw, y: (n.y >= 0 ? 1 : -1) * Math.sqrt(1 - 0.0324) };
+      if (!t.was) t.d = 6;
+      t.d = Math.min(6 + mg * 26, t.d + dt * 15);
+      t.dx = n.x; t.dy = n.y; t.set = true; t.was = true;
+      c.dx = n.x; c.dy = n.y;
+    } else t.was = false;
+    t.tx = clamp(c.x + t.dx * t.d, 1, PW - 1); t.ty = clamp(c.y + t.dy * t.d, 1, PL - 1);
+    t.q = null; let bd = 6;
+    for (const q of G.players) { if (q.out || q.team !== 0 || q === c || q.gk) continue; const d = Math.hypot(q.x - t.tx, q.y - t.ty); if (d < bd) { bd = d; t.q = q; } }
+  }
+  function throwTo(c) {
+    const b = G.ball, t = G.thr;
+    const tx = t.tx, ty = t.ty, q = t.q;
+    const dx = tx - b.x, dy = ty - b.y, d = Math.max(2, Math.hypot(dx, dy));
+    const vz = clamp(2.4 + d * 0.12, 3, 6.5), z0 = 1.9;
+    const T = (vz + Math.sqrt(vz * vz + 19.6 * z0)) / 9.8, vh = d / T * 0.95;
+    const ang = Math.atan2(dy, dx) + grand() * (0.015 + (1 - c.pas / 100) * 0.05);
+    kick(c, Math.cos(ang) * vh, Math.sin(ang) * vh, vz);
+    b.z = z0; b.passer = c; b.target = q || null; b.offs = null;
+    c.kickT = 0.4;
+    say(`Lateral de ${nameOf(c)}: ${Math.round(d)} m.`, 0);
+  }
+  // FREE KICK AGAINST YOU: move the wall, arm the jump; the computer waits a few seconds for you
+  function wallCtlStep(w, dt) {
+    const k = G.wallCtl;
+    k.hold -= dt;
+    if (w.x) k.shift = clamp(k.shift + w.x * dt * 4.5, -7, 7);
+    for (const q of G.wallList || []) q.x = clamp(q.bx + k.shift, 1, PW - 1);
+  }
+  function wallCtlAct() {
+    const k = G.wallCtl;
+    k.jump = !k.jump; k.hold = Math.min(k.hold, 1.6);
+    hint(k.jump ? 'Barreira vai PULAR!' : 'Barreira firme.');
+  }
+  function wallReact(p, ang, wc, list) {
+    if (!list || !list.length) return;
+    const b = G.ball, jump = !!(wc && wc.jump);
+    const cx = list.reduce((a, q) => a + q.x, 0) / list.length, cy = list.reduce((a, q) => a + q.y, 0) / list.length;
+    const ux = Math.cos(ang), uy = Math.sin(ang);
+    const along = (cx - b.x) * ux + (cy - b.y) * uy, off = Math.abs((cx - b.x) * uy - (cy - b.y) * ux);
+    const covers = along > 0 && off < list.length * 0.375 + 0.6;
+    if (jump) for (const q of list) q.jmp = 0.8;
+    const pb = covers ? (jump ? 0.5 : 0.16) : 0.03;
+    if (Math.random() >= pb) return;
+    let q = list[0], bo = 1e9;
+    for (const o of list) { const d = Math.abs((o.x - b.x) * uy - (o.y - b.y) * ux); if (d < bo) { bo = d; q = o; } }
+    const a2 = ang + Math.PI + (Math.random() - 0.5) * 2.2, sp = 5 + Math.random() * 4;
+    Object.assign(b, { x: q.x - ux * 0.5, y: q.y - uy * 0.5, z: 1.0, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, vz: 2 + Math.random() * 2, last: q, lastTeam: q.team, shot: null, curve: 0, passer: null, target: null });
+    q.kickT = 0.2; G.flight++;
+    banner('Na barreira!', 0.9); say(`A barreira bloqueia o chute de ${nameOf(p)}!`, 1);
+  }
   function doUserShoot(c, w, pw, placed) {
     hint('');
+    if (G.wallCtl) { wallCtlAct(); return; }
     if (G.restartHold && (G.setKind === 'throw' || G.setKind === 'kickoff')) { userPass(c, w, false); return; }
     if (G.restartHold && G.setKind === 'corner') { cornerKick(c, zoneFromStick(c, w)); return; }
     shoot(c, w.x, pw, null, !!placed);
@@ -10803,6 +10887,8 @@ const Game2D = (() => {
   // in front of goal with the keeper off his line, LANÇAR is a chip
   function userPass(c, w, through) {
     hint('');
+    if (G.wallCtl) { wallCtlAct(); return; }
+    if (G.restartHold && G.setKind === 'throw' && G.thr && G.thr.set) { throwTo(c); return; }
     if (G.restartHold && G.setKind === 'corner') { cornerKick(c, G.cornerAim || 'six'); return; }
     const gk = keeperOf(1);
     if (through && !G.restartHold && gk && c.y < 24 && Math.abs(c.x - PW / 2) < 16 && gk.y > 3.2) { chip(c); return; }
@@ -10833,11 +10919,11 @@ const Game2D = (() => {
   // ------------------------------------------------------------------ ball actions
   function kick(p, vx, vy, vz) {
     const b = G.ball;
-    Object.assign(b, { owner: null, vx, vy, vz, z: Math.max(b.z, vz > 0 ? 0.05 : 0), last: p, lastTeam: p.team, shot: null, target: null, passer: null, curve: 0, cross: null });
+    Object.assign(b, { owner: null, vx, vy, vz, z: Math.max(b.z, vz > 0 ? 0.05 : 0), last: p, lastTeam: p.team, shot: null, target: null, passer: null, curve: 0, cross: null, offs: null });
     G.flight++;
     p.cool = 0.32;
     p.kickT = 0.25;
-    G.restartHold = false;
+    G.restartHold = false; G.thr = null; G.fkAim = null; G.wallCtl = null;
     if (G.state === 'kickoff' || G.state === 'setpiece') G.state = 'play';
     const n = nrm(vx, vy);
     if (n.x || n.y) { p.dx = n.x; p.dy = n.y; }
@@ -10862,15 +10948,25 @@ const Game2D = (() => {
     const dx = tx - b.x, dy = ty - b.y, d = Math.max(1, Math.hypot(dx, dy));
     const errMul = p.team === 1 ? G.D.passErr : 1;
     const err = (0.015 + (1 - p.pas / 100) * 0.11 + pressureOn(p) * 0.025) * grand() * errMul * (!G.auto && p.team === 0 && G.ctrl === p ? 0.6 : 1); // your own passes are truer
-    const ang = Math.atan2(dy, dx) + err;
+    const offp = (!G.restartHold && !(G.auto)) ? turnOff(p, dx, dy) : 0; // passing with your back to the target
+    const kp = offp > 1.2 ? clamp((offp - 1.2) / 1.9, 0, 1) : 0;
+    const ang = Math.atan2(dy, dx) + err + (kp ? grand() * (0.08 + kp * 0.3) : 0);
     let vh, vz;
     if (lofted) { vz = clamp(d * 0.26, 3.5, 12); const T = 2 * vz / 9.8; vh = clamp(d / T * 0.92, 6, 26); }
     else { vh = clamp(5 + d * 0.72, 7, 25); vz = 0; }
-    vh *= 1 + grand() * (1 - p.pas / 100) * 0.07;
+    vh *= (1 + grand() * (1 - p.pas / 100) * 0.07) * (1 - 0.35 * kp);
+    const noOff = G.restartHold && ['goalkick', 'throw', 'corner', 'kickoff'].includes(G.setKind);
     kick(p, Math.cos(ang) * vh, Math.sin(ang) * vh, vz);
     b.passer = p; b.target = q || null;
+    if (noOff) b.offs = null; else markOffside(p);
     if (q) q.runT = Math.max(q.runT, through ? 1.4 : 0);
     if (!G.auto && q && p.team === 0 && (through || d > 28)) say(through ? `${nameOf(p)} enfia para ${nameOf(q)}!` : `${nameOf(p)} lança para ${nameOf(q)}.`, 0);
+  }
+  // how far a kick's direction is from where the player is looking (0..PI): kicking behind your back is a bad contact
+  function turnOff(p, dx, dy) {
+    const n = nrm(dx, dy), f = nrm(p.dx || 0, p.dy || 0);
+    if (!(n.x || n.y) || !(f.x || f.y)) return 0;
+    return Math.acos(clamp(n.x * f.x + n.y * f.y, -1, 1));
   }
   function shoot(p, ax, power, sup, placed) {
     const b = G.ball, st = G.st;
@@ -10884,6 +10980,9 @@ const Game2D = (() => {
       const sd = Math.abs(ax) > 0.25 ? Math.sign(ax) : (gk && gk.x > PW / 2 ? -1 : 1);
       aimX = PW / 2 + sd * 3.15;
     }
+    const fkU = !!(G.fkAim && G.fk && G.fk.taker === p && p.team === 0 && !G.auto);
+    if (fkU) aimX = PW / 2 + G.fkAim.x;
+    const wcap = G.wallCtl, wlist = G.wallList;
     let dx = aimX - b.x;
     const dy = gy - b.y, d = Math.hypot(dx, dy);
     const skill = p.sho / 100;
@@ -10904,6 +11003,10 @@ const Game2D = (() => {
     if (G.spPerk === 'boots' && p.team === 0) spread *= 0.88; // the sports-gear sponsor
     if (G.fanSup && p.team === 0) spread *= 1 - G.fanSup * 0.06; // the home crowd pushes (or boos) the team
     if (sup != null) spread *= sup < 0.45 ? 1.5 : sup > 1.02 ? 2.6 : sup > 0.95 ? 1.4 : 0.55; // sweet spot: accurate; too early or too late: wild
+    // looking away from the goal: the kick comes out weak and wild (no more blasting forward while facing backwards)
+    const off = (!G.restartHold && !G.pk && sup == null && !(G.fk && G.fk.taker === p)) ? turnOff(p, dx, dy) : 0;
+    if (off > 1.05) { const k = clamp((off - 1.05) / 1.6, 0, 1); spread += 0.05 + k * 0.32; vh *= 1 - 0.42 * k; power = Math.min(power, 1 - 0.3 * k); if (p.team === 0 && !G.auto && k > 0.35) hint('De costas para o gol: chute torto e fraco.'); }
+    if (fkU) spread *= 0.8;
     const ang = Math.atan2(dy, dx) + grand() * spread;
     let hg = 0.25 + Math.random() * 1.5 + Math.max(0, power - 0.85) * 2.4 + grand() * (1 - skill) * 1.1;
     if (placed && sup == null) hg = 0.15 + Math.random() * 0.6;
@@ -10911,11 +11014,13 @@ const Game2D = (() => {
     // direct free kick: the ball is lifted over the wall and comes down towards the goal (it used to stop in the wall)
     const fk = !!(G.fk && G.fk.taker === p && G.time - G.fk.t < 10 && d > 14);
     if (fk) { hg = clamp(1.85 + Math.random() * 0.3 + (power - 0.7) * 0.5 + grand() * (1 - skill) * 0.5, 1.6, 2.3); G.fk = null; }
-    const vz = clamp((hg + 4.9 * t * t) / t, 0.3, 14);
+    const t2 = d / vh;
+    const vz = clamp((hg + 4.9 * t2 * t2) / t2, 0.3, 14);
     kick(p, Math.cos(ang) * vh, Math.sin(ang) * vh, vz);
     b.curve = curve;
     b.shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, fk, sup: sup != null };
     st.stats.sh[sideOf(p.team)]++;
+    if (fk && p.team === 1) wallReact(p, ang, wcap, wlist);
     if (!G.auto && Math.random() < 0.7) sfx('ooh', 0.6 + power * 0.5);
     if (power > 0.8 && !G.auto) G.shake = 0.35;
     burst(b.x, b.y, 6, '#7fbf4a');
@@ -10964,8 +11069,40 @@ const Game2D = (() => {
     if (tgt) tgt.runT = Math.max(tgt.runT, 0.8);
     say(`Cruzamento de ${nameOf(p)} na área!`, 1);
   }
+  // OFFSIDE: at the moment of a pass, who is beyond the second-last opponent (and the ball) in the opposing half; he is only
+  // penalised if he touches that ball
+  function offLineY(team) { // y of the second-last opponent of the team that attacks `team`'s goal
+    const gy = team === 0 ? 0 : PL;
+    const ys = G.players.filter((o) => !o.out && o.team !== team).map((o) => Math.abs(o.y - gy)).sort((a, c) => a - c);
+    const d = ys.length > 1 ? ys[1] : (ys[0] || 0);
+    return team === 0 ? gy + d : gy - d;
+  }
+  function isOffside(q, ballY, team, lineY) {
+    if (q.out || q.gk || q.team !== team) return false;
+    const L = lineY !== undefined ? lineY : offLineY(team);
+    if (team === 0) return q.y < PL / 2 && q.y < ballY - 0.3 && q.y < L - 0.3;
+    return q.y > PL / 2 && q.y > ballY + 0.3 && q.y > L + 0.3;
+  }
+  function markOffside(passer) { // called right after a pass is kicked in open play
+    const b = G.ball;
+    if (G.tr) { b.offs = null; return; }
+    const L = offLineY(passer.team), set = new Set();
+    for (const q of G.players) if (q !== passer && isOffside(q, passer.y, passer.team, L)) set.add(q.pid);
+    b.offs = set.size ? set : null;
+  }
+  function callOffside(p) {
+    const b = G.ball, st = G.st;
+    b.offs = null; b.passer = null; b.target = null;
+    st.stats.off[sideOf(p.team)]++;
+    sfx('whistle', 0.7); banner('Impedimento!', 1.5); say(`Impedimento de ${nameOf(p)}.`, 1);
+    G.offsideT = 2.2; G.offY = p.y;
+    for (const q of G.players) q.sk = null;
+    setPiece(1 - p.team, clamp(p.x, 2, PW - 2), clamp(p.y, 2, PL - 2), 'free');
+  }
   function take(p) {
     const b = G.ball;
+    if (b.offs && b.passer && p.team === b.passer.team && p !== b.passer && b.offs.has(p.pid) && !G.tr) { callOffside(p); return; }
+    b.offs = null;
     if (G.solo && G.st) {
       if (p.pid === G.solo && b.lastTeam !== p.team && b.last && !b.last.gk) addRating(G.st, p.pid, 0.1); // won the ball
       else if (b.passer && b.passer.pid === G.solo && b.passer.team === p.team && p !== b.passer) addRating(G.st, G.solo, 0.025); // a completed pass
@@ -11030,6 +11167,7 @@ const Game2D = (() => {
     const mn = minuteInt();
     const r = Math.random();
     sfx('whistle', 0.5);
+    G.refCard = null;
     if (!d.gk && r < 0.18) {
       const had = st.ev.some((e) => e.t === 'yellow' && e.p === d.pid);
       if (had) { sendOff(st, k, d.pid, mn, true); spriteOut(d); banner('Expulso!', 1.4); say(`Segundo amarelo: ${nameOf(d)} está expulso!`, 2); }
@@ -11037,8 +11175,11 @@ const Game2D = (() => {
     } else if (!d.gk && r < 0.188) { sendOff(st, k, d.pid, mn, false); spriteOut(d); banner('Cartão vermelho!', 1.4); say(`Vermelho direto para ${nameOf(d)}!`, 2); }
     else { banner('Falta', 0.8); say(`Falta de ${nameOf(d)} em ${nameOf(v)}.`, 0); }
     v.fall = 0.6;
+    const ck = r < 0.18 && !d.gk ? (st.ev.filter((e) => e.t === 'yellow' && e.p === d.pid).length ? 'yellow' : 'yellow') : (r < 0.188 && !d.gk ? 'red' : null);
+    const second = r < 0.18 && !d.gk && d.out; // second yellow = card shown is yellow then red
+    if (ck) G.refCard = { kind: second ? 'red' : ck, x: d.x, y: d.y, t: 0, show: 0 };
     if (inBoxOf(d.team, v.x, v.y)) startPenalty(v.team);
-    else setPiece(v.team, v.x, v.y, 'free');
+    else { setPiece(v.team, v.x, v.y, 'free'); if (ck) G.stateT += 2.2; }
   }
   function spriteOut(p) {
     p.out = true;
@@ -11240,6 +11381,14 @@ const Game2D = (() => {
     if (!own && !G.restartHold && (G.chasers[p.team].includes(p) || b.target === p)) { tgt = interceptPoint(p); run = 1; }
     p.tx = clamp(tgt.x, 0.5, PW - 0.5);
     p.ty = clamp(tgt.y, 0.5, PL - 0.5);
+    { // do not wait beyond the offside line while a team-mate has the ball (unless the pass is already coming to you)
+      const bb = G.ball, car = bb.owner;
+      if (car && car.team === p.team && car !== p && !p.gk && !p.run && !(bb.target === p)) {
+        const L = offLineY(p.team), m = 0.8;
+        if (p.team === 0) p.ty = Math.max(p.ty, Math.min(L + m, Math.max(car.y + 0.5, PL / 2)) );
+        else p.ty = Math.min(p.ty, Math.max(L - m, Math.min(car.y - 0.5, PL / 2)));
+      }
+    }
     p.run = run;
   }
   function cornerTarget(p) {
@@ -11566,6 +11715,7 @@ const Game2D = (() => {
     if (G.restartHold) {
       p.wx = 0; p.wy = 0;
       if (G.state !== 'play') return;
+      if (G.wallCtl && G.wallCtl.hold > 0) return;
       p.decT -= dt;
       if (p.decT > 0) return;
       const dGoal = Math.hypot(PW / 2 - p.x, gy - p.y);
@@ -11619,10 +11769,12 @@ const Game2D = (() => {
   function aiPass(p, forceLong, shortOnly) {
     const fwd = p.team === 0 ? -1 : 1;
     let best = null, bs = -1e9, bestLob = false, bestThrough = false;
+    const offL = offLineY(p.team);
     for (const q of G.players) {
       if (q.out || q.team !== p.team || q === p || q.gk) continue;
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
       if (d < 4 || d > (shortOnly ? 22 : 46)) continue;
+      if (isOffside(q, p.y, p.team, offL)) continue;
       const open = laneOpen(p, q);
       const lob = !shortOnly && ((open < 1.6 && d > 14) || d > 32);
       const space = Math.min(6, nearestOppDist(q));
@@ -11639,6 +11791,7 @@ const Game2D = (() => {
 
   // ------------------------------------------------------------------ physics
   function integrate(p, dt) {
+    if (p.jmp > 0) p.jmp -= dt;
     if (p.slide > 0) {
       p.slide -= dt;
       const k = Math.max(0.2, p.slide / 0.45);
@@ -11844,6 +11997,7 @@ const Game2D = (() => {
   }
   // header ordered by the user: a long clearance away from his goal, a pass-header to a teammate, or at the goal
   function headerDirected(p, hd) {
+    { const b = G.ball; if (b.offs && b.passer && p.team === b.passer.team && p !== b.passer && b.offs.has(p.pid) && !G.tr) { callOffside(p); return; } }
     const b = G.ball, fwd = p.team === 0 ? -1 : 1, gy = p.team === 0 ? 0 : PL, own = p.team === 0 ? PL : 0;
     p.kickT = 0.25; G.flight++; p.cool = 0.3;
     const dGoal = Math.hypot(PW / 2 - p.x, gy - p.y), inDefence = Math.abs(p.y - own) < PL * 0.34;
@@ -11865,6 +12019,7 @@ const Game2D = (() => {
   }
   function header(p) {
     const b = G.ball;
+    if (b.offs && b.passer && p.team === b.passer.team && p !== b.passer && b.offs.has(p.pid) && !G.tr) { callOffside(p); return; }
     const gy = p.team === 0 ? 0 : PL, fwd = p.team === 0 ? -1 : 1;
     const dGoal = Math.hypot(PW / 2 - p.x, gy - p.y);
     p.kickT = 0.25;
@@ -13101,6 +13256,41 @@ const Game2D = (() => {
         }
       }
     }
+    if (!G.auto && !replaying && G.restartHold && G.state === 'play') {
+      const lab = (txt, X, Y, col) => { ctx.font = `800 ${Math.round(s * 0.46)}px "Barlow Condensed", "Arial Narrow", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = Math.max(2, s * 0.1); ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.strokeText(txt, X, Y); ctx.fillStyle = col; ctx.fillText(txt, X, Y); };
+      const arrow = (x0, y0, x1, y1, bend, col) => {
+        const X0 = PX(x0, y0), Y0 = PY(x0, y0), X1 = PX(x1, y1), Y1 = PY(x1, y1);
+        const mx = (X0 + X1) / 2, my = (Y0 + Y1) / 2 - bend * s;
+        ctx.setLineDash([s * 0.35, s * 0.25]); ctx.lineCap = 'round';
+        for (const [c2, w2] of [['rgba(0,0,0,0.5)', Math.max(4, s * 0.2)], [col, Math.max(2, s * 0.1)]]) { ctx.strokeStyle = c2; ctx.lineWidth = w2; ctx.beginPath(); ctx.moveTo(X0, Y0); ctx.quadraticCurveTo(mx, my, X1, Y1); ctx.stroke(); }
+        ctx.setLineDash([]);
+        const an = Math.atan2(Y1 - my, X1 - mx);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(X1, Y1); ctx.lineTo(X1 - Math.cos(an - 0.45) * s * 0.7, Y1 - Math.sin(an - 0.45) * s * 0.7); ctx.lineTo(X1 - Math.cos(an + 0.45) * s * 0.7, Y1 - Math.sin(an + 0.45) * s * 0.7); ctx.closePath(); ctx.fill();
+      };
+      const ow = b.owner;
+      if (G.fkAim && ow && ow.team === 0) {
+        const gx = PW / 2 + G.fkAim.x;
+        arrow(b.x, b.y, gx, 0, 2.4, '#ffe14d');
+        const X = PX(gx, 0), Y = PY(gx, 0);
+        ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = Math.max(2, s * 0.1);
+        ctx.beginPath(); ctx.arc(X, Y, s * 0.7, 0, Math.PI * 2); ctx.moveTo(X - s * 0.95, Y); ctx.lineTo(X + s * 0.95, Y); ctx.moveTo(X, Y - s * 0.95); ctx.lineTo(X, Y + s * 0.95); ctx.stroke();
+      }
+      if (G.setKind === 'throw' && G.thr && G.thr.set && ow && ow.team === 0) {
+        const t = G.thr;
+        arrow(ow.x, ow.y, t.tx, t.ty, 1.6, '#7be0ff');
+        const X = PX(t.tx, t.ty), Y = PY(t.tx, t.ty);
+        ctx.strokeStyle = '#7be0ff'; ctx.fillStyle = 'rgba(123,224,255,0.25)'; ctx.lineWidth = Math.max(2, s * 0.1);
+        ctx.beginPath(); ctx.ellipse(X, Y, s * 0.9, s * 0.42, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        lab(`${Math.round(t.d)} m`, X, Y - s * 0.55, '#7be0ff');
+        if (t.q) { const qx = PX(t.q.x, t.q.y), qy = PY(t.q.x, t.q.y); ctx.strokeStyle = '#7be0ff'; ctx.beginPath(); ctx.ellipse(qx, qy + s * 0.04, s * 0.75, s * 0.33, 0, 0, Math.PI * 2); ctx.stroke(); }
+      }
+      if (G.wallCtl && G.wallList && G.wallList.length) {
+        const wl = G.wallList, k = G.wallCtl, cx = wl.reduce((a, q) => a + q.x, 0) / wl.length, cy = wl.reduce((a, q) => a + q.y, 0) / wl.length;
+        const X = PX(cx, cy), Y = PY(cx, cy);
+        lab(k.jump ? 'BARREIRA: PULA' : 'BARREIRA: FIRME', X, Y - s * 2.3, k.jump ? '#7dff9a' : '#ffe14d');
+        lab(`◄ ► move · ${Math.max(0, Math.ceil(k.hold))}s`, X, Y - s * 1.7, '#ffffff');
+      }
+    }
     if (G.pk && G.pk.phase === 'dive' && G.pk.gk) {
       const k = G.pk;
       for (const o of [-1, 0, 1]) {
@@ -13314,6 +13504,7 @@ const Game2D = (() => {
     if (p.fall > 0) { if (!(p._fL > now - 0.25)) p._fS = now; p._fL = now; } else p._fL = 0;
     return { dvT, fE: p.fall > 0 ? now - (p._fS || now) : 0 };
   }
+  const wrapAng = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; }; // the short way round
   const easeOut = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 2.2);
   const lerp = (a, b, k) => a + (b - a) * k;
   // a body that is off its feet (keeper's dive, a tackled player getting up): torso, head, arms and legs are all driven by
@@ -13395,7 +13586,7 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.78 + pu * 0.12), s * (0.34 + pu * 0.06), 0, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = 'rgba(80,220,255,0.9)'; ctx.beginPath(); ctx.moveTo(X, Y - s * 2.75 - pu * s * 0.1); ctx.lineTo(X - s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.lineTo(X + s * 0.2, Y - s * 3.1 - pu * s * 0.1); ctx.closePath(); ctx.fill();
     }
-    Y -= lift + ((!diving && p.gk) ? (rp ? p.rGz || 0 : p.gz || 0) * s * 0.55 : 0);
+    Y -= lift + (p.jmp > 0 ? Math.sin(Math.PI * clamp(1 - p.jmp / 0.8, 0, 1)) * s * 0.8 : 0) + ((!diving && p.gk) ? (rp ? p.rGz || 0 : p.gz || 0) * s * 0.55 : 0);
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
     const sd = sdir(hdx, hdy);
@@ -13415,7 +13606,7 @@ const Game2D = (() => {
       const bounce = land > 0 && land < 0.2 ? Math.sin(land / 0.2 * Math.PI) * 0.16 : 0;
       const pushed = rem < 0.34 ? 1 - getUp : 0;           // pushing off the ground to stand
       drawDownBody(p, kit, s, X, Y, {
-        rot, ang: Math.atan2(dd.y, dd.x) + Math.PI / 2, squash: sq, up: gz * 0.6 + bounce, headDy: -0.05 * eu, look: 0.03, eyeY: -0.02,
+        rot, ang: wrapAng(Math.atan2(dd.y, dd.x) + Math.PI / 2), squash: sq, up: gz * 0.6 + bounce, headDy: -0.05 * eu, look: 0.03, eyeY: -0.02,
         hands: [[lerp(-0.55, -0.22, reach) - pushed * 0.1, lerp(0.15, -1.55 - 0.1 * Math.sin(Math.min(1, u) * Math.PI), reach) + pushed * 0.4, 0.2 * (1 - reach)], [lerp(0.55, 0.22, reach) + pushed * 0.1, lerp(0.15, -1.6 - 0.1 * Math.sin(Math.min(1, u) * Math.PI), reach) + pushed * 0.4, -0.2 * (1 - reach)]],
         feet: [[-0.1 - fl - 0.05 * (1 - getUp), 0.98 - 0.15 * pushed, -0.12, 0.6], [0.1 + 0.12 * bend + fl, 0.96 - 0.22 * bend - 0.2 * pushed, 0.17 + 0.2 * bend, 0.6 - 0.05 * bend]],
       });
@@ -13480,7 +13671,7 @@ const Game2D = (() => {
       const land = e - Math.min(0.2, tot * 0.45), bounce = !justSlid && land > 0 && land < 0.14 ? Math.sin(land / 0.14 * Math.PI) * 0.1 : 0;
       const flail = dn < 1 ? Math.sin(e * 34) : 0, twitch = dn >= 1 && up >= 1 ? Math.sin(e * 15) * 0.04 : 0;
       const push = up < 1 ? 1 - up : 0;
-      const ang = Math.atan2(sd.y, sd.x) - Math.PI / 2;
+      const ang = wrapAng(Math.atan2(sd.y, sd.x) - Math.PI / 2);
       drawDownBody(p, kit, s, X, Y, {
         rot, ang, squash: land > 0 && land < 0.1 ? 0.94 : 1, up: bounce, hurt: dn >= 1 && up >= 1, eyeY: dn >= 1 && up >= 1 ? 0.02 : -0.05,
         hands: [[-0.6 + flail * 0.2 - push * 0.05, lerp(-0.1, 0.45, push) - (dn < 1 ? 0.5 + flail * 0.25 : 0) + twitch, 0.15], [0.6 - flail * 0.2 + push * 0.05, lerp(-0.1, 0.45, push) - (dn < 1 ? 0.5 - flail * 0.25 : 0) - twitch, -0.15]],
@@ -13501,6 +13692,7 @@ const Game2D = (() => {
     const rainbow = sk && sk.kind === 'rainbow';
     const rollOn = sk && sk.kind === 'roll' && G.ball.owner === p;
     const rollB = rollOn ? { x: PX(G.ball.x, G.ball.y), y: PY(G.ball.x, G.ball.y) } : null;
+    const rcard = p === G.ref && G.refCard && G.refCard.show ? G.refCard : null;
     const celebrating = G.state === 'goal' && G.celebr && p.team === G.celebr.scorer.team && !p.gk;
     const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
     // kick leg: back-swing, strike, follow-through (positive = forward)
@@ -13607,6 +13799,7 @@ const Game2D = (() => {
       let ex = shx + sx * s * 0.16 + sd.x * s * 0.12 * st * run, ey = shy + s * 0.3 - Math.max(0, st) * s * 0.07 * run; // elbows pump when sprinting
       const ca = cp ? celArm(cp.kind, cp.ct, sx) : null;
       if (ca) { ex = shx + ca[0] * s; ey = shy + ca[1] * s; hx = shx + ca[2] * s; hy2 = shy + ca[3] * s; }
+      else if (rcard && sx === 1) { const w = Math.sin(G.time * 14) * 0.05; hx = shx + s * (0.26 + w); hy2 = shy - s * 0.95; ex = shx + s * 0.3; ey = shy - s * 0.4; }
       else if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
       else if (p.gk && G.pk && p === G.pk.gk && !diving) { hx = shx + sx * s * (0.62 + Math.sin(G.time * 6) * 0.04); hy2 = shy - s * 0.12; ex = shx + sx * s * 0.4; ey = shy + s * 0.1; }
       else if (gkReady) { hx = shx + sx * s * 0.56 + Math.sin(G.time * 5 + sx) * s * 0.02; hy2 = shy + s * 0.3; ex = shx + sx * s * 0.34; ey = shy + s * 0.2; }
@@ -13622,6 +13815,7 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.moveTo(ex - (ex - shx) * 0.12, ey - (ey - shy) * 0.12); ctx.lineTo(ex, ey); ctx.stroke();
       ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin;
       ctx.beginPath(); ctx.arc(hx, hy2, s * (p.gk ? 0.13 : 0.1), 0, Math.PI * 2); ctx.fill();
+      if (rcard && sx === 1) { ctx.fillStyle = rcard.kind === 'red' ? '#d8261f' : '#f7d51d'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = Math.max(1, s * 0.03); ctx.beginPath(); ctx.rect(hx - s * 0.12, hy2 - s * 0.36, s * 0.24, s * 0.36); ctx.fill(); ctx.stroke(); }
       ctx.lineCap = 'butt';
     };
     arm(-1, Math.PI); arm(1, 0);
@@ -13737,7 +13931,7 @@ const Game2D = (() => {
     dot(G.ball.x, G.ball.y, r * 0.85, '#ffffff');
   }
 
-  return { start, startShootoutOnly, startTraining, SKINS, HAIRS, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), _gkRush: startGkRush, _liveTactic: applyLiveTactic2D, _celeb: celebInput, _shoot: shoot, _skill: doSkill, get _G() { return G; } };
+  return { start, startShootoutOnly, startTraining, SKINS, HAIRS, netRecv, netActive: () => !!(G && G.online), _create: create, _step: step, _startShootout: startShootout, _startPenalty: startPenalty, _cpuSub: (mn) => cpuSub(mn), _scr: (p) => { const r = cv.getBoundingClientRect(); return { x: r.left + PX(p.x, p.y) * (r.width / cv.width), y: r.top + PY(p.x, p.y) * (r.height / cv.height) }; }, _setPiece: (t, x, y, k) => setPiece(t, x, y, k), _foul: foul, _passTo: passTo, _throwTo: throwTo, _gkRush: startGkRush, _liveTactic: applyLiveTactic2D, _celeb: celebInput, _shoot: shoot, _skill: doSkill, get _G() { return G; } };
 })();
 // test hook: the browser tests open the page with ?debug=1 to drive the match directly
 try { if (/[?&]debug=1\b/.test(location.search)) window.__g2d = Game2D; } catch (e) { /* no location outside the browser */ }
