@@ -10718,7 +10718,16 @@ const Game2D = (() => {
   }
   function soloSprite() { const p = G.players.find((q) => q.pid === G.solo && !q.out); return p || null; }
   // PEDIR: the teammate with the ball looks for you for a few seconds
-  function callForBall() { if (!G || !G.solo) return; G.callT = 3; hint('Você pede a bola!'); setTimeout(() => { if (G && G.callT <= 0) hint(''); }, 1500); }
+  // MANDAR PASSAR: the teammate who has the ball (not the one you control) is told to pass it now
+  function orderPass() {
+    const b = G.ball, o = b.owner;
+    if (G.state !== 'play' || !o || o.team !== 0 || o.out) { hint('Só dá para mandar passar quando um companheiro está com a bola.'); setTimeout(() => { if (G) hint(''); }, 1500); return; }
+    if (o === G.ctrl) { G.input.pass = true; return; }
+    o.decT = 0; G.restartHold = false;
+    aiPass(o, false, false);
+    say(`${nameOf(o)} obedece e toca a bola.`, 0);
+  }
+  function callForBall() { if (G && !G.solo) { orderPass(); return; } if (!G || !G.solo) return; G.callT = 3; hint('Você pede a bola!'); setTimeout(() => { if (G && G.callT <= 0) hint(''); }, 1500); }
   // TROCAR: hand control to the teammate closest to the ball (the current one excluded)
   function swapPlayer(c, w) {
     if (G.tr) return;
@@ -11123,6 +11132,15 @@ const Game2D = (() => {
   }
   function interceptPoint(p) {
     const b = G.ball;
+    if (b.z > 0.25 || b.vz > 0.5) { // in the air: go to where he can first reach it near the ground (or where it ends)
+      const tr = predictBall(3.2);
+      let last = null;
+      for (const q of tr) {
+        last = q;
+        if (q.z < 1.7 && Math.hypot(q.x - p.x, q.y - p.y) / (p.speed * 0.95) <= q.t) return { x: q.x, y: q.y };
+      }
+      if (last) return { x: last.x, y: last.y };
+    }
     let x = b.x, y = b.y, vx = b.vx, vy = b.vy;
     for (let t = 0.1; t <= 2.5; t += 0.1) {
       const sp = Math.hypot(vx, vy);
@@ -11261,8 +11279,8 @@ const Game2D = (() => {
       if (curve) { const n = nrm(-vy, vx); vx += n.x * curve * dt; vy += n.y * curve * dt; curve *= Math.exp(-2.2 * dt); if (Math.abs(curve) < 0.05) curve = 0; }
       if (z > 0 || vz > 0) {
         vz -= 9.8 * dt; z += vz * dt;
-        const drag = Math.exp(-0.12 * dt); vx *= drag; vy *= drag;
-        if (z <= 0) { z = 0; if (vz < -1.6) { vz = -vz * 0.48; vx *= 0.82; vy *= 0.82; } else vz = 0; }
+        const hs = Math.hypot(vx, vy), drag = Math.exp(-(0.07 + 0.0045 * hs) * dt); vx *= drag; vy *= drag;
+        if (z <= 0) { z = 0; if (vz < -1.1) { vz = -vz * 0.52; vx *= 0.86; vy *= 0.86; } else vz = 0; }
       } else { const sp = Math.hypot(vx, vy); if (sp > 0) { const ns = Math.max(0, sp - (G.fr[0] + G.fr[1] * sp) * dt); vx *= ns / sp; vy *= ns / sp; } }
       out.push({ t, x, y, z });
       if (y < -0.5 || y > PL + 0.5 || x < -0.5 || x > PW + 0.5) break;
@@ -11753,6 +11771,11 @@ const Game2D = (() => {
           if (b.z >= 1.3) { claimAir(gkc.p); return; }
           take(gkc.p); gkc.p.holdT = 1.0; G.cornerPlay = null; return;
         }
+        // a lofted pass coming down to a teammate is brought under control (chest / foot), not headed away
+        if (b.passer && !b.cross && !G.cornerPlay && b.vz <= 0.3 && b.z < 2.5) {
+          const rc = cands.filter((c) => !c.hands && c.p.team === b.passer.team && (!b.target || c.p === b.target || b.target.out)).sort((u, v) => u.d - v.d)[0];
+          if (rc && Math.random() < 0.93) { take(rc.p); rc.p.cool = 0; return; }
+        }
         // in the air: the best jump wins the header (a few more players jump in when it is crowded)
         if (b.z >= 1.45) {
           const cp = G.cornerPlay;
@@ -12051,17 +12074,19 @@ const Game2D = (() => {
 
   // ------------------------------------------------------------------ instant replay of goals
   const REC_N = 240; // 8 s at 30 frames per second
+  const RS = 13; // floats stored per player in a replay frame
   const REC_DT = 1 / 30;
   function record(dt) {
     G.recAcc += dt;
     if (G.recAcc < REC_DT) return;
     G.recAcc %= REC_DT;
     const ps = G.players, b = G.ball;
-    const f = new Float32Array(4 + ps.length * 8);
+    const f = new Float32Array(4 + ps.length * RS);
     f[0] = b.x; f[1] = b.y; f[2] = b.z; f[3] = b.spin;
     ps.forEach((p, i) => {
-      const o = 4 + i * 8;
+      const o = 4 + i * RS;
       f[o + 7] = p.gz || 0;
+      f[o + 8] = animT(p).dvT; f[o + 9] = p.diveT || 0; f[o + 10] = animT(p).fE; f[o + 11] = p.fall > 0 ? p.fall : 0; f[o + 12] = p.slide > 0 ? p.slide : 0;
       f[o] = p.x; f[o + 1] = p.y; f[o + 2] = p.dx; f[o + 3] = p.dy; f[o + 4] = p.anim;
       f[o + 5] = (p.slide > 0 ? 1 : 0) + (p.fall > 0 ? 2 : 0) + (p.out ? 4 : 0) + (p.kickT > 0 ? 8 : 0) + (p.diveT > 0 ? 16 : 0);
       f[o + 6] = Math.hypot(p.vx, p.vy);
@@ -12149,9 +12174,9 @@ const Game2D = (() => {
     const b = G.ball;
     b.owner = null; b.x = f[0]; b.y = f[1]; b.z = f[2]; b.spin = f[3]; b.vx = b.vy = 0;
     G.players.forEach((p, i) => {
-      const o = 4 + i * 8;
-      if (o + 7 >= f.length) return;
-      p.rGz = f[o + 7];
+      const o = 4 + i * RS;
+      if (o + RS - 1 >= f.length) return;
+      p.rGz = f[o + 7]; p.rDvT = f[o + 8]; p.rDvR = f[o + 9]; p.rFE = f[o + 10]; p.rFR = f[o + 11]; p.rSl = f[o + 12];
       p.x = f[o]; p.y = f[o + 1]; p.dx = f[o + 2]; p.dy = f[o + 3]; p.anim = f[o + 4];
       const fl = f[o + 5];
       p.rSlide = fl & 1; p.rFall = fl & 2; p.rOut = fl & 4; p.rKick = fl & 8; p.rDive = fl & 16;
@@ -12376,7 +12401,7 @@ const Game2D = (() => {
       <button class="pill g2-savebtn" id="g2-savebtn" hidden>💾 Salvar replay do gol</button>
       <div class="g2d-controls"><div class="joy" id="g2-joy" data-k="joy"><i></i></div>
         <div class="skpads"><button class="pad sk run" data-k="sprint">CORRER</button><button class="pad sk" data-k="spin">GIRO</button><button class="pad sk" data-k="feint">FINTA</button></div>
-        <div class="pads"><button class="pad call" data-k="call">PEDIR</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR<small>↓ goleiro sai</small></button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE<small>↑ enfiada</small></button><button class="pad shoot" data-k="shoot">CHUTE<small>↑ colocado · ↓ cavadinha</small></button></div></div>
+        <div class="pads"><button class="pad call" data-k="call">${G.solo ? 'PEDIR' : 'MANDAR<small>PASSAR</small>'}</button><button class="pad super" data-k="super">SUPER</button><button class="pad swap" data-k="swap">TROCAR<small>↓ goleiro sai</small></button><button class="pad" data-k="lob">LANÇAR</button><button class="pad pass" data-k="pass">PASSE<small>↑ enfiada</small></button><button class="pad shoot" data-k="shoot">CHUTE<small>↑ colocado · ↓ cavadinha</small></button></div></div>
       <div class="g2-laybar" id="g2-laybar" hidden><div class="t">Arraste os botões para onde quiser · toque num botão e use − / + para o tamanho</div><div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn sm" data-l="minus">−</button><button class="btn sm" data-l="plus">+</button><button class="btn sm" data-l="reset">Padrão</button><button class="btn sm gold" data-l="done">Pronto</button></div></div>
       <div class="g2d-pause" id="g2-pausebox" hidden></div>`;
     document.body.appendChild(root);
@@ -13227,6 +13252,58 @@ const Game2D = (() => {
     }
     ctx.restore();
   }
+
+  // how long a dive / a fall has been going on (kept per player; works for live play, the replay stores the numbers)
+  function animT(p) {
+    const now = G.time;
+    let dvT = -1;
+    if (p.dv) dvT = p.dv.t; else if (p.dive && p.dive.T !== undefined) dvT = Math.max(0, p.dive.T - p.dive.t);
+    else if (p.diveT > 0) { if (!(p._dvL > now - 0.25)) p._dvS = now; p._dvL = now; dvT = now - (p._dvS || now); }
+    if (p.fall > 0) { if (!(p._fL > now - 0.25)) p._fS = now; p._fL = now; } else p._fL = 0;
+    return { dvT, fE: p.fall > 0 ? now - (p._fS || now) : 0 };
+  }
+  const easeOut = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 2.2);
+  const lerp = (a, b, k) => a + (b - a) * k;
+  // a body that is off its feet (keeper's dive, a tackled player getting up): torso, head, arms and legs are all driven by
+  // the parameters, in a frame where the body stands upright and is then rotated; o = { rot, ang, hands, feet, squash, headDy }
+  function drawDownBody(p, kit, s, X, Y, o) {
+    const ol = 'rgba(0,0,0,0.38)', lw = Math.max(1, s * 0.055);
+    ctx.save();
+    ctx.translate(X, Y - s * (0.34 + 0.5 * (1 - o.rot)) - o.up * s);
+    ctx.scale(1 + (1 - o.squash) * 0.7, o.squash);
+    ctx.rotate(o.ang * o.rot);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const L = (x1, y1, x2, y2, w, col) => { ctx.strokeStyle = col; ctx.lineWidth = s * w; ctx.beginPath(); ctx.moveTo(x1 * s, y1 * s); ctx.lineTo(x2 * s, y2 * s); ctx.stroke(); };
+    // legs (hips at the bottom of the torso): thigh in skin, shin in sock, boot
+    for (let i = 0; i < 2; i++) {
+      const f = o.feet[i], hx = (i ? 1 : -1) * 0.17, hy = 0.2;
+      L(hx, hy, f[2], f[3], 0.2, p.skin); L(f[2], f[3], f[0], f[1], 0.19, kit.socks);
+      ctx.fillStyle = p.boots || '#16181a'; ctx.beginPath(); ctx.ellipse(f[0] * s, (f[1] + 0.04) * s, s * 0.15, s * 0.09, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = kit.shorts; rr(-s * 0.36, s * 0.04, s * 0.72, s * 0.36, s * 0.09); ctx.fill();
+    // arms behind the torso when stretched up; sleeve, forearm and glove
+    const arm = (i) => {
+      const sx = i ? 1 : -1, h = o.hands[i], shx = sx * 0.37, shy = -0.42;
+      const ex = (shx + h[0]) / 2 + sx * h[2], ey = (shy + h[1]) / 2;
+      L(ex, ey, h[0], h[1], 0.13, p.skin); L(shx, shy, ex, ey, 0.2, kit.shirt);
+      ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin; ctx.beginPath(); ctx.arc(h[0] * s, h[1] * s, s * (p.gk ? 0.15 : 0.1), 0, Math.PI * 2); ctx.fill();
+      if (p.gk) { ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(1, s * 0.03); ctx.stroke(); }
+    };
+    arm(0); arm(1);
+    ctx.fillStyle = kit.shirt; rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.fill();
+    if (kit.pat) { ctx.save(); rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, -s * 0.4, -s * 0.58, s * 0.8, s * 0.72); ctx.restore(); }
+    const tg = ctx.createLinearGradient(-s * 0.4, 0, s * 0.4, 0); tg.addColorStop(0, 'rgba(255,255,255,0.22)'); tg.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = tg; rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.fill(); ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+    // head, with face: eyes look where the body is going
+    const hy = -0.86 + (o.headDy || 0);
+    ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(0, hy * s, s * 0.4, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
+    ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(0, (hy - 0.06) * s, s * 0.38, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+    const ey = o.eyeY !== undefined ? o.eyeY : -0.05;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(-s * 0.15, (hy + ey) * s, s * 0.09, s * 0.1, 0, 0, Math.PI * 2); ctx.ellipse(s * 0.15, (hy + ey) * s, s * 0.09, s * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc(-s * 0.14, (hy + ey - (o.look || 0)) * s, s * 0.05, 0, Math.PI * 2); ctx.arc(s * 0.16, (hy + ey - (o.look || 0)) * s, s * 0.05, 0, Math.PI * 2); ctx.fill();
+    if (o.hurt) { ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = Math.max(1, s * 0.04); ctx.beginPath(); ctx.moveTo(-s * 0.1, (hy + 0.2) * s); ctx.lineTo(s * 0.1, (hy + 0.2) * s); ctx.stroke(); }
+    ctx.restore();
+  }
   function drawPlayer(p, X, Y, s) {
     const kit = p.kitOv || (p.gk ? G.gkKits[p.side] : G.kits[p.side]);
     const rp = G.state === 'replay';
@@ -13270,32 +13347,30 @@ const Game2D = (() => {
     let hdx = p.dx, hdy = p.dy;
     if (!rp && p.sk && p.sk.kind === 'spin') { const a = Math.atan2(p.sk.dy, p.sk.dx) + (1 - p.sk.t / p.sk.T) * Math.PI * 2; hdx = Math.cos(a); hdy = Math.sin(a); }
     const sd = sdir(hdx, hdy);
-    // goalkeeper in the air or on the ground after a dive: stretched out, gloves first
+    // goalkeeper's dive: push-off, flight with arms stretched, landing (squash, dust, slide), then he gets up
     if (diving && p.gk && !lift) {
-      const gz = rp ? p.rGz || 0 : p.gz || 0;
-      const dd = sdir(p.diveDir || 1, 0);
-      const nowT = G.time;
-      if (!rp) { if (!(p._dvL > nowT - 0.25)) p._dvS = nowT; p._dvL = nowT; }
-      const age = rp ? 0.4 : nowT - (p._dvS || nowT);
-      const rot = rp ? 1 : clamp(age / 0.16, 0, 1) * (p.diveT > 0 && p.diveT < 0.34 ? p.diveT / 0.34 : 1); // 0 upright .. 1 stretched out
-      const arch = Math.sin(clamp(age / 0.5, 0, 1) * Math.PI) * (1 - rot * 0.2);
-      ctx.save(); ctx.translate(X, Y - s * (0.34 + 0.5 * (1 - rot)) - gz * s * 0.6); ctx.rotate((Math.atan2(dd.y, dd.x) + Math.PI / 2) * rot);
-      const bend = arch * 0.25;
-      ctx.fillStyle = kit.socks; ctx.fillRect(-s * 0.3, s * 0.38, s * 0.18, s * 0.55); ctx.save(); ctx.translate(s * 0.2, s * 0.3); ctx.rotate(bend); ctx.fillRect(-s * 0.09, 0, s * 0.18, s * 0.55); ctx.restore();
-      ctx.fillStyle = '#151515'; ctx.fillRect(-s * 0.32, s * 0.9, s * 0.22, s * 0.12); ctx.fillRect(s * 0.1, s * (0.82 - bend * 0.4), s * 0.22, s * 0.12);
-      ctx.fillStyle = kit.shorts; rr(-s * 0.36, s * 0.08, s * 0.72, s * 0.34, s * 0.08); ctx.fill();
-      ctx.fillStyle = kit.shirt;
-      rr(-s * 0.36, -s * 1.62, s * 0.17, s * 1.12, s * 0.07); ctx.fill();
-      ctx.save(); ctx.translate(s * 0.28, -s * 0.5); ctx.rotate(-0.28 * rot); rr(-s * 0.09, -s * 1.0, s * 0.17, s * 1.0, s * 0.07); ctx.fill(); ctx.restore();
-      rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.fill(); ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
-      ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(0, -s * 0.86, s * 0.38, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(0, -s * 0.92, s * 0.36, Math.PI, 2 * Math.PI); ctx.fill();
-      ctx.fillStyle = '#f4f4f4'; ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-      ctx.beginPath(); ctx.arc(-s * 0.27, -s * 1.68, s * 0.19, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(s * 0.4 + 0.28 * rot * s * 0.9 * 0.3, -s * 1.58, s * 0.19, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.restore(); ctx.globalAlpha = 1;
+      const gz = rp ? p.rGz || 0 : p.gz || 0, dd = sdir(p.diveDir || 1, 0), T = 0.36;
+      const A = rp ? null : animT(p);
+      const t = rp ? p.rDvT : A.dvT, rem = rp ? p.rDvR : p.diveT;
+      const u = clamp(t / T, 0, 1), eu = easeOut(u), land = t - T;
+      const getUp = rem < 0.34 ? clamp(rem / 0.34, 0, 1) : 1; // 1 lying .. 0 upright again
+      const rot = eu * getUp;
+      if (!rp) { if (t < T) p._dvDust = false; else if (!p._dvDust) { p._dvDust = true; burst(p.x, p.y, 8, '#9cc766'); G.shake = Math.max(G.shake || 0, G.auto ? 0 : 0.08); } }
+      const reach = rem < 0.34 ? getUp : eu;                 // arms stretched .. back down
+      const fl = Math.sin(t * 22) * 0.06 * (1 - getUp * 0 ) * (u < 1 ? 1 : 0.4);
+      const bend = Math.sin(u * Math.PI) * 0.3;
+      const sq = land > 0 && land < 0.14 ? 1 - 0.13 * Math.sin(land / 0.14 * Math.PI) : 1; // impact
+      const bounce = land > 0 && land < 0.2 ? Math.sin(land / 0.2 * Math.PI) * 0.16 : 0;
+      const pushed = rem < 0.34 ? 1 - getUp : 0;           // pushing off the ground to stand
+      drawDownBody(p, kit, s, X, Y, {
+        rot, ang: Math.atan2(dd.y, dd.x) + Math.PI / 2, squash: sq, up: gz * 0.6 + bounce, headDy: -0.05 * eu, look: 0.03, eyeY: -0.02,
+        hands: [[lerp(-0.55, -0.22, reach) - pushed * 0.1, lerp(0.15, -1.55 - 0.1 * Math.sin(Math.min(1, u) * Math.PI), reach) + pushed * 0.4, 0.2 * (1 - reach)], [lerp(0.55, 0.22, reach) + pushed * 0.1, lerp(0.15, -1.6 - 0.1 * Math.sin(Math.min(1, u) * Math.PI), reach) + pushed * 0.4, -0.2 * (1 - reach)]],
+        feet: [[-0.1 - fl - 0.05 * (1 - getUp), 0.98 - 0.15 * pushed, -0.12, 0.6], [0.1 + 0.12 * bend + fl, 0.96 - 0.22 * bend - 0.2 * pushed, 0.17 + 0.2 * bend, 0.6 - 0.05 * bend]],
+      });
+      ctx.globalAlpha = 1;
       return;
     }
+    if (sliding && !rp) p._lastSlide = G.time;
     if (sliding && !fallen && !lift) {
       // slide tackle: low on the ground, one leg stretched out in front, the other bent under, one hand propping up the body
       const spr = rp ? 0.5 : clamp(1 - p.slide / 0.45, 0, 1);
@@ -13343,15 +13418,23 @@ const Game2D = (() => {
       return;
     }
     if ((sliding || fallen) && !lift) {
+      // falls, lies a moment (twitching) and gets up pushing on the ground; right after a slide tackle he starts lying down
+      const A = rp ? null : animT(p);
+      const e = rp ? p.rFE || 0 : A.fE, r = rp ? p.rFR || 0 : Math.max(0, p.fall), tot = e + r;
+      const justSlid = !rp && p._lastSlide > G.time - 0.9;
+      const dn = justSlid ? 1 : easeOut(e / Math.max(0.08, Math.min(0.2, tot * 0.45)));
+      const upT = Math.max(0.1, Math.min(0.32, tot * 0.45)), up = clamp(r / upT, 0, 1);
+      const rot = dn * up;
+      const land = e - Math.min(0.2, tot * 0.45), bounce = !justSlid && land > 0 && land < 0.14 ? Math.sin(land / 0.14 * Math.PI) * 0.1 : 0;
+      const flail = dn < 1 ? Math.sin(e * 34) : 0, twitch = dn >= 1 && up >= 1 ? Math.sin(e * 15) * 0.04 : 0;
+      const push = up < 1 ? 1 - up : 0;
       const ang = Math.atan2(sd.y, sd.x) - Math.PI / 2;
-      ctx.save(); ctx.translate(X, Y - s * 0.3); ctx.rotate(ang);
-      ctx.fillStyle = kit.socks; ctx.fillRect(-s * 0.3, s * 0.35, s * 0.18, s * 0.55); ctx.fillRect(s * 0.12, s * 0.35, s * 0.18, s * 0.55);
-      ctx.fillStyle = kit.shorts; rr(-s * 0.36, s * 0.1, s * 0.72, s * 0.32, s * 0.08); ctx.fill();
-      ctx.fillStyle = kit.shirt; rr(-s * 0.4, -s * 0.55, s * 0.8, s * 0.7, s * 0.18); ctx.fill(); if (kit.pat) { ctx.save(); rr(-s * 0.4, -s * 0.55, s * 0.8, s * 0.7, s * 0.18); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, -s * 0.4, -s * 0.55, s * 0.8, s * 0.7); ctx.restore(); } ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
-      if (p.gk) { ctx.fillStyle = '#f2f2f2'; ctx.beginPath(); ctx.arc(-s * 0.5, -s * 1.05, s * 0.16, 0, Math.PI * 2); ctx.arc(s * 0.5, -s * 1.05, s * 0.16, 0, Math.PI * 2); ctx.fill(); }
-      ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(0, -s * 0.85, s * 0.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(0, -s * 0.9, s * 0.38, Math.PI, 2 * Math.PI); ctx.fill();
-      ctx.restore(); ctx.globalAlpha = 1;
+      drawDownBody(p, kit, s, X, Y, {
+        rot, ang, squash: land > 0 && land < 0.1 ? 0.94 : 1, up: bounce, hurt: dn >= 1 && up >= 1, eyeY: dn >= 1 && up >= 1 ? 0.02 : -0.05,
+        hands: [[-0.6 + flail * 0.2 - push * 0.05, lerp(-0.1, 0.45, push) - (dn < 1 ? 0.5 + flail * 0.25 : 0) + twitch, 0.15], [0.6 - flail * 0.2 + push * 0.05, lerp(-0.1, 0.45, push) - (dn < 1 ? 0.5 - flail * 0.25 : 0) - twitch, -0.15]],
+        feet: [[-0.2 - flail * 0.15 - 0.1 * (1 - up), 0.95 - 0.35 * push - (dn < 1 ? 0.15 : 0), -0.18, 0.6 - 0.1 * push], [0.2 + flail * 0.15 + 0.1 * (1 - up), 0.95 - 0.2 * push - (dn < 1 ? 0.2 + flail * 0.1 : 0), 0.2, 0.62 - 0.1 * push]],
+      });
+      ctx.globalAlpha = 1;
       return;
     }
     const spd = Math.hypot(p.vx, p.vy);
