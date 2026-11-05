@@ -13250,7 +13250,8 @@ const Game2D = (() => {
     ctx.globalAlpha = alpha;
     const ol = 'rgba(0,0,0,0.38)', lw = Math.max(1, s * 0.055);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath(); ctx.ellipse(X + s * 0.12, Y + s * 0.06, s * 0.55, s * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    const shSp = Math.min(1, Math.hypot(p.vx || 0, p.vy || 0) / 7);
+    ctx.beginPath(); ctx.ellipse(X + s * 0.12 - (p.vx || 0) * s * 0.012, Y + s * 0.06, s * (0.55 + 0.16 * shSp), s * (0.24 - 0.03 * shSp), 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.22)';
     ctx.beginPath(); ctx.ellipse(X + s * 0.04, Y + s * 0.02, s * 0.3, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
     if (!G.auto && !rp && p === G.ctrl && !G.pk && !G.shootout && !lift) {
@@ -13369,9 +13370,15 @@ const Game2D = (() => {
     const q = kicking ? (rp ? 0.45 : clamp(1 - p.kickT / 0.25, 0, 1)) : 0; // progress of the kick
     // kick leg: back-swing, strike, follow-through (positive = forward)
     const kr = !kicking ? 0 : q < 0.3 ? -(q / 0.3) * 0.8 : q < 0.6 ? -0.8 + ((q - 0.3) / 0.3) * 2.2 : 1.4 - ((q - 0.6) / 0.4) * 0.9;
-    const bob = moving ? Math.abs(Math.sin(tt)) * s * 0.06 * run : Math.sin(G.time * 2 + (p.num || 0)) * s * 0.012;
+    const bob = moving ? Math.abs(Math.sin(tt)) * s * 0.07 * run : Math.sin(G.time * 2 + (p.num || 0)) * s * 0.02; // running bounce / breathing
+    // a keeper whose goal is under threat waits crouched, feet apart, hands out and ready
+    const bOwn = G.ball, gl0 = p.team === 0 ? PL : 0;
+    const gkReady = p.gk && !diving && !celebrating && !cm && G.state === 'play' && bOwn.owner !== p && Math.abs(bOwn.y - gl0) < 26 && !(G.pk && p === G.pk.gk);
+    const crouch = gkReady ? s * 0.09 : 0;
+    const twist = moving ? Math.sin(tt) * s * 0.035 * run : 0; // shoulders counter-rotate against the hips
+    const sway = !moving && !kicking ? Math.sin(G.time * 1.3 + (p.num || 0) * 1.7) * s * 0.018 : 0; // weight shifts while he waits
     const jump = spin ? Math.sin(skP * Math.PI) * s * 0.14 : rainbow ? Math.sin(Math.min(1, skP / 0.8) * Math.PI) * s * 0.3 : 0;
-    let lean = sd.x * s * 0.1 * run + (kicking ? sd.x * s * 0.06 * Math.max(0, kr) : 0);
+    let lean = sway + sd.x * s * 0.12 * run * run + sd.x * s * 0.04 * run + (kicking ? sd.x * s * 0.06 * Math.max(0, kr) : 0);
     if (feint) {
       const cur = sk.dx2 !== undefined && sk.t < sk.T * 0.5 ? [sk.dx2, sk.dy2] : [sk.dx, sk.dy];
       const bd = sdir(cur[0], cur[1]);
@@ -13380,14 +13387,14 @@ const Game2D = (() => {
     ctx.save();
     if (cp) { const B = celBody(cp.kind, cp.ct); if (B.rot || B.sx !== 1 || B.sy !== 1 || B.dy) { const py = Y - s * B.piv; ctx.translate(X, py + B.dy * s); ctx.rotate(B.rot); ctx.scale(B.sx, B.sy); ctx.translate(-X, -py); } }
     if (spin) { const ca = Math.abs(Math.cos(skP * Math.PI * 2 + Math.atan2(sk.dy, sk.dx))); ctx.translate(X, Y); ctx.scale(0.62 + 0.38 * ca, 1); ctx.translate(-X, -Y); }
-    const hipY = Y - s * 0.68 - jump;
+    const hipY = Y - s * 0.68 - jump + crouch;
     const lw2 = Math.max(1, s * 0.03);
     // a leg: thigh (skin), shin (sock with a band) and boot; swings with the run cycle, kicks, or circles over the ball
     const leg = (hx, phase, kickLeg, footLeg) => {
       const st = moving ? Math.sin(tt + phase) : 0;
       const lf = moving ? Math.max(0, Math.cos(tt + phase)) : 0;
-      let fx = hx + sd.x * s * 0.32 * st * run, fy = Y - jump - lf * s * 0.17 * run + sd.y * s * 0.1 * st * run;
-      let kneeF = 0.1 + lf * 0.12;
+      let fx = hx + sd.x * s * 0.36 * st * run, fy = Y - jump - lf * s * 0.21 * run + sd.y * s * 0.11 * st * run;
+      let kneeF = 0.1 + lf * 0.16 * (0.5 + 0.5 * run);
       if (kickLeg && kicking) { fx = hx + sd.x * s * 0.55 * kr; fy = Y - jump - s * 0.05 - Math.max(0, kr) * s * 0.15 + sd.y * s * 0.2 * kr; kneeF = 0.16; }
       else if (rainbow && footLeg) { // heel flick: the foot goes up behind, then whips over the ball
         if (skP < 0.36) { const u = skP / 0.36; fx = hx - sd.x * s * 0.3 * u; fy = Y - jump - s * 0.62 * u; kneeF = 0.3; }
@@ -13425,7 +13432,8 @@ const Game2D = (() => {
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath(); ctx.ellipse(fx + sd.x * s * 0.09, fy - s * 0.07, s * 0.07, s * 0.025, 0, 0, Math.PI * 2); ctx.fill();
     };
-    const legs = [[X - s * 0.17, 0, false, false], [X + s * 0.17, Math.PI, true, true]];
+    const gw = gkReady ? 0.27 : 0.17;
+    const legs = [[X - s * gw, 0, false, false], [X + s * gw, Math.PI, true, true]];
     if (sd.y < 0) legs.reverse();
     for (const l of legs) leg(l[0], l[1], l[2], l[3]);
     ctx.lineCap = 'butt';
@@ -13440,7 +13448,7 @@ const Game2D = (() => {
     ctx.fillRect(X - s * 0.38 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
     ctx.fillRect(X + s * 0.33 + lean * 0.4, hipY - s * 0.04, s * 0.05, s * 0.2);
     // torso (leans into the run) with shoulders and a collar
-    const tx = X + lean * 0.7, ty = Y - s * 1.46 - jump - bob;
+    const tx = X + lean * 0.7 + twist, ty = Y - s * 1.46 - jump - bob + crouch;
     ctx.fillStyle = kit.shirt;
     rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
     if (kit.pat) { ctx.save(); rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, tx - s * 0.42, ty, s * 0.84, s * 0.78); ctx.restore(); }
@@ -13460,12 +13468,13 @@ const Game2D = (() => {
     const arm = (sx, phase) => {
       const shx = tx + sx * s * 0.42, shy = ty + s * 0.14;
       const st = moving ? Math.sin(tt + phase) : 0;
-      let hx = shx + sx * s * 0.1 + sd.x * s * 0.22 * st * run, hy2 = shy + s * 0.58 - Math.max(0, st) * s * 0.18 * run;
-      let ex = shx + sx * s * 0.16 + sd.x * s * 0.1 * st * run, ey = shy + s * 0.3;
+      let hx = shx + sx * s * 0.1 + sd.x * s * 0.26 * st * run, hy2 = shy + s * 0.58 - Math.max(0, st) * s * 0.26 * run - Math.max(0, st) * run * run * s * 0.06;
+      let ex = shx + sx * s * 0.16 + sd.x * s * 0.12 * st * run, ey = shy + s * 0.3 - Math.max(0, st) * s * 0.07 * run; // elbows pump when sprinting
       const ca = cp ? celArm(cp.kind, cp.ct, sx) : null;
       if (ca) { ex = shx + ca[0] * s; ey = shy + ca[1] * s; hx = shx + ca[2] * s; hy2 = shy + ca[3] * s; }
       else if (celebrating) { hx = shx + sx * s * 0.2; hy2 = shy - s * 0.5; ex = shx + sx * s * 0.2; ey = shy - s * 0.2; }
       else if (p.gk && G.pk && p === G.pk.gk && !diving) { hx = shx + sx * s * (0.62 + Math.sin(G.time * 6) * 0.04); hy2 = shy - s * 0.12; ex = shx + sx * s * 0.4; ey = shy + s * 0.1; }
+      else if (gkReady) { hx = shx + sx * s * 0.56 + Math.sin(G.time * 5 + sx) * s * 0.02; hy2 = shy + s * 0.3; ex = shx + sx * s * 0.34; ey = shy + s * 0.2; }
       else if (p.gk && !moving) { hx = shx + sx * s * 0.3; hy2 = shy + s * 0.34; ex = shx + sx * s * 0.2; ey = shy + s * 0.22; }
       else if (kicking) { hx = shx + sx * s * 0.34 - sd.x * s * 0.15 * kr; hy2 = shy + s * 0.4; ex = shx + sx * s * 0.28; ey = shy + s * 0.22; }
       else if (feint) { hx = shx + sx * s * 0.36; hy2 = shy + s * 0.44; ex = shx + sx * s * 0.26; ey = shy + s * 0.22; }
@@ -13491,10 +13500,10 @@ const Game2D = (() => {
       ctx.beginPath(); ctx.moveTo(tx - s * 0.18, ty); ctx.lineTo(tx + s * 0.18, ty); ctx.lineTo(tx, ty + s * 0.2); ctx.closePath(); ctx.fill();
     }
     // neck and head (big, cartoon) that follows the lean
-    const hx0 = X + lean * 1.1;
+    const hx0 = X + lean * 1.1 + twist * 0.4;
     ctx.fillStyle = p.skin;
     ctx.fillRect(hx0 - s * 0.1, ty - s * 0.12, s * 0.2, s * 0.2);
-    const hy = Y - s * 1.9 - jump - bob * 1.2;
+    const hy = Y - s * 1.9 - jump - bob * 1.2 + crouch * 1.15 + (moving ? Math.sin(tt * 2) * s * 0.012 * run : 0);
     ctx.fillStyle = p.skin;
     ctx.beginPath(); ctx.arc(hx0, hy, s * 0.44, 0, Math.PI * 2); ctx.fill();
     const hg = ctx.createRadialGradient(hx0 - s * 0.16, hy - s * 0.18, s * 0.04, hx0, hy, s * 0.5);
@@ -13516,7 +13525,8 @@ const Game2D = (() => {
     if (p.beard && sd.y >= -0.35) { ctx.fillStyle = p.hair; ctx.beginPath(); ctx.arc(hx0, hy + s * 0.08, s * 0.4, 0.15, Math.PI - 0.15); ctx.lineTo(hx0 + s * 0.2, hy + s * 0.1); ctx.quadraticCurveTo(hx0, hy + s * 0.26, hx0 - s * 0.2, hy + s * 0.1); ctx.closePath(); ctx.fill(); }
     ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.beginPath(); ctx.ellipse(hx0 - s * 0.14, hy - s * 0.3, s * 0.18, s * 0.08, -0.4, 0, Math.PI * 2); ctx.fill();
     if (sd.y >= -0.35) {
-      const ex = sd.x * s * 0.12;
+      const bl = !moving && !kicking && !sk ? clamp((PX(G.ball.x, G.ball.y) - X) / (s * 5), -1, 1) * 0.13 : sd.x * 0.12;
+      const ex = bl * s;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath(); ctx.ellipse(hx0 - s * 0.16 + ex, hy + s * 0.04, s * 0.1, s * 0.11, 0, 0, Math.PI * 2); ctx.ellipse(hx0 + s * 0.16 + ex, hy + s * 0.04, s * 0.1, s * 0.11, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#1a1a1a';
