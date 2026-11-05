@@ -9656,7 +9656,7 @@ const Game2D = (() => {
       if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; const z6 = cornerZones(x, y).six; G.cAim = { x: z6.x, y: z6.y }; hint('Escanteio: mova o direcional para mirar (a seta mostra onde a bola cai e a distância). Qualquer botão cruza.'); }
       if (!G.auto && team === 1) G.ctrl = nearestTo(0, PW / 2, y < PL / 2 ? 6 : PL - 6, true);
     } else if (kind === 'throw') {
-      if (!G.auto && !G.solo && team === 0) hint('Lateral: aponte e segure o direcional (quanto mais tempo, mais longe). A seta mostra onde cai. PASSE/CHUTE arremessa.');
+      if (!G.auto && !G.solo && team === 0) hint('Lateral (máx. 13 m): aponte e segure o direcional (quanto mais tempo, mais longe). A seta mostra onde cai. PASSE/CHUTE arremessa.');
     } else if (kind === 'free') {
       const gy = team === 0 ? 0 : PL;
       if (Math.hypot(PW / 2 - x, gy - y) < 30) { buildWall(team, x, y); G.fk = { taker, t: G.time };
@@ -10836,6 +10836,7 @@ const Game2D = (() => {
     banner('GOLEIRO SAI!', 0.9);
   }
   // THROW-IN: aim with the stick (holding it longer throws further); the arrow shows where the ball will come down
+  const THROW_MAX = 13; // metres: a throw-in cannot go further than this
   function throwAimStep(w, dt) {
     const c = G.ball.owner;
     if (!c) return;
@@ -10846,8 +10847,8 @@ const Game2D = (() => {
       const mg = Math.min(1, Math.hypot(w.x, w.y));
       let n = nrm(w.x, w.y);
       if (n.x * inw < 0.18) n = { x: 0.18 * inw, y: (n.y >= 0 ? 1 : -1) * Math.sqrt(1 - 0.0324) };
-      if (!t.was) t.d = 6;
-      t.d = Math.min(6 + mg * 26, t.d + dt * 15);
+      if (!t.was) t.d = 4;
+      t.d = Math.min(THROW_MAX, 4 + mg * (THROW_MAX - 4), t.d + dt * 10);
       t.dx = n.x; t.dy = n.y; t.set = true; t.was = true;
       c.dx = n.x; c.dy = n.y;
     } else t.was = false;
@@ -10858,7 +10859,7 @@ const Game2D = (() => {
   function throwTo(c) {
     const b = G.ball, t = G.thr;
     const tx = t.tx, ty = t.ty, q = t.q;
-    const dx = tx - b.x, dy = ty - b.y, d = Math.max(2, Math.hypot(dx, dy));
+    const dx = tx - b.x, dy = ty - b.y, d = clamp(Math.hypot(dx, dy), 2, THROW_MAX);
     const vz = clamp(2.4 + d * 0.12, 3, 6.5), z0 = 1.9;
     const T = (vz + Math.sqrt(vz * vz + 19.6 * z0)) / 9.8, vh = d / T * 0.95;
     const ang = Math.atan2(dy, dx) + grand() * (0.015 + (1 - c.pas / 100) * 0.05);
@@ -10926,7 +10927,7 @@ const Game2D = (() => {
     for (const q of G.players) {
       if (q.out || q.team !== p.team || q === p) continue;
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
-      if (d < 2.5 || d > (through ? 55 : 42)) continue;
+      if (d < 2.5 || d > (G.restartHold && G.setKind === 'throw' ? THROW_MAX : through ? 55 : 42)) continue;
       const align = (dx * dir.x + dy * dir.y) / d;
       if (align < (dir.x || dir.y ? 0.6 : 0.45)) continue;
       const open = laneOpen(p, q);
@@ -11794,7 +11795,7 @@ const Game2D = (() => {
     for (const q of G.players) {
       if (q.out || q.team !== p.team || q === p || q.gk) continue;
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
-      if (d < 4 || d > (shortOnly ? 22 : 46)) continue;
+      if (d < 4 || d > (G.restartHold && G.setKind === 'throw' ? THROW_MAX : shortOnly ? 22 : 46)) continue;
       if (isOffside(q, p.y, p.team, offL)) continue;
       const open = laneOpen(p, q);
       const lob = !shortOnly && ((open < 1.6 && d > 14) || d > 32);
