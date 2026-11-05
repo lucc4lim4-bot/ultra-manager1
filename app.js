@@ -9643,7 +9643,7 @@ const Game2D = (() => {
       taker.decT = 0.7 + Math.random() * 0.5;
       setupCorner(team, x, y, taker);
       if (G.dbg) G.dbg.corners++;
-      if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; hint('Escanteio: escolha a área com o direcional (1º pau, meio ou 2º pau) e aperte CHUTE ou LANÇAR para cruzar · PASSE cobra curto.'); }
+      if (!G.auto && team === 0 && !G.solo) { G.cornerAim = 'six'; hint('Escanteio: aperte qualquer botão para cruzar na área. Se quiser, aponte o direcional antes (1º pau, meio ou 2º pau).'); }
       if (!G.auto && team === 1) G.ctrl = nearestTo(0, PW / 2, y < PL / 2 ? 6 : PL - 6, true);
     } else if (kind === 'free') {
       const gy = team === 0 ? 0 : PL;
@@ -10572,7 +10572,7 @@ const Game2D = (() => {
     const canKick = has && G.state === 'play';
     if (has && G.restartHold && (w.x || w.y)) { const n = nrm(w.x, w.y); c.dx = n.x; c.dy = n.y; if (G.setKind === 'corner') G.cornerAim = zoneFromStick(c, w); }
     // nobody waits forever on a restart: after a few seconds the ball is played automatically
-    if (has && G.restartHold && G.state === 'play') { G.idleT += dt; if (G.idleT > (G.setKind === 'corner' ? 12 : 6)) { G.idleT = 0; if (G.setKind === 'corner') cornerKick(c, G.cornerAim || 'six'); else aiPass(c, false, G.setKind === 'kickoff' || G.setKind === 'throw'); hint(''); return; } }
+    if (has && G.restartHold && G.state === 'play') { G.idleT += dt; if (G.idleT > (G.setKind === 'corner' ? 5 : 6)) { G.idleT = 0; if (G.setKind === 'corner') cornerKick(c, G.cornerAim || 'six'); else aiPass(c, false, G.setKind === 'kickoff' || G.setKind === 'throw'); hint(''); return; } }
     else G.idleT = 0;
     // pass preview
     G.previewT -= dt;
@@ -10763,7 +10763,7 @@ const Game2D = (() => {
   // in front of goal with the keeper off his line, LANÇAR is a chip
   function userPass(c, w, through) {
     hint('');
-    if (G.restartHold && G.setKind === 'corner') { cornerKick(c, through ? (G.cornerAim || 'six') : 'short'); return; }
+    if (G.restartHold && G.setKind === 'corner') { cornerKick(c, G.cornerAim || 'six'); return; }
     const gk = keeperOf(1);
     if (through && !G.restartHold && gk && c.y < 24 && Math.abs(c.x - PW / 2) < 16 && gk.y > 3.2) { chip(c); return; }
     const dir = (w.x || w.y) ? nrm(w.x, w.y) : { x: c.dx, y: c.dy };
@@ -10950,12 +10950,13 @@ const Game2D = (() => {
   function tryTackle(d, c, bonus) {
     if (c.gk) return false;
     const feint = (c.feintT > 0 ? 0.12 : 0) + (c.sk ? (c.sk.kind === 'spin' ? 0.3 : 0.2) * clamp(c.dri / 80, 0.7, 1.25) : 0);
-    const pr = clamp(0.25 + (d.def - c.dri) / 170 + bonus + (d.team === 1 ? G.D.tackle : 0) - feint, 0.05, 0.7);
-    d.tackT = 0.5;
+    const mine = !G.auto && d === G.ctrl; // the tackle of the player you control works more often
+    const pr = clamp(0.25 + (d.def - c.dri) / 170 + bonus + (d.team === 1 ? G.D.tackle : 0) + (mine ? 0.15 : 0) - feint, 0.05, mine ? 0.8 : 0.7);
+    d.tackT = mine ? 0.35 : 0.5;
     if (Math.random() < pr) {
       c.cool = 0.45;
       if (Math.random() < 0.25) c.fall = 0.35;
-      if (Math.random() < 0.6) take(d);
+      if (Math.random() < (mine ? 0.88 : 0.6)) take(d);
       else { const n = nrm(d.dx + (Math.random() - 0.5), d.dy + (Math.random() - 0.5)); poke(d, n.x * 6, n.y * 6); }
       if (d.team === 0) say(`Bom desarme de ${nameOf(d)}.`, 0);
       return true;
@@ -11069,7 +11070,7 @@ const Game2D = (() => {
       p.wx = p.inX * s; p.wy = p.inY * s;
       if (p.sk) { const k = p.sk, back = k.dx2 !== undefined && k.t < k.T * 0.5; const sp2 = back ? (k.sp2 || k.sp) : k.sp; p.wx = (back ? k.dx2 : k.dx) * p.speed * sp2; p.wy = (back ? k.dy2 : k.dy) * p.speed * sp2; }
       if (G.restartHold && b.owner && b.owner.team === 1) keepDistance(p);
-      if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.3) tryTackle(p, b.owner, 0.08);
+      if (b.owner && b.owner.team === 1 && !G.restartHold && p.tackT <= 0 && dist(p, b.owner) < 1.5) tryTackle(p, b.owner, 0.08);
       return;
     }
     if (G.tr && G.tr.kind === 'pass' && !p.gk) { p.wx = 0; p.wy = 0; return; } // pass drill: the receivers wait where they are
@@ -11723,7 +11724,7 @@ const Game2D = (() => {
         if (p.dv) continue;
         if (b.shot && b.shot.fk && !p.gk && p.team !== b.shot.team && b.z > 1.5) continue; // the wall cannot reach a lifted free kick
         const d = Math.hypot(p.x - b.x, p.y - b.y);
-        const rXY = hands ? 1.35 : b.z >= 1.4 ? 1.05 : 1.0;
+        const rXY = hands ? 1.35 : b.z >= 1.4 ? 1.05 : (!G.auto && p === G.ctrl ? 1.3 : 1.0); // the player you control reaches a little further
         const rZ = hands ? 2.72 + clamp((p.hgt - 185) * 0.01, -0.1, 0.12) : 2.5 + clamp((p.hgt - 180) * 0.006, -0.12, 0.1);
         if (d < rXY && b.z <= rZ) cands.push({ p, d, hands });
       }
@@ -11758,12 +11759,13 @@ const Game2D = (() => {
         if (b.shot && best.team !== b.shot.team) ctrl = 0.3 + (best.def - 60) / 220;
         else if (best.team === b.lastTeam) ctrl = 0.97 - Math.max(0, sp - 16) * 0.025;
         else ctrl = 0.55 + (best.def - 60) / 160 - Math.max(0, sp - 12) * 0.03;
+        if (!G.auto && best === G.ctrl && !(b.shot && best.team !== b.shot.team)) ctrl = Math.max(ctrl, 0.94 - Math.max(0, sp - 14) * 0.02); // walking onto the ball takes it
         if (Math.random() < ctrl) {
           const wasShot = b.shot && best.team !== b.shot.team;
           take(best);
           if (wasShot) say(`${nameOf(best)} trava o chute!`, 1);
         } else {
-          best.cool = 0.3; b.vx *= 0.6; b.vy *= 0.6;
+          best.cool = best === G.ctrl ? 0.12 : 0.3; b.vx *= 0.6; b.vy *= 0.6;
           if (b.shot) {
             b.vx += (Math.random() - 0.5) * 9; b.vz = Math.max(b.vz, Math.random() * 3);
             b.shot = Object.assign({}, b.shot, { t: 0.2, checked: false, defl: true });
