@@ -2143,7 +2143,7 @@ function yearlyPlayers(y) {
     const t = S.teams[p.t];
     if (p.loan && p.loan.until <= S.date) endLoan(p);
     if (p.ct && p.ct < y + (S.mode === 'normal' && t && isSAteam(t.id) ? 0 : 1) && p.ct <= y) {
-      if (isCoachTeam(p.t) && p.rn && autoRenewUser(p, t, y)) { /* renewed automatically */ }
+      if (isCoachTeam(p.t) && p.rn && !p.loan && autoRenewUser(p, t, y)) { /* renewed automatically */ }
       else if (isCoachTeam(p.t)) {
         addInbox('contract', 'Departamento jurídico', `${p.n} deixou o clube`, `O contrato de ${p.n} terminou e ele saiu de graça.`);
         releasePlayer(p, true);
@@ -2323,15 +2323,15 @@ function boostYoungPot(p) {
 const YOUNG_POT_MIN = 80;
 function bumpYoungPot(p) {
   const hi = p.pot >= 80, mid = p.pot >= 74;
-  const b = p.age <= 19 ? (hi ? 5 : mid ? 4 : p.pot >= 68 ? 3 : 2) : p.age <= 21 ? (hi ? 4 : mid ? 3 : 2) : (hi ? 2 : 1);
-  p.pot = Math.min(95, p.pot + b);
+  const b = p.age <= 19 ? (hi ? 2 : mid ? 3 : p.pot >= 68 ? 3 : 2) : p.age <= 21 ? (hi ? 2 : mid ? 2 : 2) : (hi ? 1 : 1);
+  p.pot = Math.min(p.pot >= 84 ? p.pot : 83, p.pot + b); // 84+ stays rare: no more bumps above it
 }
 // generated youngsters (regens, scouted talents): the top of the potential scale is rare, 85+ is a once-in-a-while
 // find and 90+ almost never shows up
 function compressPot(v) {
-  if (v > 90) v = 90 + (v - 90) * 0.25;
-  else if (v > 86) v = 86 + (v - 86) * 0.6;
-  else if (v > 81) v = 81 + (v - 81) * 0.85;
+  if (v > 90) v = 85.2 + (v - 90) * 0.2;
+  else if (v > 84) v = 82.2 + (v - 84) * 0.5;
+  else if (v > 78) v = 78 + (v - 78) * 0.7;
   return Math.round(v);
 }
 function generatePlayer(o) {
@@ -2673,6 +2673,7 @@ function aiOffersForUser() {
   const sq = squadOf(ut.id);
   const lvl = teamRating(ut.id);
   // players borrowed from another club are not ours to sell: drop old offers for them (also from older saves)
+  for (const q of sq) if (q.loan && q.loan.from !== ut.id) { q.tl = 0; q.ll = 0; q.rn = 0; }
   for (const o of S.tr.offers) { const q = S.players[o.pid]; if (o.status === 'open' && q && q.loan && q.t === ut.id && q.loan.from !== ut.id) o.status = 'void'; }
   for (const p of sq) {
     if (p.loan && p.loan.from !== ut.id) continue;
@@ -7631,6 +7632,11 @@ function openPlayerModal(pid) {
       if (p.nat === ut.code) actions = (n.sq || []).includes(p.id) ? `<button class="btn" data-a="pCall" data-id="${p.id}" data-v="0">Desconvocar</button>` : `<button class="btn primary" data-a="pCall" data-id="${p.id}" data-v="1">Convocar</button>`;
     } else if (S.coach.unemployed) {
       actions = '';
+    } else if (mine && p.loan && p.loan.from !== uid) {
+      // borrowed from another club: not ours to sell, lend, renew or release
+      actions = `<span class="muted" style="font-size:12px;align-self:center">Emprestado ${esc(tA(p.loan.from, 'pelo'))}: volta ao clube dono no fim do empréstimo.</span>
+        <button class="btn sm" data-a="pNumber" data-id="${p.id}">Mudar camisa</button>
+        <button class="btn sm" data-a="pPos" data-id="${p.id}">${p.pc ? 'Treino de posição' : 'Mudar posição'}</button>`;
     } else if (mine) {
       actions = `<button class="btn sm" data-a="pTL" data-id="${p.id}">${p.tl ? 'Tirar da lista de transferências' : 'Colocar na lista de transferências'}</button>
         <button class="btn sm" data-a="pLL" data-id="${p.id}">${p.ll ? 'Tirar da lista de empréstimo' : 'Lista de empréstimo'}</button>
@@ -7671,14 +7677,14 @@ function openPlayerModal(pid) {
       </div>`, actions ? `<div class="row wrap" style="gap:8px;justify-content:flex-end">${actions}</div>` : '', '');
   });
 }
-act('pTL', (el) => { const p = S.players[+el.dataset.id]; p.tl = p.tl ? 0 : 1; if (p.tl) p.ll = 0; refreshModal(); toast(p.tl ? `${p.n} está à venda.` : `${p.n} saiu da lista.`); });
-act('pRn', (el) => {
+act('pTL', (el) => { if (borrowedIn(S.players[+el.dataset.id])) { toast('Jogador emprestado: não é seu para isso.', true); return; } const p = S.players[+el.dataset.id]; p.tl = p.tl ? 0 : 1; if (p.tl) p.ll = 0; refreshModal(); toast(p.tl ? `${p.n} está à venda.` : `${p.n} saiu da lista.`); });
+act('pRn', (el) => { if (borrowedIn(S.players[+el.dataset.id])) { toast('Jogador emprestado: não é seu para isso.', true); return; }
   const p = S.players[+el.dataset.id];
   if (!p.rn && false) { return; }
   p.rn = p.rn ? 0 : 1; refreshModal();
   toast(p.rn ? `${p.n}: o contrato será renovado automaticamente no fim da temporada.` : `${p.n}: renovação automática desligada.`);
 });
-act('pLL', (el) => { const p = S.players[+el.dataset.id]; p.ll = p.ll ? 0 : 1; if (p.ll) p.tl = 0; refreshModal(); toast(p.ll ? `${p.n} disponível para empréstimo.` : `${p.n} saiu da lista de empréstimo.`); });
+act('pLL', (el) => { if (borrowedIn(S.players[+el.dataset.id])) { toast('Jogador emprestado: não é seu para isso.', true); return; } const p = S.players[+el.dataset.id]; p.ll = p.ll ? 0 : 1; if (p.ll) p.tl = 0; refreshModal(); toast(p.ll ? `${p.n} disponível para empréstimo.` : `${p.n} saiu da lista de empréstimo.`); });
 act('pShort', (el) => { const id = +el.dataset.id; S.tr.short = S.tr.short.includes(id) ? S.tr.short.filter((x) => x !== id) : S.tr.short.concat(id); refreshModal(); });
 act('pCall', (el) => {
   const t = S.teams[S.user.team]; const n = S.nations[t.code]; const id = +el.dataset.id;
@@ -7703,6 +7709,7 @@ act('pNumberSave', (el) => {
   toast(`${p.n} agora veste a ${n}${other ? ` (${other.n} ficou com a ${other.num})` : ''}.`);
 });
 act('pRelease', (el) => {
+  if (borrowedIn(S.players[+el.dataset.id])) { toast('Jogador emprestado: não pode ser liberado.', true); return; }
   const p = S.players[+el.dataset.id];
   const weeks = Math.max(0, ((p.ct || seasonEndYear()) - seasonEndYear()) * 52 + 26);
   const cost = Math.round((p.w || 0) * weeks * 0.5);
@@ -7716,7 +7723,7 @@ act('pReleaseOk', (el) => {
 });
 
 // ---------- negotiations UI
-act('pRenew', (el) => openContractModal(+el.dataset.id, 'renew'));
+act('pRenew', (el) => borrowedIn(S.players[+el.dataset.id]) ? toast('Jogador emprestado: não é seu para renovar.', true) : openContractModal(+el.dataset.id, 'renew'));
 act('pFree', (el) => openContractModal(+el.dataset.id, 'free'));
 act('pBid', (el) => openBidModal(+el.dataset.id, false));
 act('pLoan', (el) => openBidModal(+el.dataset.id, true));
@@ -7852,6 +7859,9 @@ act('pPosGo', (el) => {
   if (r.ok) { closeModal(); refreshModal(); render(); }
 });
 act('pPosCancel', (el) => { cancelPosChange(S.players[+el.dataset.id]); closeModal(); refreshModal(); render(); toast('Treino de posição cancelado.'); });
+
+// a player on loan to the user's club from another club
+function borrowedIn(p) { return !!(p && p.loan && p.t === S.user.team && p.loan.from !== S.user.team); }
 
 /* ===================== transfers ===================== */
 function viewTransfers() {
