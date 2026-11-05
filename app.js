@@ -10567,6 +10567,7 @@ const Game2D = (() => {
     const mag = Math.min(1, Math.hypot(sx, sy));
     if (mag > 0.05) { const n = nrm(sx, sy); sx = n.x * mag; sy = n.y * mag; } else { sx = 0; sy = 0; }
     const w = screenToWorld(sx, sy);
+    G.input.lastW = w;
     if (!G.auto && !G.solo && G.restartHold && G.state === 'play') {
       if (G.wallCtl) wallCtlStep(w, dt);
       else if (G.fkAim && b.owner && b.owner.team === 0) G.fkAim.x = clamp(G.fkAim.x + w.x * dt * 5.2, -(GOAL_W / 2 - 0.35), GOAL_W / 2 - 0.35);
@@ -10775,7 +10776,16 @@ const Game2D = (() => {
   function orderPass() {
     const b = G.ball, o = b.owner;
     if (G.state !== 'play' || !o || o.team !== 0 || o.out) { hint('Só dá para mandar passar quando um companheiro está com a bola.'); setTimeout(() => { if (G) hint(''); }, 1500); return; }
-    if (o === G.ctrl) { G.input.pass = true; return; }
+    if (o === G.ctrl) { // you have the ball: send a team-mate on a run into the space (in the stick's direction, else forward), then play him in with LANÇAR
+      const w = G.input.lastW || { x: 0, y: 0 };
+      const dir = (w.x || w.y) ? nrm(w.x, w.y) : { x: 0, y: o.team === 0 ? -1 : 1 };
+      const q = bestReceiver(o, dir, true);
+      if (!q || q.gk) { hint('Ninguém na direção para mandar correr.'); setTimeout(() => { if (G) hint(''); }, 1500); return; }
+      q.runT = 8; q.callRun = G.time + 3;
+      hint(`${nameOf(q)} ataca o espaço! Toque LANÇAR para enfiar a bola.`); setTimeout(() => { if (G && hud.hint && hud.hint.textContent.includes('ataca o espaço')) hint(''); }, 2200);
+      say(`${nameOf(q)} parte para o espaço.`, 0);
+      return;
+    }
     o.decT = 0; G.restartHold = false;
     aiPass(o, false, false);
     say(`${nameOf(o)} obedece e toca a bola.`, 0);
