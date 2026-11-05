@@ -10564,6 +10564,18 @@ const Game2D = (() => {
       for (const p of G.players) { if (p.out || p.team !== 0 || p.gk) continue; const t = interceptTime(p); if (t < bt - 0.6) { bt = t; best = p; } }
       G.ctrl = best;
     }
+    // a ball in the air (cross, corner): where it comes down, and the player closest to it takes control
+    G.land = null;
+    if (!G.auto && !G.solo && !b.owner && b.z > 0.6 && G.state === 'play' && !G.restartHold) {
+      const tr = predictBall(3);
+      for (const q of tr) if (q.z <= 0.9 && q.t > 0.05) { G.land = { x: q.x, y: q.y, t: q.t }; break; }
+      if (G.land && G.aerAuto !== G.flight && !gkb && !(b.owner)) {
+        G.aerAuto = G.flight; // once per flight of the ball
+        let best = null, bd = 1e9;
+        for (const q of G.players) { if (q.out || q.team !== 0 || q.gk) continue; const d = Math.hypot(q.x - G.land.x, q.y - G.land.y); if (d < bd) { bd = d; best = q; } }
+        if (best && bd < 9 && best !== G.ctrl && !(sx || sy)) { G.ctrl = best; G.swapFlash = 0.9; hint(`${nameOf(best)}: a bola vem aí! PASSE ou CHUTE afasta de cabeça.`); setTimeout(() => { if (G && /a bola vem aí/.test(hud.hint ? hud.hint.textContent : '')) hint(''); }, 1800); }
+      }
+    }
     G.manualT = Math.max(0, (G.manualT || 0) - dt); G.swapFlash = Math.max(0, (G.swapFlash || 0) - dt); G.callT = Math.max(0, (G.callT || 0) - dt);
     const c = G.ctrl;
     if (!c) return;
@@ -10596,11 +10608,20 @@ const Game2D = (() => {
       return;
     }
     const looseNear = !b.owner && dist(c, b) < 3 && b.z < 1.8;
+    const aerial = !has && !b.owner && G.land && !c.gk && G.state === 'play' && Math.hypot(c.x - G.land.x, c.y - G.land.y) < 8;
+    if (aerial && (I.pass || I.lob || I.shoot)) { // header ordered: goes to the landing spot and sends it away / on target when it arrives
+      const k = I.shoot ? 'shoot' : I.lob ? 'lob' : 'pass';
+      c.hdr = { k, w: { x: w.x, y: w.y }, until: G.time + G.land.t + 0.9 };
+      I.pass = I.lob = I.shoot = false; I.hold = 0; I.shootDown = false;
+      hint('Cabeceio marcado!'); setTimeout(() => { if (G && hud.hint && hud.hint.textContent === 'Cabeceio marcado!') hint(''); }, 900);
+    }
+    if (c.hdr && (G.time > c.hdr.until || b.owner)) c.hdr = null;
+    if (c.hdr && G.land && !(w.x || w.y)) { const nv = nrm(G.land.x - c.x, G.land.y - c.y); if (Math.hypot(G.land.x - c.x, G.land.y - c.y) > 0.5) { c.inX = nv.x; c.inY = nv.y; } } // runs to the spot by himself
     if (I.pass) {
       I.pass = false;
       if (canKick) userPass(c, w, false);
       else if (looseNear) I.buf = { k: 'pass', t: G.time };
-      else if (!has && !(b.owner && b.owner.team === 0) && !G.solo) swapPlayer(c, w);
+      else if (!has && !(b.owner && b.owner.team === 0) && !G.solo && !(b.z > 1 && !b.owner)) swapPlayer(c, w);
     }
     if (I.swap) {
       I.swap = false;
@@ -10801,9 +10822,9 @@ const Game2D = (() => {
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
       if (d < 2.5 || d > (through ? 55 : 42)) continue;
       const align = (dx * dir.x + dy * dir.y) / d;
-      if (align < 0.45) continue;
+      if (align < (dir.x || dir.y ? 0.6 : 0.45)) continue;
       const open = laneOpen(p, q);
-      const s = align * 4.5 + Math.min(open, 6) * (through ? 0.1 : 0.35) - d * (through ? 0.012 : 0.03) - (q.gk ? 3 : 0) + (dy * fwd > 0 ? (through ? 0.8 : 0.3) : 0) + (q.runT > 0 ? 0.8 : 0) + (G.solo && q.pid === G.solo ? 0.9 + (G.callT > 0 ? 3.2 : 0) : 0);
+      const s = align * 7.5 + Math.min(open, 6) * (through ? 0.1 : 0.35) - d * (through ? 0.012 : 0.03) - (q.gk ? 3 : 0) + (dy * fwd > 0 ? (through ? 0.8 : 0.3) : 0) + (q.runT > 0 ? 0.8 : 0) + (G.solo && q.pid === G.solo ? 0.9 + (G.callT > 0 ? 3.2 : 0) : 0);
       if (s > bs) { bs = s; best = q; }
     }
     return best;
@@ -10840,7 +10861,7 @@ const Game2D = (() => {
     } else { tx = b.x + dir.x * (lofted ? 26 : 15); ty = b.y + dir.y * (lofted ? 26 : 15); }
     const dx = tx - b.x, dy = ty - b.y, d = Math.max(1, Math.hypot(dx, dy));
     const errMul = p.team === 1 ? G.D.passErr : 1;
-    const err = (0.015 + (1 - p.pas / 100) * 0.11 + pressureOn(p) * 0.025) * grand() * errMul;
+    const err = (0.015 + (1 - p.pas / 100) * 0.11 + pressureOn(p) * 0.025) * grand() * errMul * (!G.auto && p.team === 0 && G.ctrl === p ? 0.6 : 1); // your own passes are truer
     const ang = Math.atan2(dy, dx) + err;
     let vh, vz;
     if (lofted) { vz = clamp(d * 0.26, 3.5, 12); const T = 2 * vz / 9.8; vh = clamp(d / T * 0.92, 6, 26); }
@@ -11787,6 +11808,9 @@ const Game2D = (() => {
             if (sc > bs) { bs = sc; top = p; }
           }
           for (const p of near) if (p !== top) p.cool = Math.max(p.cool, 0.3);
+          const ord = !G.auto && G.ctrl && near.includes(G.ctrl) && G.ctrl.hdr;
+          if (ord && Math.random() < 0.9) top = G.ctrl; // the order makes him get there first most of the times
+          if (top && top === G.ctrl && top.hdr && !G.auto) { const hd = top.hdr; top.hdr = null; G.cornerPlay = null; headerDirected(top, hd); return; }
           if (top) {
             if (G.dbg && cp) { G.dbg.cornerHeaders++; if (top.team === cp.team) G.dbg.cornerAttHeaders++; }
             G.cornerPlay = null;
@@ -11817,6 +11841,27 @@ const Game2D = (() => {
         }
       }
     }
+  }
+  // header ordered by the user: a long clearance away from his goal, a pass-header to a teammate, or at the goal
+  function headerDirected(p, hd) {
+    const b = G.ball, fwd = p.team === 0 ? -1 : 1, gy = p.team === 0 ? 0 : PL, own = p.team === 0 ? PL : 0;
+    p.kickT = 0.25; G.flight++; p.cool = 0.3;
+    const dGoal = Math.hypot(PW / 2 - p.x, gy - p.y), inDefence = Math.abs(p.y - own) < PL * 0.34;
+    let n, sp = 16, vz = 5.5, msg = `${nameOf(p)} afasta de cabeça!`, shot = null;
+    const dir = (hd.w.x || hd.w.y) ? nrm(hd.w.x, hd.w.y) : null;
+    if (hd.k === 'shoot' && dGoal < 20) { // on target
+      n = nrm(PW / 2 + (dir ? dir.x * 2.2 : (Math.random() - 0.5) * 3) - b.x, gy - b.y); sp = 13 + Math.random() * 4; vz = -0.4 + Math.random() * 1.2; msg = `Cabeçada de ${nameOf(p)}!`;
+      shot = { team: p.team, by: p, t: 0, checked: false, beaten: false, force: null, header: true }; G.st.stats.sh[sideOf(p.team)]++;
+    } else if (hd.k === 'pass' && !inDefence) { // to a teammate
+      const q = bestReceiver(p, dir || { x: 0, y: fwd }, false);
+      n = q ? nrm(q.x - b.x, q.y - b.y) : nrm(dir ? dir.x : 0, dir ? dir.y : fwd); sp = q ? clamp(7 + dist(p, q) * 0.5, 8, 17) : 11; vz = 2.4; msg = q ? `${nameOf(p)} desvia de cabeça para ${nameOf(q)}.` : msg;
+    } else { // clear it: wide of the middle and up the pitch (stick picks the side)
+      const side = dir && Math.abs(dir.x) > 0.2 ? Math.sign(dir.x) : (p.x < PW / 2 ? -1 : 1);
+      n = nrm(side * 0.85 + (dir ? dir.x * 0.3 : 0), fwd * (dir ? 0.4 + Math.max(0, dir.y * fwd) * 0.8 : 0.9));
+      sp = 17 + Math.random() * 3; vz = 6 + Math.random() * 1.5;
+    }
+    Object.assign(b, { owner: null, vx: n.x * sp, vy: n.y * sp, vz, last: p, lastTeam: p.team, shot, passer: hd.k === 'pass' ? p : null, target: null, curve: 0, cross: null });
+    banner(hd.k === 'shoot' ? 'Cabeçada!' : 'Cabeceio!', 0.6); say(msg, 1); sfx('kick', 0.5);
   }
   function header(p) {
     const b = G.ball;
@@ -12960,6 +13005,13 @@ const Game2D = (() => {
       const X = PX(b.target.x, b.target.y), Y = PY(b.target.x, b.target.y);
       ctx.strokeStyle = 'rgba(255,225,77,0.55)'; ctx.lineWidth = Math.max(1.5, s * 0.07);
       ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.6, s * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    // where a ball in the air will come down (corners and crosses), and the player who is going for it
+    if (G.land && !b.owner && !G.auto && !replaying && G.state === 'play') {
+      const X = PX(G.land.x, G.land.y), Y = PY(G.land.x, G.land.y), pu = 1 + Math.sin(G.time * 10) * 0.08;
+      ctx.strokeStyle = G.ctrl && G.ctrl.hdr ? 'rgba(80,220,120,0.9)' : 'rgba(255,225,77,0.8)'; ctx.lineWidth = Math.max(1.5, s * 0.08);
+      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.75 * pu, s * 0.34 * pu, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.3, s * 0.14, 0, 0, Math.PI * 2); ctx.stroke();
     }
     // ball trail on hard shots
     const bsp = Math.hypot(b.vx, b.vy);
