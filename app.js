@@ -6763,6 +6763,7 @@ function viewOffers() {
       <button class="btn ${w.noFire ? 'gold' : ''}" data-a="wizToggleNoFire">${w.noFire ? '✓ ' : ''}Sem demissão</button>
       <span class="muted" style="font-size:13px">${w.noFire ? 'A diretoria nunca vai te demitir nesta carreira.' : 'Ative para jogar sem risco de demissão.'}</span>
       <span class="grow"></span>
+      ${!isNat ? '<button class="btn" data-a="openSwap">🔄 Trocar times</button>' : ''}
       <button class="btn" data-a="openStore">🛒 Comprar times</button>
       <button class="btn" data-a="wizReroll">Outras propostas</button>
     </div>
@@ -16065,6 +16066,83 @@ act('kitSave', () => {
   const K = UI.kit; if (!S.kits) S.kits = {};
   S.kits[K.team] = { home: Object.assign({}, K.v.home), away: Object.assign({}, K.v.away) };
   closeAllModals(); toast('Uniforme salvo.'); render();
+});
+
+/* ===================== trocar times: swap clubs between slots of the league structure (career wizard) ===================== */
+// swaps two clubs in every list of the structure (Ultra Liga divisions and bank, national leagues, their second tiers and the
+// continental fill lists). A club that is outside the structure simply takes the other one's place.
+function swapClubIds(a, b) {
+  if (!S || a === b) return;
+  const m = (id) => (id === a ? b : id === b ? a : id);
+  const fix = (arr) => { if (Array.isArray(arr)) for (let i = 0; i < arr.length; i++) arr[i] = m(arr[i]); };
+  if (S.ultra) { S.ultra.div.forEach(fix); fix(S.ultra.bank); }
+  if (S.normal) for (const lg of S.normal) { fix(lg.teams); fix(lg.bank); }
+  if (S.fill) for (const k in S.fill) fix(S.fill[k]);
+}
+function swpCandidates() {
+  const w = UI.wiz;
+  if (w.swpAll && w.swpAll.world === S) return w.swpAll.rows;
+  const where = new Map();
+  for (const r of anyClubEntries()) where.set(r.id, r.where);
+  const rows = [];
+  for (const id in S.teams) {
+    const t = S.teams[id];
+    if (t.isNat || +id >= 900000) continue;
+    const wh = where.get(+id) || `${t.c || ''} · fora das ligas`;
+    rows.push({ id: +id, where: wh, in: where.has(+id), q: strip(`${t.n} ${t.s || ''} ${wh}`), r: teamRating(+id) });
+  }
+  rows.sort((x, y) => y.r - x.r);
+  w.swpAll = { world: S, rows };
+  return rows;
+}
+function swpListHtml() {
+  const w = UI.wiz, sp = UI.swp;
+  const q = strip((sp.q || '').trim());
+  let rows = sp.a ? swpCandidates().filter((r) => r.id !== sp.a) : anyClubEntries().map((r) => ({ ...r }));
+  if (sp.a && sp.onlyOut) rows = rows.filter((r) => !r.in);
+  rows = rows.filter((r) => !q || r.q.includes(q));
+  if (!rows.length) return '<div class="empty">Nenhum resultado para essa busca.</div>';
+  const shown = rows.slice(0, 60);
+  return `<div class="any-grid">${shown.map((r) => {
+    const t = S.teams[r.id];
+    return `<button class="any-item" data-a="${sp.a ? 'swpB' : 'swpA'}" data-id="${r.id}">${crest(t, 34)}<span class="grow"><span class="nm">${esc(t.n)}</span><span class="wh">${esc(r.where)}</span></span><span class="sc">${starStr(r.r || teamRating(r.id))}</span></button>`;
+  }).join('')}</div>${rows.length > shown.length ? `<p class="muted" style="font-size:13px;margin:10px 0 0">Mostrando ${shown.length} de ${rows.length}. Digite o nome para achar os outros.</p>` : ''}`;
+}
+function swpModal() {
+  const w = UI.wiz, sp = UI.swp;
+  const swaps = w.swaps || [];
+  const a = sp.a ? S.teams[sp.a] : null;
+  const done = swaps.length ? `<div class="panel" style="margin-bottom:12px"><h3 style="margin:0 0 8px">Trocas feitas <span class="sub">${swaps.length}</span></h3>${swaps.map((p, i) => `<div class="row" style="gap:8px;margin-bottom:6px">${crest(S.teams[p[1]], 22)}<b>${esc(S.teams[p[1]].n)}</b><span class="muted">agora ocupa a vaga ${esc(tA(S.teams[p[0]], 'do'))}</span><span class="grow"></span><button class="btn sm" data-a="swpUndo" data-i="${i}">Desfazer</button></div>`).join('')}</div>` : '';
+  const head = a
+    ? `<div class="row" style="gap:10px;margin-bottom:10px">${crest(a, 40)}<div class="grow"><div class="muted" style="font-size:12px">Sai da vaga</div><b style="font-size:18px">${esc(a.n)}</b></div><button class="btn sm" data-a="swpReset">Escolher outro</button></div>
+      <p class="muted" style="margin:0 0 8px">2) Escolha o time que entra no lugar (qualquer time do mundo). Se ele já estiver em outra liga, os dois trocam de lugar.</p>
+      <label class="toggle" style="margin-bottom:8px"><input type="checkbox" data-a="swpOut" ${sp.onlyOut ? 'checked' : ''}><span class="sw"></span><span>Só times que estão fora das ligas</span></label>`
+    : '<p class="muted" style="margin:0 0 8px">1) Escolha o time que vai sair da vaga (qualquer clube da lista). Depois escolha quem entra no lugar dele.</p>';
+  return modalShell('Trocar times', `${done}${head}<input id="swp-q" class="input" style="width:100%;margin-bottom:10px" type="search" placeholder="Buscar clube pelo nome…" value="${esc(sp.q || '')}" data-a="swpQ" data-live="1" autocomplete="off" aria-label="Buscar clube"><div id="swp-list">${swpListHtml()}</div>`, '<button class="btn primary" data-a="closeModal">Concluir</button>');
+}
+act('openSwap', () => { UI.swp = { a: null, q: '', onlyOut: false }; openModal(() => swpModal(), { size: 'lg' }); });
+act('swpQ', (el) => { UI.swp.q = el.value; const box = $('#swp-list'); if (box) box.innerHTML = swpListHtml(); });
+act('swpOut', (el) => { UI.swp.onlyOut = el.checked; const box = $('#swp-list'); if (box) box.innerHTML = swpListHtml(); });
+act('swpA', (el) => { UI.swp.a = +el.dataset.id; UI.swp.q = ''; drawModals(); });
+act('swpReset', () => { UI.swp.a = null; UI.swp.q = ''; drawModals(); });
+function swpRefresh() { const w = UI.wiz; w.anyList = null; w.swpAll = null; w.offers = initialOffers(S.mode); }
+act('swpB', (el) => {
+  const w = UI.wiz, a = UI.swp.a, b = +el.dataset.id;
+  if (!a || !b) return;
+  swapClubIds(a, b);
+  (w.swaps = w.swaps || []).push([a, b]);
+  UI.swp = { a: null, q: '', onlyOut: false };
+  swpRefresh();
+  drawModals(); render();
+  toast(`${S.teams[b].n} entrou no lugar ${tA(S.teams[a], 'do')}.`);
+});
+act('swpUndo', (el) => {
+  const w = UI.wiz, i = +el.dataset.i, p = (w.swaps || [])[i];
+  if (!p) return;
+  swapClubIds(p[1], p[0]);
+  w.swaps.splice(i, 1);
+  swpRefresh();
+  drawModals(); render();
 });
 
 /* ===================== boot ===================== */
