@@ -9532,7 +9532,7 @@ const G3D = (() => {
     cv3 = document.createElement('canvas'); cv3.className = 'g2-3d';
     Object.assign(cv3.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block', zIndex: '0', touchAction: 'none' });
     canvas2d.parentNode.insertBefore(cv3, canvas2d);
-    canvas2d.style.position = 'absolute'; canvas2d.style.inset = '0'; canvas2d.style.zIndex = '1'; canvas2d.style.pointerEvents = 'auto';
+    canvas2d.style.position = 'absolute'; canvas2d.style.inset = '0'; canvas2d.style.zIndex = '0'; canvas2d.style.pointerEvents = 'auto';
     R = new T.WebGLRenderer({ canvas: cv3, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
     R.outputEncoding = T.sRGBEncoding; R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.2;
     R.shadowMap.enabled = true; R.shadowMap.type = T.PCFSoftShadowMap;
