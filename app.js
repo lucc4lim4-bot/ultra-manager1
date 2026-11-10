@@ -9169,10 +9169,10 @@ const G3D = (() => {
     const EX = D.EX, k = 24; // pixels per metre
     const w = Math.round((D.PW + EX * 2) * k), h = Math.round((D.PL + EX * 2) * k);
     return canvasTex(w, h, (g) => {
-      g.fillStyle = '#2f7d32'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#23a52f'; g.fillRect(0, 0, w, h);
       // mowing stripes across the length of the pitch
       const sw = 5.5 * k;
-      for (let i = 0, y = EX * k - 40 * sw; y < h + sw; i++, y += sw) { g.fillStyle = i % 2 ? 'rgba(255,255,255,0.045)' : 'rgba(0,30,0,0.06)'; g.fillRect(0, y, w, sw); }
+      for (let i = 0, y = EX * k - 40 * sw; y < h + sw; i++, y += sw) { g.fillStyle = i % 2 ? 'rgba(190,255,120,0.11)' : 'rgba(0,60,10,0.12)'; g.fillRect(0, y, w, sw); }
       // grass noise
       let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       for (let i = 0; i < 90000; i++) { const x = rnd() * w, y = rnd() * h; g.fillStyle = rnd() > 0.5 ? 'rgba(20,70,20,0.10)' : 'rgba(150,210,110,0.08)'; g.fillRect(x, y, 2 + rnd() * 3, 1 + rnd() * 2); }
@@ -9232,26 +9232,26 @@ const G3D = (() => {
       for (const [x, y] of pts) { g.beginPath(); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * TAU / 5; g.lineTo(x + Math.cos(a) * 15, y + Math.sin(a) * 15); } g.closePath(); g.fill(); }
     });
   }
-  function shirtTex(kit) {
-    const key = 's' + kit.shirt + kit.trim + (kit.pat || 0);
+  function shirtTex(kit, num) {
+    const key = 's' + kit.shirt + kit.trim + (kit.pat || 0) + '|' + (num == null ? '' : num);
     if (texCache.has(key)) return texCache.get(key);
-    const t = canvasTex(128, 128, (g, w, h) => {
+    const t = canvasTex(512, 256, (g, w, h) => {
       g.fillStyle = kit.shirt; g.fillRect(0, 0, w, h);
       if (kit.pat && typeof kitPattern === 'function') kitPattern(g, kit.pat, kit.trim, 0, 0, w, h);
-      g.fillStyle = kit.trim; g.fillRect(0, 0, w, 7); // collar band
-    }, { repeat: true, aniso: 4 });
-    texCache.set(key, t);
-    return t;
-  }
-  function numTex(num, kit) {
-    const key = 'n' + num + kit.trim + kit.shirt;
-    if (texCache.has(key)) return texCache.get(key);
-    const t = canvasTex(128, 128, (g, w, h) => {
-      g.clearRect(0, 0, w, h);
-      g.font = '800 100px "Barlow Condensed","Arial Narrow",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.strokeText(String(num), w / 2, h / 2 + 4);
-      g.fillStyle = kit.trim; g.fillText(String(num), w / 2, h / 2 + 4);
-    }, { aniso: 4 });
+      // soft fabric shading: darker at the sides/under the arms
+      const sh = g.createLinearGradient(0, 0, w, 0); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.25, 'rgba(0,0,0,0.10)'); sh.addColorStop(0.5, 'rgba(0,0,0,0)'); sh.addColorStop(0.75, 'rgba(0,0,0,0.10)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = sh; g.fillRect(0, 0, w, h);
+      g.fillStyle = kit.trim; g.fillRect(0, 0, w, 16); // collar band
+      g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, 16, w, 3);
+      g.fillStyle = kit.trim; g.fillRect(0, h - 8, w, 8); // hem
+      if (num !== '' && num != null) { // big number on the back (u = 0.5), with a contrasting outline so it reads on any pattern
+        const lum = (c) => { const q = parseInt(String(c).replace('#', '').padEnd(6, '0').slice(0, 6), 16); return (0.3 * (q >> 16 & 255) + 0.59 * (q >> 8 & 255) + 0.11 * (q & 255)) / 255; };
+        const fill = Math.abs(lum(kit.trim) - lum(kit.shirt)) > 0.28 ? kit.trim : (lum(kit.shirt) > 0.5 ? '#101418' : '#ffffff');
+        const out = lum(fill) > 0.5 ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)';
+        g.font = '800 136px "Barlow Condensed","Arial Narrow",Impact,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.lineJoin = 'round'; g.lineWidth = 11; g.strokeStyle = out; g.strokeText(String(num), w / 2, h * 0.5); g.fillStyle = fill; g.fillText(String(num), w / 2, h * 0.5);
+      }
+    }, { repeat: true, aniso: 8 });
     texCache.set(key, t);
     return t;
   }
@@ -9422,7 +9422,7 @@ const G3D = (() => {
   function buildRig(e) {
     const k = e.kit, H = bodyGeos(), longPants = !!e.longPants;
     const sk = (o = {}) => Object.assign({ skinning: true }, o);
-    const skin = mat(e.skin, sk({ roughness: 0.62 })), shirt = mat(0xffffff, sk({ map: shirtTex(k), roughness: 0.8 })), sleeveM = longPants ? shirt : mat(k.shirt, sk({ roughness: 0.8 })), shorts = mat(k.shorts, sk({ roughness: 0.85 })), socks = mat(k.socks, sk({ roughness: 0.9 })), boot = mat(e.boots || '#16181a', sk({ roughness: 0.35, metalness: 0.1 })), glove = mat(k.trim, sk({ roughness: 0.6 }));
+    const skin = mat(e.skin, sk({ roughness: 0.62 })), shirt = mat(0xffffff, sk({ map: shirtTex(k, e.num), roughness: 0.8 })), sleeveM = longPants ? shirt : mat(k.shirt, sk({ roughness: 0.8 })), shorts = mat(k.shorts, sk({ roughness: 0.85 })), socks = mat(k.socks, sk({ roughness: 0.9 })), boot = mat(e.boots || (e.gk ? '#222' : k.trim), sk({ roughness: 0.35, metalness: 0.1 })), glove = mat(k.trim, sk({ roughness: 0.6 }));
     const root = new T.Group(), dive = new T.Group();
     dive.add(root);
     // skeleton (same joint layout the pose code drives)
@@ -9440,8 +9440,6 @@ const G3D = (() => {
     if (e.gk) part(H.gloves, glove, false);
     if (!longPants) part(H.boots, boot, false); else part(H.boots, mat('#15171a', sk()), false);
     for (const m of meshes) m.bind(skel);
-    // number on the back
-    if (e.num !== '' && e.num != null) { const np = new T.Mesh(new T.PlaneGeometry(0.22, 0.22), new T.MeshBasicMaterial({ map: numTex(e.num, k), transparent: true, depthWrite: false })); np.position.set(0, -0.06, -0.122); np.rotation.y = Math.PI; chest.add(np); }
     // face and hair (rigid, on the head bone; head centre sits at +0.03)
     const add = (par, geom, m, x = 0, y = 0, z = 0, sh = false) => { const o = new T.Mesh(geom, m); o.position.set(x, y, z); o.castShadow = sh; par.add(o); return o; };
     const eyeW = mat(0xf4f4f0, { roughness: 0.3 }), dark = mat(0x1a1c1e, { roughness: 0.3 }), hair = mat(e.hair, { roughness: 0.9 });
@@ -9550,7 +9548,7 @@ const G3D = (() => {
       else { const u = ease((ka - tF) / (tE - tF)); hp = lerp(fH, 0, clamp(u, 0, 1)); kn = lerp(fK, 0.1, clamp(u, 0, 1)); }
       const w = ka < tE ? 1 : clamp(1 - (ka - tE) / (0.6 - tE), 0, 1); // fade back into the run
       kl.hip.rotation.x = lerp(kl.hip.rotation.x, hp, w); kl.knee.rotation.x = lerp(kl.knee.rotation.x, kn, w);
-      kl.hip.rotation.z = (pass ? -foot * 0.28 : -foot * 0.06) * w; // passes open the foot (inside of the boot); shots are straight
+      kl.hip.rotation.z = (pass ? -foot * 0.28 : r.kLoft ? foot * 0.22 * (ka < tC ? 0.3 : 1) : -foot * 0.06) * w; // passes open the foot (inside of the boot); shots are straight
       kl.foot.rotation.x = (r.kLoft ? -0.5 : 0.35) * w;
       pl.hip.rotation.x = lerp(pl.hip.rotation.x, -0.12 - 0.12 * P, w); pl.knee.rotation.x = lerp(pl.knee.rotation.x, 0.3 + 0.35 * P, w);
       const dip = (ka < tF ? Math.sin(clamp(ka / tF, 0, 1) * Math.PI) : 0) * (0.05 + 0.06 * P) * w;
@@ -9688,6 +9686,13 @@ const G3D = (() => {
     if (e.flipRot) r.dive.rotation.x = -e.flipRot;
     // throw-in: ball overhead
     if (e.throwUp) { for (const m of r.arms) { m.sh.rotation.set(-2.85, 0, 0); m.el.rotation.x = -0.2; } r.body.rotation.x = -0.12; }
+    // temporal smoothing of the final pose: switches between run / kick / dribble / idle blend instead of snapping
+    {
+      const bl = [r.body, r.chest, r.head, r.arms[0].sh, r.arms[0].el, r.arms[1].sh, r.arms[1].el, r.legs[0].hip, r.legs[0].knee, r.legs[0].foot, r.legs[1].hip, r.legs[1].knee, r.legs[1].foot];
+      const hard = e.fall > 0 || e.slide >= 0 || e.dive || e.flipRot;
+      if (!r.sm || hard || dt <= 0 || dt > 0.12) r.sm = bl.map((b) => [b.rotation.x, b.rotation.y, b.rotation.z, b.position.y]);
+      else { const kk = 1 - Math.exp(-dt * 30); bl.forEach((b, i) => { const q = r.sm[i]; q[0] += (b.rotation.x - q[0]) * kk; q[1] += (b.rotation.y - q[1]) * kk; q[2] += (b.rotation.z - q[2]) * kk; q[3] += (b.position.y - q[3]) * kk; b.rotation.set(q[0], q[1], q[2]); if (i === 0) b.position.y = q[3]; }); }
+    }
     // blob shadow under the body
     r.blob.position.set(e.x, 0.02, e.y);
     const h = e.jump > 0 ? e.jump : 0; r.blob.scale.setScalar(1 + (e.slide >= 0 ? 0.9 : 0) - h * 0.2); r.blob.material.opacity = 0.5 * (1 - clamp(h / 3, 0, 0.7));
@@ -9701,15 +9706,15 @@ const G3D = (() => {
     canvas2d.parentNode.insertBefore(cv3, canvas2d);
     canvas2d.style.position = 'absolute'; canvas2d.style.inset = '0'; canvas2d.style.zIndex = '0'; canvas2d.style.pointerEvents = 'auto';
     R = new T.WebGLRenderer({ canvas: cv3, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
-    R.outputEncoding = T.sRGBEncoding; R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.2;
+    R.outputEncoding = T.sRGBEncoding; R.toneMapping = T.LinearToneMapping; R.toneMappingExposure = 0.92;
     R.shadowMap.enabled = true; R.shadowMap.type = T.PCFSoftShadowMap;
     scene = new T.Scene();
     // evening sky
     scene.background = canvasTex(8, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#0e1b3a'); gr.addColorStop(0.55, '#355b94'); gr.addColorStop(1, '#a9c8e8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
     scene.fog = new T.Fog(0x7ea3cf, 90, 260);
     cam = new T.PerspectiveCamera(42, 1, 0.5, 600);
-    scene.add(new T.HemisphereLight(0xe6f0ff, 0x4a7a3a, 1.15));
-    sun = new T.DirectionalLight(0xfff4e0, 1.25);
+    scene.add(new T.HemisphereLight(0xf2f6ff, 0x5a9a48, 0.95));
+    sun = new T.DirectionalLight(0xfff6e4, 1.05);
     sun.castShadow = true; sun.shadow.mapSize.set(window.UM_3D_LITE ? 512 : 2048, window.UM_3D_LITE ? 512 : 2048);
     const sc = sun.shadow.camera; sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far = 140; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
     scene.add(sun); scene.add(sun.target);
@@ -9741,7 +9746,7 @@ const G3D = (() => {
   const camS = { init: false, x: 0, z: 0, zoom: 1, lead: 0 };
   function setCamera(c, b, dt) {
     const f = c.landscape ? { x: -1, z: 0 } : { x: 0, z: -1 };
-    const pitch = c.landscape ? 0.66 : 0.82, fov = 42;
+    const pitch = c.landscape ? 0.58 : 0.78, fov = 42;
     // target on the ground: the 2D camera (set pieces, replays, goals) or the ball itself during open play
     let gx = c.x + f.x * 2.5, gz = c.y + f.z * 2.5, zt = 1;
     if (c.follow && b) {
@@ -9767,7 +9772,7 @@ const G3D = (() => {
       camS.x += (gx - camS.x) * k; camS.z += (gz - camS.z) * k; camS.zoom += (zt - camS.zoom) * kz;
     }
     const tx = camS.x, tz = camS.z;
-    const visUp = c.visUp * camS.zoom;
+    const visUp = c.visUp * camS.zoom * 0.8; // closer than the 2D view so the 3D models read well
     cam.fov = fov; cam.aspect = W / Math.max(1, H); cam.updateProjectionMatrix();
     const dist = clamp(visUp * Math.sin(pitch) / (2 * Math.tan(fov * Math.PI / 360)) * 0.92, 10, 120);
     const sh = c.shake || 0;
