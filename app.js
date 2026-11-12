@@ -389,7 +389,7 @@ const SPRING_LEAGUES = new Set(['NOR', 'SWE', 'FIN', 'LTU', 'LVA', 'KAZ', 'GEO']
 function saLeagueDates(y, rounds, country) {
   let start = onOrAfter(dayOf(y, 2, 1), 6);
   let end = onOrBefore(dayOf(y, 12, 6), 0) - 1;
-  const pause = isWCYear(y) ? [dayOf(y, 6, 6), dayOf(y, 7, 22)] : [dayOf(y, 6, 9), dayOf(y, 6, 12)];
+  const pause = isWCYear(y) ? [dayOf(y, 6, 6), dayOf(y, 7, 22)] : y % 4 === 1 ? [dayOf(y, 6, 12), dayOf(y, 7, 14)] : [dayOf(y, 6, 9), dayOf(y, 6, 12)]; // World Cup / Super Mundial de Clubes
   if (country === 'BRA') start = y === 2026 ? onOrAfter(dayOf(y, 1, 28), 3) : onOrAfter(dayOf(y, 4, 10), 6);
   else if (SPRING_LEAGUES.has(country)) { start = onOrAfter(dayOf(y, 3, 28), 6); end = onOrBefore(dayOf(y, 11, 29), 0) - 1; }
   const sats = [];
@@ -1453,7 +1453,7 @@ const COMP_LOGO_EXTRA = { TUR: '#e30a17', BEL: '#1f2937', SCO: '#1d4ed8', GRE: '
   CYP: '#d57800', ISR: '#0038b8', AZE: '#00b5e2', SVK: '#0b4ea2', SVN: '#005da4', ARM: '#d90012', KAZ: '#00afca', LTU: '#006a44', ALB: '#e41e20',
   GEO: '#b91c1c', BIH: '#002395', FIN: '#003580', AND: '#10069f', LVA: '#9e3039', GIB: '#da000c', CHI: '#d52b1e', URU: '#5aaae6', PAR: '#d52b1e',
   BOL: '#007934', PER: '#d91023', ECU: '#ffd100', COL: '#fcd116', VEN: '#cf142b' };
-const COMP_LOGO = { UL1: '#f5c542', UL2: '#c0c7d6', UL3: '#cd8d5a', UL4: '#7fb08a', ENG: '#3d195b', ESP: '#ee3524', GER: '#d20515', FRA: '#091c3e', ITA: '#008fd7', BRA: '#00a651', ARG: '#74acdf', POR: '#00a3e0', NED: '#ff7a00', UCL: '#0a2a8f', UEL: '#f26522', UECL: '#16a34a', LIB: '#c9a43b', SULA: '#1e88e5', MUN: '#8e24aa', CUP: '#7a5cff', WC: '#8a1538', EURO: '#143cdb', COPA: '#00a3d9', QUAL: '#4b5563', FRIEND: '#6b7280', YOUTH: '#2fbf71' };
+const COMP_LOGO = { UL1: '#f5c542', UL2: '#c0c7d6', UL3: '#cd8d5a', UL4: '#7fb08a', ENG: '#3d195b', ESP: '#ee3524', GER: '#d20515', FRA: '#091c3e', ITA: '#008fd7', BRA: '#00a651', ARG: '#74acdf', POR: '#00a3e0', NED: '#ff7a00', UCL: '#0a2a8f', UEL: '#f26522', UECL: '#16a34a', LIB: '#c9a43b', SULA: '#1e88e5', MUN: '#8e24aa', SMUN: '#b8860b', CUP: '#7a5cff', WC: '#8a1538', EURO: '#143cdb', COPA: '#00a3d9', QUAL: '#4b5563', FRIEND: '#6b7280', YOUTH: '#2fbf71' };
 Object.assign(COMP_LOGO, COMP_LOGO_EXTRA);
 
 function emptyState(opts) {
@@ -2987,7 +2987,7 @@ function releaseFromUser(p) {
 }
 
 /* ===================== career: inbox, news, board, coach, season end ===================== */
-const FUTCOIN_TABLE = { UL1: 150, UL2: 50, UL3: 40, UL4: 30, CUPUL: 75, UCL: 100, UEL: 80, UECL: 60, LIB: 100, SULA: 80, MUN: 125, WC: 125, EURO: 100, COPA: 100, YOUTH: 10 };
+const FUTCOIN_TABLE = { UL1: 150, UL2: 50, UL3: 40, UL4: 30, CUPUL: 75, UCL: 100, UEL: 80, UECL: 60, LIB: 100, SULA: 80, MUN: 125, SMUN: 150, WC: 125, EURO: 100, COPA: 100, YOUTH: 10 };
 function futcoinsFor(key) {
   if (FUTCOIN_TABLE[key] !== undefined) return FUTCOIN_TABLE[key];
   if (key.startsWith('CUP')) return MAIN_LEAGUES.has(key.slice(3)) || key === 'CUPUL' ? 75 : 50;
@@ -3237,7 +3237,7 @@ function compIsMinor(c) {
     if (c.teams && c.teams.includes(S.user.team)) return false;
     return userLeagueCountry() !== 'BRA' || !(BIG_STATES.has(c.key) || c.key === 'COPINHA');
   }
-  if (S.mode !== 'normal' || !c || c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN'].includes(c.key)) return false;
+  if (S.mode !== 'normal' || !c || c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN', 'SMUN'].includes(c.key)) return false;
   const id = c.lgId || (c.key.startsWith('CUP') ? c.key.slice(3) : c.key);
   if (MAIN_LEAGUES.has(id) || !leagueById(id)) return false;
   return c.country !== userLeagueCountry();
@@ -3346,6 +3346,7 @@ function dailyEvents() {
   }
   if (t.d === 1) { sponsMonth(); dynamicPotentialMonth(); clubFinanceMonth(); academyMonth(); }
   if (t.d === 1 && t.m === 1) contractReminders();
+  if (t.m === 6 && t.d === 3 && S.mode === 'normal') createSuperMundial(t.y);
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
   if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
   if (t.w === 1) freeAgentWeek();
@@ -3365,6 +3366,7 @@ function fastDailyEvents() {
   const t = ymd(S.date);
   if (t.d === 1) { sponsMonth(); dynamicPotentialMonth(); clubFinanceMonth(); academyMonth(); }
   if (t.w === 1) { weeklyLoans(); freeAgentWeek(); }
+  if (t.m === 6 && t.d === 3 && S.mode === 'normal') createSuperMundial(t.y);
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
   if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
   posChangeDaily();
@@ -3572,7 +3574,7 @@ function assignScout(id, country, months) {
   const sc = S.youth.scouts.find((s) => s.id === id);
   if (!sc) return;
   sc.country = country;
-  sc.until = S.date + months * 30;
+  sc.until = months > 0 ? S.date + months * 30 : 0; // 0 = no end date (until called back)
   sc.start = S.date;
 }
 function scoutingWeek() {
@@ -4235,6 +4237,7 @@ const REAL_HOLDERS = {
   UECL: { 2025: 'crystalpalace' }, // first played in 2021/22
   CUPBRA: { 2015: 'palmeiras', 2020: 'palmeiras', 2025: 'corinthians' },
 };
+const REAL_SMUN = { 2025: ['chelsea', 'psg'] }; // FIFA Club World Cup 2025 (USA): Chelsea 3x0 PSG
 const REAL_RUNNERS = { CUPBRA: { 2015: 'santos', 2020: 'gremio', 2025: 'vasco' } };
 // clubs that can represent the other confederations at the Mundial (the strongest one usually wins its continent)
 const CWC_POOL = {
@@ -4524,6 +4527,67 @@ function importNewLeagues() {
   KEY_IDX = null;
   if (!S.presim) addNews('Novas ligas no mundo do jogo', `Chegaram ${fresh.length} ligas: ${fresh.map((l) => l.name).join(', ')}. Cada uma começa na próxima temporada do seu calendário, e a Conference League estreia na próxima temporada europeia.`, 'geral', [], { cat: 'Pelo mundo' });
   return added;
+}
+
+/* ---------- Super Mundial de Clubes (the 32-club FIFA Club World Cup, every 4 years in June-July: 2025, 2029, …).
+   12 European clubs (the Champions League winners of the last 4 seasons, then the best clubs, at most 2 per country
+   unless champions), 6 South American (Libertadores winners of the last 4 years, then the best), 4 CONCACAF, 4 Asian,
+   the African and Oceanian representatives and a host; groups of 4, then knock-out in single games at a neutral venue */
+const isSuperCWCYear = (y) => y % 4 === 1;
+function smunDates(y) {
+  const d = (m, dd) => dayOf(y, m, dd);
+  return { groups: [d(6, 15), d(6, 20), d(6, 25)], r16: d(6, 29), qf: d(7, 4), sf: d(7, 8), final: onOrAfter(d(7, 12), 0) };
+}
+function createSuperMundial(y) {
+  if (S.mode !== 'normal' || !isSuperCWCYear(y)) return null;
+  S.smunYears = S.smunYears || [];
+  if (S.smunYears.includes(y)) return null;
+  const used = new Set(), out = [];
+  const ok = (id) => id && S.teams[id] && !S.teams[id].isNat && !used.has(id) && squadOf(id).length >= 14;
+  const take = (id) => { if (ok(id)) { used.add(id); out.push(id); return true; } return false; };
+  const best = (ids, n, perCountry) => {
+    const cnt = {};
+    for (const id of out) { const c = S.teams[id].c; cnt[c] = (cnt[c] || 0) + 1; }
+    let k = 0;
+    for (const id of uniq(ids).filter(ok).sort(by((x) => teamRating(x), -1))) {
+      if (k >= n) break;
+      const c = S.teams[id].c;
+      if (perCountry && (cnt[c] || 0) >= perCountry) continue;
+      take(id); cnt[c] = (cnt[c] || 0) + 1; k++;
+    }
+    return k;
+  };
+  const leagueTeams = (ctry) => { const l = leagueById(ctry); return l ? l.teams.slice() : []; };
+  // Europe
+  const ue0 = out.length;
+  for (let yr = y - 4; yr <= y - 1; yr++) take(holderOf('UCL', yr));
+  best(S.normal.filter((l) => UEFA_SLOTS[l.id]).flatMap((l) => l.teams), 12 - (out.length - ue0), 2);
+  // South America
+  const sa0 = out.length;
+  for (let yr = y - 4; yr <= y - 1; yr++) take(holderOf('LIB', yr));
+  best(CONMEBOL_RANK.flatMap(leagueTeams), 6 - (out.length - sa0), 3);
+  // CONCACAF, Asia, Africa, Oceania
+  best(CWC_POOL.CONCACAF.map(teamIdByKey).concat(leagueTeams('USA'), leagueTeams('MEX')), 4, 2);
+  best(CWC_POOL.AFC.map(teamIdByKey).concat(leagueTeams('KSA')), 4, 3);
+  best(CWC_POOL.CAF.map(teamIdByKey), 4, 4);
+  best(CWC_POOL.OFC.map(teamIdByKey), 1, 1);
+  // host and the places nobody filled (the game has few African clubs): the best clubs still out
+  best(leagueTeams('USA'), 1, 9);
+  if (out.length < 32) best(S.normal.flatMap((l) => l.teams), 32 - out.length, 3);
+  if (out.length < 32) return null;
+  S.smunYears.push(y);
+  const d = smunDates(y), label = String(y);
+  const c = makeGroups({ key: 'SMUN', name: 'Super Mundial de Clubes', short: 'SMUN', zone: 'SA', season: label, year: y, groups: drawGroups(out.slice(0, 32), 8),
+    double: false, neutral: true, dates: d.groups, spread: 3 });
+  c.koPlan = [{ name: 'Oitavas de final', d: d.r16, legs: 1, neutral: true, spread: 2 }, { name: 'Quartas de final', d: d.qf, legs: 1, neutral: true, spread: 2 },
+    { name: 'Semifinal', d: d.sf, legs: 1, neutral: true }, { name: 'Final', d: d.final, legs: 1, neutral: true }];
+  if (!S.presim) {
+    const prev = champOf('SMUN', y - 4) || teamIdByKey((REAL_SMUN[y - 4] || [])[0]);
+    addNews(`Super Mundial de Clubes ${y}: 32 clubes definidos`, `O Super Mundial de Clubes volta em junho com 32 clubes de todos os continentes: grupos de 4, mata-mata em jogo único e final em ${fmtDate(d.final, 'long')}.${prev ? ` O atual campeão é ${tA(prev, 'o')}.` : ''}`, 'titulo', out.slice(0, 4), { cat: 'Mundial de Clubes', hot: true, cup: 'SMUN' });
+    const uid = S.user && S.user.team;
+    if (uid && !S.coach.unemployed && out.includes(uid)) addInbox('board', 'Diretoria', 'Classificados para o Super Mundial!', `${TA(uid)} está entre os 32 clubes do Super Mundial de Clubes ${y}. A estreia é em ${fmtDate(d.groups[0], 'long')}, em campo neutro.`);
+  }
+  return c;
 }
 
 /* ===================== continental places by league position (ligas normais) ===================== */
@@ -5842,6 +5906,38 @@ const SP_REAL_START = SP_BRANDS.length;
     SP_BRANDS.push([n, tag, n, perk, { sh: (h >>> 9) % 9, c1: `hsl(${hue},68%,${36 + ((h >>> 3) % 14)}%)`, c2: (h & 1) ? '#ffffff' : `hsl(${(hue + 170) % 360},85%,66%)` }, 1]);
   }
 })();
+// second batch (appended after the first one so saved contracts keep their brand): more niches
+const SP_REAL2 = {
+  cash: ['Bradesco Seguros', 'SulAmérica', 'Amil', 'Bupa', 'Prudential', 'AIG', 'Barclays', 'HSBC', 'Deutsche Bank', 'UniCredit', 'ING', 'Raiffeisen',
+    'Western Union', 'American Express', 'PayPal', 'Stone', 'Cielo', 'Neon', 'Banco Pan', 'Banco Safra', 'BS2', 'Daycoval', 'Will Bank', 'Agibank'],
+  energy: ['Skol', 'Amstel', 'Budweiser', 'Itaipava', 'Stella Artois', 'Corona', 'Carlsberg', 'Peroni', 'Mahou', 'Estrella Galicia', 'Paulaner',
+    'Fanta', 'Sprite', 'Schweppes', 'H2OH!', 'Crystal', 'Minalba', 'Nescau', 'Toddy', 'Piracanjuba', 'Italac', 'Vigor', 'Bauducco', 'Garoto', 'Lacta',
+    'Cacau Show', 'Kopenhagen', 'Habibs', 'Outback', 'Subway', "Bob's", 'Spoleto', 'Domino’s', 'Pizza Hut', 'KFC', 'Carrefour', 'Assaí', 'Atacadão',
+    'Pão de Açúcar', 'Extra', 'Lidl', 'Aldi', 'Tesco'],
+  boots: ['Drogasil', 'Droga Raia', 'Pague Menos', 'Eurofarma', 'EMS', 'Hypera', 'Neosaldina', 'Dorflex', 'Tylenol', 'Gillette', 'Rexona',
+    'Nivea', 'Dove', 'Axe', 'O Boticário', 'Natura', 'Avon', 'Eudora', 'Herbalife', 'Growth Supplements', 'Max Titanium', 'Integralmédica',
+    'Selfit', 'Total Pass', 'Wellhub'],
+  media: ['LG', 'Philips', 'Panasonic', 'Xiaomi', 'Huawei', 'Lenovo', 'Dell', 'HP', 'Intel', 'Positivo', 'Multilaser', 'Brastemp', 'Consul',
+    'Electrolux', 'Tramontina', 'Ponto', 'Americanas', 'Riachuelo', 'Renner', 'C&A', 'Havaianas', 'Hering', 'Zara', 'Estácio', 'Anhanguera',
+    'Unopar', 'Cruzeiro do Sul Educacional', 'Wizard', 'CCAA', 'Duolingo', 'Netflix', 'Disney+', 'HBO Max', 'Paramount+', 'DAZN', 'CazéTV',
+    'YouTube', 'Twitch', 'Discord', 'Instagram', 'WhatsApp', 'Oi', 'Algar', 'Starlink', 'EA Sports', 'PlayStation', 'Xbox', 'Nintendo',
+    'Garena Free Fire', 'Konami'],
+  bonus: ['Petrobras', 'Shell', 'Ipiranga', 'Raízen', 'Vibra', 'Ale', 'Gerdau', 'Vale', 'Braskem', 'Embraer', 'Suzano', 'JBS', 'BRF',
+    'Marfrig', 'MRV', 'Cyrela', 'Tenda', 'Direcional', 'Votorantim', 'Eletrobras', 'Neoenergia', 'Enel', 'CPFL', 'Sabesp', 'Copel', 'Cemig',
+    'Rumo', 'Correios', 'Sequoia', 'Loggi', 'DHL', 'FedEx', 'Hertz', 'Unidas', 'Hyundai', 'Kia', 'Nissan', 'Renault', 'Peugeot', 'Citroën',
+    'Honda', 'Yamaha', 'BYD', 'GWM', 'Mercedes-Benz', 'BMW', 'Audi', 'Scania', 'Volvo', 'Iveco', 'Air France', 'KLM', 'Iberia', 'TAP Air Portugal',
+    'Aerolíneas Argentinas', 'Copa Airlines', 'American Airlines', 'Delta', 'United', 'CVC', 'Hurb', 'Accor', 'Hilton', 'Marriott', 'Airbnb'],
+};
+(function addRealBrands2() {
+  const hash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const have = new Set(SP_BRANDS.map((x) => x[0]));
+  for (const perk of Object.keys(SP_REAL2)) for (const n of SP_REAL2[perk]) {
+    if (have.has(n)) continue;
+    const h = hash(n), hue = h % 360, word = n.replace(/[^A-Za-zÀ-ú0-9&+ ]/g, '').split(' ')[0];
+    const tag = n.toUpperCase().length <= 12 ? n.toUpperCase() : word.toUpperCase();
+    SP_BRANDS.push([n, tag, n, perk, { sh: (h >>> 9) % 9, c1: `hsl(${hue},68%,${36 + ((h >>> 3) % 14)}%)`, c2: (h & 1) ? '#ffffff' : `hsl(${(hue + 170) % 360},85%,66%)` }, 1]);
+  }
+})();
 const spIsReal = (b) => b >= SP_REAL_START;
 const spRealIdx = (perk) => SP_BRANDS.map((x, i) => i).filter((i) => i >= SP_REAL_START && (!perk || SP_BRANDS[i][3] === perk));
 const SP_PERKS = {
@@ -6434,7 +6530,7 @@ function applyBraPromotions(lg) {
 // When the era's database gets new squads (transfer window), a career saved before keeps the old ones: this moves
 // every player to the club the database has now (and brings the new signings), without touching the user's club
 // unless asked. Played stats, ratings growth and contracts already in the save are kept for players who stay.
-const SQUAD_VER = '2026-11-a'; // bump when data/era2026.json gets a new transfer window
+const SQUAD_VER = '2026-11-b'; // bump when data/era2026.json gets a new transfer window
 const sqNorm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 function squadSyncNeeded() {
   return !!(S && DATA && DATA.era === S.era && S.era === 2026 && S.mode !== 'national' && S.sqVer !== SQUAD_VER && !S.zoeira);
@@ -6733,7 +6829,7 @@ function compBadge(c, size = 26) {
   if (!c) return '';
   const key = c.key || '';
   const col = COMP_LOGO[key] || (key.startsWith('CUP') ? COMP_LOGO.CUP : key.startsWith('UL') ? COMP_LOGO.UL1 : key === 'QUAL' ? COMP_LOGO.QUAL : '#4b5b62');
-  const lbl = { UCL: 'UCL', UEL: 'UEL', UECL: 'UECL', UCLQ: 'PRÉ', UECLQ: 'PRÉ', PLIB: 'PRÉ', LIB: 'LIB', SULA: 'SUL', MUN: 'MUN', WC: 'WC', EURO: 'EU', COPA: 'CA', QUAL: 'EL', FRIEND: 'AM', YOUTH: 'S19', COPINHA: 'S20' }[key] ||
+  const lbl = { UCL: 'UCL', UEL: 'UEL', UECL: 'UECL', UCLQ: 'PRÉ', UECLQ: 'PRÉ', PLIB: 'PRÉ', LIB: 'LIB', SULA: 'SUL', MUN: 'MUN', SMUN: 'SMC', WC: 'WC', EURO: 'EU', COPA: 'CA', QUAL: 'EL', FRIEND: 'AM', YOUTH: 'S19', COPINHA: 'S20' }[key] ||
     (key.startsWith('CUP') ? 'COPA' : key.startsWith('UL') ? key : key.startsWith('EST') ? key.slice(3) : key.slice(0, 3));
   return `<svg width="${size}" height="${size}" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8" fill="${col}"/><text x="15" y="19" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="800" font-size="${lbl.length > 3 ? 8.5 : 10.5}" fill="${textOn(col)}">${lbl}</text></svg>`;
 }
@@ -6750,7 +6846,7 @@ function trophyDesign(key) {
   const k = String(key || '');
   const T = {
     LIB: ['lib', 'silver', '#0f7a3b'], SULA: ['lib', 'gold', '#1f4fa8'], UCL: ['ears', 'silver', '#1c3f94'], UEL: ['ears', 'gold', '#f08a00'],
-    WC: ['globe', 'gold', '#0d6b3a'], MUN: ['globe', 'silver', '#c9a227'], EURO: ['ears', 'silver', '#1c3f94'], COPA: ['lib', 'gold', '#d62828'],
+    WC: ['globe', 'gold', '#0d6b3a'], MUN: ['globe', 'silver', '#c9a227'], SMUN: ['globe', 'gold', '#1a1a1a'], EURO: ['ears', 'silver', '#1c3f94'], COPA: ['lib', 'gold', '#d62828'],
     BRA: ['cup', 'gold', '#0b7d3b'], CUPBRA: ['goblet', 'gold', '#0b7d3b'], COPINHA: ['goblet', 'silver', '#c8102e'], YOUTH: ['cup', 'silver', '#6b7a86'],
     UL1: ['cup', 'gold', '#6a35d6'], CUPUL: ['goblet', 'gold', '#6a35d6'],
   };
@@ -7420,7 +7516,7 @@ function viewCentral() {
       <div class="task-list">${taskHtml}</div>
       ${S.pl ? viewPlTiles() : viewTeamData()}
     </section>
-    <aside class="col" style="gap:16px">${viewNewsCarousel()}${viewRecentResults()}</aside>
+    <aside class="col" style="gap:16px">${viewNewsCarousel()}${viewRecentResults()}${S.pl ? '' : viewLoanedOut(true)}</aside>
   </div>`;
 }
 function viewTeamData() {
@@ -7479,7 +7575,38 @@ const NEWS_CATS = {
 const NEWS_TAG_CAT = { transfer: 'Mercado da bola', resultado: 'Rodada', clube: 'Pós-jogo', titulo: 'Campeão', liga: 'Tabela', promo: 'Acesso e rebaixamento', retire: 'Aposentadoria', zoeira: 'Inacreditável', selecao: 'Seleção' };
 const NEWS_REPORTERS = ['Marina Duarte', 'Caio Andrade', 'Renata Lobo', 'Thiago Barcellos', 'Júlia Pessanha', 'Rodrigo Teles', 'Paula Siqueira', 'Bruno Antunes', 'Lívia Moraes', 'Diego Fontoura'];
 function newsCat(n) { const label = n.cat || NEWS_TAG_CAT[n.tag] || 'Notícias'; return { label, color: NEWS_CATS[label] || '#9bb2b8' }; }
-function newsReporter(n) { return NEWS_REPORTERS[hashStr('rep' + n.id) % NEWS_REPORTERS.length]; }
+// the news come from real outlets (names as text; logo = initials, or the player's own image like the crests)
+const NEWS_CH = {
+  'ge': '#c4170c', 'CazéTV': '#ffd400', 'SporTV': '#1a7a3c', 'Lance!': '#e30613', 'UOL Esporte': '#f7a600', 'TNT Sports': '#111111', 'ESPN': '#d00000',
+  'Band Sports': '#003a8c', 'Fabrício Romano': '#1d9bf0', 'Transfermarkt': '#1a3151', 'Sky Sports': '#0b1f6e', 'BBC Sport': '#ffd230', 'The Athletic': '#121212',
+  'Marca': '#d6001c', 'AS': '#c8102e', 'Mundo Deportivo': '#004c97', 'Gazzetta dello Sport': '#e5007e', 'Corriere dello Sport': '#00843d', 'Kicker': '#e2001a',
+  'Bild': '#d40000', "L'Équipe": '#e4002b', 'RMC Sport': '#1d1d1b', 'Olé': '#00a650', 'TyC Sports': '#0033a0', 'A Bola': '#c8102e', 'Record': '#ffcc00',
+  'OneFootball': '#1b1b1b', 'Goal': '#0a1b3f', 'Ultra Esporte': '#2b6f83',
+};
+const NEWS_BY_CTRY = { BRA: ['ge', 'CazéTV', 'SporTV', 'Lance!', 'UOL Esporte', 'TNT Sports', 'Band Sports', 'ESPN'], ENG: ['Sky Sports', 'BBC Sport', 'The Athletic'],
+  ESP: ['Marca', 'AS', 'Mundo Deportivo'], ITA: ['Gazzetta dello Sport', 'Corriere dello Sport'], GER: ['Kicker', 'Bild'], FRA: ["L'Équipe", 'RMC Sport'], ARG: ['Olé', 'TyC Sports'], POR: ['A Bola', 'Record'] };
+function newsChannel(n) {
+  if (n.ch) return n.ch;
+  const h = hashStr('ch' + n.id), cat = newsCat(n).label;
+  const ctry = (n.teams || []).map((id) => S.teams[id] && S.teams[id].c).find((c) => NEWS_BY_CTRY[c]) || (typeof userLeagueCountry === 'function' ? userLeagueCountry() : '');
+  const local = NEWS_BY_CTRY[ctry] || ['ESPN', 'OneFootball', 'Goal'];
+  let pool;
+  if (cat === 'Mercado da bola') pool = h % 10 < 5 ? ['Fabrício Romano'] : ['Transfermarkt'].concat(local);
+  else if (cat === 'Campeão' || cat === 'Mundial de Clubes') pool = ['CazéTV', 'ESPN', 'ge'].concat(local);
+  else if (cat === 'Inacreditável') pool = ['CazéTV', 'OneFootball', 'Ultra Esporte'];
+  else pool = local.concat(['ESPN', 'Goal']);
+  return pool[(h >>> 4) % pool.length];
+}
+const newsChKey = (ch) => 'nw:' + ch;
+function newsChLogo(ch, size = 34) {
+  const src = typeof CUSTOM_BRANDS === 'object' && CUSTOM_BRANDS[newsChKey(ch)] ? customImgSrc(newsChKey(ch)) : null;
+  if (src) return `<img src="${src}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex:none">`;
+  const c = NEWS_CH[ch] || '#2b6f83', ink = lum(c) > 0.55 ? '#111' : '#fff';
+  const ini = ch === 'Fabrício Romano' ? 'FR' : ch.replace(/[^A-Za-zÀ-ú0-9 ]/g, '').split(' ').filter(Boolean).map((w) => w[0]).join('').slice(0, 3).toUpperCase() || ch.slice(0, 2);
+  return `<span class="ue-logo" style="width:${size}px;height:${size}px;font-size:${Math.round(size * (ini.length > 2 ? 0.3 : 0.38))}px;background:${c};color:${ink}" aria-hidden="true">${esc(ini)}</span>`;
+}
+function newsReporter(n) { const ch = newsChannel(n); return ch === 'Fabrício Romano' ? 'Fabrício Romano' : NEWS_REPORTERS[hashStr('rep' + n.id) % NEWS_REPORTERS.length]; }
+const newsHWG = (n) => newsChannel(n) === 'Fabrício Romano' && newsCat(n).label === 'Mercado da bola' ? '<span class="chip" style="font-size:10px;background:#1d9bf0;color:#fff">HERE WE GO! ✅</span>' : '';
 function newsAgo(n) { const d = S.date - n.d; return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : d < 7 ? `há ${d} dias` : fmtDate(n.d, 'dm'); }
 const ueLogo = (size = 34) => `<span class="ue-logo" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px" aria-hidden="true">UE</span>`;
 function newsImage(n) {
@@ -7498,7 +7625,7 @@ function newsImage(n) {
       : n.tag === 'transfer' && !sc ? `<g transform="translate(222,26) rotate(8)"><rect width="78" height="26" rx="5" fill="rgba(0,0,0,0.35)" stroke="#fff" stroke-width="1.5"/><text x="39" y="18" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="800" font-size="15" fill="#fff" letter-spacing="1">OFICIAL</text></g>` : '';
   const band = `<g><rect x="0" y="150" width="320" height="50" fill="rgba(4,14,18,0.78)"/><rect x="0" y="150" width="6" height="50" fill="${cat.color}"/>
     <text x="16" y="171" font-family="Barlow Condensed, sans-serif" font-weight="800" font-size="13" letter-spacing="1.5" fill="${cat.color}">${esc(cat.label.toUpperCase())}</text>
-    <text x="16" y="190" font-family="Barlow, sans-serif" font-weight="600" font-size="12" fill="rgba(255,255,255,0.75)">ULTRA ESPORTE${n.fee ? ` · ${esc(fmtMoney(n.fee))}` : ''}</text></g>`;
+    <text x="16" y="190" font-family="Barlow, sans-serif" font-weight="600" font-size="12" fill="rgba(255,255,255,0.75)">${esc(newsChannel(n).toUpperCase())}${n.fee ? ` · ${esc(fmtMoney(n.fee))}` : ''}</text></g>`;
   return `<svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <defs><linearGradient id="ng${n.id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="#071318"/></linearGradient>
     <radialGradient id="nl${n.id}" cx="${30 + (h % 40)}%" cy="0%" r="80%"><stop offset="0" stop-color="rgba(255,255,255,0.35)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></radialGradient></defs>
@@ -7515,7 +7642,7 @@ function viewNewsCarousel() {
   const n = list[i];
   const cat = newsCat(n);
   return `<div class="news-card">
-    <div class="news-top">${ueLogo()}<div class="grow"><b>Ultra Esporte</b><div class="muted" style="font-size:12px">${newsAgo(n)} · Por ${esc(newsReporter(n))}</div></div>${n.hot ? '<span class="plantao">PLANTÃO</span>' : S.date - n.d <= 2 ? '<span class="news-new">Novo</span>' : ''}</div>
+    <div class="news-top">${newsChLogo(newsChannel(n))}<div class="grow"><b>${esc(newsChannel(n))}</b> ${newsHWG(n)}<div class="muted" style="font-size:12px">${newsAgo(n)} · Por ${esc(newsReporter(n))}</div></div>${n.hot ? '<span class="plantao">PLANTÃO</span>' : S.date - n.d <= 2 ? '<span class="news-new">Novo</span>' : ''}</div>
     <div class="news-img">${newsImage(n)}</div>
     <div class="news-body"><span class="news-cat" style="--c:${cat.color}">${esc(cat.label)}</span><h4>${esc(n.title)}</h4><div class="muted" style="font-size:14px">${esc(n.body)}</div>
       <div class="news-meta"><span>♡ ${n.likes}</span><span>💬 ${n.com} comentários</span><button class="link right" data-a="allNews">Ver todas</button></div></div>
@@ -7529,14 +7656,20 @@ act('allNews', () => {
     const cats = uniq(S.news.map((n) => newsCat(n).label));
     const f = UI.newsCat || 'all';
     const list = S.news.filter((n) => f === 'all' || newsCat(n).label === f);
-    return modalShell(`${ueLogo(30)} Ultra Esporte`, `
-      <div class="row wrap" style="gap:6px;margin-bottom:14px">${['all'].concat(cats).map((c) => `<button class="chip ${f === c ? 'on' : ''}" data-a="newsCatF" data-v="${esc(c)}">${c === 'all' ? 'Todas' : esc(c)}</button>`).join('')}</div>
+    return modalShell(`📰 Notícias`, `
+      <div class="row wrap" style="gap:6px;margin-bottom:14px"><button class="chip" data-a="newsChans">🖼 Imagens dos canais</button>${['all'].concat(cats).map((c) => `<button class="chip ${f === c ? 'on' : ''}" data-a="newsCatF" data-v="${esc(c)}">${c === 'all' ? 'Todas' : esc(c)}</button>`).join('')}</div>
       <div class="news-feed">${list.map((n) => { const cat = newsCat(n); return `<article class="nf-item"><div class="nf-thumb">${newsImage(n)}</div><div class="nf-text">
         <div class="row wrap" style="gap:8px"><span class="news-cat" style="--c:${cat.color};margin:0">${esc(cat.label)}</span>${n.hot ? '<span class="plantao sm">PLANTÃO</span>' : ''}<span class="muted" style="font-size:12px">${newsAgo(n)}</span></div>
-        <h4>${esc(n.title)}</h4><p class="muted">${esc(n.body)}</p><div class="muted" style="font-size:12px">Por ${esc(newsReporter(n))} · ♡ ${n.likes} · 💬 ${n.com}</div></div></article>`; }).join('') || '<div class="empty">Sem notícias nesta categoria.</div>'}</div>`);
+        <h4>${esc(n.title)}</h4><p class="muted">${esc(n.body)}</p><div class="row muted" style="font-size:12px;gap:6px">${newsChLogo(newsChannel(n), 18)}<b>${esc(newsChannel(n))}</b> ${newsHWG(n)} · Por ${esc(newsReporter(n))} · ♡ ${n.likes} · 💬 ${n.com}</div></div></article>`; }).join('') || '<div class="empty">Sem notícias nesta categoria.</div>'}</div>`);
   }, { size: 'wide' });
 });
 act('newsCatF', (el) => { UI.newsCat = el.dataset.v; refreshModal(); });
+act('newsChans', () => {
+  closeAllModals();
+  openModal(() => modalShell('🖼 Imagens dos canais de notícia', `<p class="muted" style="font-size:13px;margin-top:0">Escolha a imagem que representa cada canal (fica só neste aparelho, como os escudos e as marcas). Sem imagem, o jogo mostra as iniciais.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">${Object.keys(NEWS_CH).map((ch) => `<div class="panel" style="padding:10px;text-align:center"><div style="display:flex;justify-content:center">${newsChLogo(ch, 52)}</div><div style="font-weight:700;font-size:13px;margin-top:6px">${esc(ch)}</div>${imgCtl(newsChKey(ch))}</div>`).join('')}</div>`,
+    '<button class="btn" data-a="allNews">Voltar às notícias</button><button class="btn gold" data-a="closeModal">Fechar</button>'), { size: 'wide' });
+});
 function viewRecentResults() {
   const lc = userLeagueComp() || userComps()[0];
   if (!lc) return '';
@@ -7865,7 +7998,28 @@ function viewSquadHub() {
   }).join('');
   const wb = t.isNat ? '' : `<div class="row wrap" style="gap:16px"><span class="chip">Elenco: ${players.length}/36</span><span class="chip">Folha: ${money(wageBill(t.id))}/sem de ${money(t.wb)}</span><span class="chip">Orçamento: ${money(t.budget)}</span></div>`;
   return `<div class="row wrap" style="margin-bottom:10px">${wb}<span class="grow"></span><div class="seg">${[['pos', 'Posição'], ['ovr', 'Overall'], ['age', 'Idade'], ['val', 'Valor']].map(([k, l]) => `<button class="${sort === k ? 'on' : ''}" data-a="hubSort" data-k="${k}">${l}</button>`).join('')}</div></div>
-    <div class="tbl-wrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+    <div class="tbl-wrap"><table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>${viewLoanedOut()}`;
+}
+// players the user's club lent out: listed apart (they cannot play for you), with how the loan is going
+function loanedOutOf(uid) { return Object.values(S.players).filter((p) => p.loan && p.loan.from === uid && p.t && p.t !== uid); }
+function loanStats(p) {
+  let g = 0, a = 0, apps = 0, rt = 0;
+  for (const k in p.st || {}) { const r = p.st[k]; if (r[5] !== p.t) continue; apps += r[0]; g += r[1]; a += r[2]; rt += r[6] || 0; }
+  return { apps: Math.max(apps, Math.round(p.loan.g || 0)), g, a, avg: apps ? rt / apps : 0, d: p.o - (p.loan.o || p.o) };
+}
+function viewLoanedOut(compact) {
+  const list = S.user && S.user.team ? loanedOutOf(S.user.team) : [];
+  if (!list.length) return compact ? '' : '';
+  const rows = list.sort(by((p) => p.o, -1)).map((p) => {
+    const st = loanStats(p);
+    const ev = st.d > 0 ? `<span style="color:var(--win)">+${st.d}</span>` : st.d < 0 ? `<span style="color:var(--loss)">${st.d}</span>` : '<span class="muted">=</span>';
+    return compact
+      ? `<div class="row" style="gap:8px;padding:5px 0;cursor:pointer" data-a="openPlayer" data-id="${p.id}">${ovrBadge(p.o)}<span class="grow"><b>${esc(p.n)}</b> <span class="muted" style="font-size:12px">${crest(p.t, 14)} ${esc(teamName(p.t))}</span></span><span class="muted" style="font-size:12px">${st.apps} J · ${st.g} G · ${st.a} A</span> ${ev}</div>`
+      : `<tr class="click" data-a="openPlayer" data-id="${p.id}" style="opacity:.85"><td>${esc(p.n)} <span class="chip" style="font-size:10px">EMPRESTADO</span></td><td>${posBadge(p.p)}</td><td class="n">${p.age}</td><td class="c">${ovrBadge(p.o)}</td><td class="n">${p.pot}${potTrend(p)}</td>
+        <td>${crest(p.t, 16)} ${esc(teamName(p.t))}</td><td class="n">${st.apps}</td><td class="n">${st.g}</td><td class="n">${st.a}</td><td class="n">${st.avg ? st.avg.toFixed(1) : '—'}</td><td class="n">${ev}</td><td class="n">${fmtDate(p.loan.until, 'short')}</td></tr>`;
+  }).join('');
+  if (compact) return `<div class="panel"><h3>Emprestados <span class="sub">${list.length}</span></h3>${rows}<div class="muted" style="font-size:12px;margin-top:6px">Não podem jogar por você até voltarem. Evolução desde o início do empréstimo.</div></div>`;
+  return `<div class="panel" style="margin-top:14px"><h3>Emprestados <span class="sub">não podem ser escalados até voltarem</span></h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jogador</th><th>Pos</th><th class="n">Idade</th><th class="c">OVR</th><th class="n">POT</th><th>Onde está</th><th class="n">J</th><th class="n">G</th><th class="n">A</th><th class="n">Nota</th><th class="n">Evolução</th><th class="n">Volta</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 act('hubSort', (el) => { UI.hubSort = el.dataset.k; render(); });
 
@@ -8386,9 +8540,9 @@ function viewScouts() {
     <div class="panel"><h3>Seus olheiros <span class="sub">${mine.length}/4</span></h3>
       ${mine.length ? mine.map((sc) => `<div class="col" style="padding:10px 0;border-bottom:1px solid var(--line)">
         <div class="row"><b>${esc(sc.n)}</b><span class="stars">${scoutStars(sc.lvl)}</span><span class="grow"></span><span class="muted" style="font-size:13px">${sc.found} achados</span><button class="btn xs danger" data-a="fireScout" data-id="${sc.id}">Dispensar</button></div>
-        ${sc.country ? `<div class="muted" style="font-size:14px">Observando ${natFlag(sc.country)} ${esc(natName(sc.country))} até ${fmtDate(sc.until, 'dm')}</div>` : '<div class="muted" style="font-size:14px">Sem missão</div>'}
+        ${sc.country ? `<div class="muted" style="font-size:14px">Observando ${natFlag(sc.country)} ${esc(natName(sc.country))} ${sc.until ? `até ${fmtDate(sc.until, 'dmy')}` : 'sem prazo'} <button class="btn xs" data-a="recallScout" data-id="${sc.id}">Chamar de volta</button></div>` : '<div class="muted" style="font-size:14px">Sem missão</div>'}
         <div class="row wrap"><select class="input" id="sc-c-${sc.id}" style="max-width:260px">${countryOpts(sc.country)}</select>
-          <select class="input" id="sc-m-${sc.id}" style="max-width:120px"><option value="1">1 mês</option><option value="3" selected>3 meses</option><option value="6">6 meses</option></select>
+          <select class="input" id="sc-m-${sc.id}" style="max-width:120px"><option value="1">1 mês</option><option value="3" selected>3 meses</option><option value="6">6 meses</option><option value="12">1 ano</option><option value="24">2 anos</option><option value="0">Sem prazo</option></select>
           <button class="btn sm primary" data-a="sendScout" data-id="${sc.id}">Enviar</button></div></div>`).join('') : '<div class="empty">Contrate olheiros ao lado para descobrir talentos.</div>'}
     </div>
     <div class="panel"><h3>Olheiros disponíveis</h3>
@@ -8398,6 +8552,7 @@ function viewScouts() {
 }
 act('hireScout', (el) => { toast(hireScout(+el.dataset.id)); render(); });
 act('fireScout', (el) => { fireScout(+el.dataset.id); render(); });
+act('recallScout', (el) => { const sc = S.youth.scouts.find((x) => x.id === +el.dataset.id); if (sc) { sc.country = null; sc.until = 0; } toast('Olheiro chamado de volta.'); render(); });
 act('sendScout', (el) => {
   const id = +el.dataset.id;
   assignScout(id, $('#sc-c-' + id).value, +$('#sc-m-' + id).value);
@@ -8544,7 +8699,7 @@ const COMP_REGIONS = ['Minhas competições', 'Copas continentais', 'Principais'
 function compRegion(c, mine) {
   if (mine && mine.includes(c.id)) return 'Minhas competições';
   if (c.state) return 'Estaduais';
-  if (c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN'].includes(c.key)) return 'Copas continentais';
+  if (c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN', 'SMUN'].includes(c.key)) return 'Copas continentais';
   if (S.mode !== 'normal') return 'Outras';
   const id = c.lgId || (c.key.startsWith('CUP') ? c.key.slice(3) : c.key);
   if (MAIN_LEAGUES.has(id)) return 'Principais';
@@ -17303,7 +17458,10 @@ const BRAND_URLS = {}, BRAND_EL = {};
 const brandImgKey = (kind, i) => (kind === 'su' ? 'su:' + (SP_SUPS[i] ? SP_SUPS[i].n : i) : 'sp:' + (SP_BRANDS[i] ? SP_BRANDS[i][0] : i));
 function brandImgSrc(kind, i) {
   if (i == null || i < 0) return null;
-  const k = brandImgKey(kind, i), d = CUSTOM_BRANDS[k];
+  return customImgSrc(brandImgKey(kind, i));
+}
+function customImgSrc(k) {
+  const d = CUSTOM_BRANDS[k];
   if (!d) return null;
   if (BRAND_URLS[k]) return BRAND_URLS[k];
   try {
@@ -17348,9 +17506,10 @@ act('brandFile', async (el) => {
 });
 act('brandRemove', async (el) => { setCustomBrand(el.dataset.k, null); await persistCustomBrands(); render(); refreshModal(); toast('A marca voltou ao símbolo do jogo.'); });
 // upload / remove buttons for one brand
-function brandImgCtl(kind, i) {
-  const k = brandImgKey(kind, i), has = !!CUSTOM_BRANDS[k];
-  return `<div class="row" style="gap:4px;justify-content:center;margin-top:6px"><label class="btn xs" style="cursor:pointer" title="Usar uma imagem sua para esta marca">${has ? 'Trocar' : '📷 Imagem'}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="hide" data-a="brandFile" data-k="${esc(k)}"></label>${has ? `<button class="btn xs" data-a="brandRemove" data-k="${esc(k)}" title="Voltar ao símbolo do jogo">✕</button>` : ''}</div>`;
+function brandImgCtl(kind, i) { return imgCtl(brandImgKey(kind, i)); }
+function imgCtl(k) {
+  const has = !!CUSTOM_BRANDS[k];
+  return `<div class="row" style="gap:4px;justify-content:center;margin-top:6px"><label class="btn xs" style="cursor:pointer" title="Usar uma imagem sua">${has ? 'Trocar' : '📷 Imagem'}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="hide" data-a="brandFile" data-k="${esc(k)}"></label>${has ? `<button class="btn xs" data-a="brandRemove" data-k="${esc(k)}" title="Voltar ao símbolo do jogo">✕</button>` : ''}</div>`;
 }
 
 /* ===================== boot ===================== */
