@@ -6183,7 +6183,7 @@ const SP_LOGO_MODELS = [
   { k: 3, n: 'Nome em faixa' }, { k: 4, n: 'Emblema ao lado do nome' }, { k: 5, n: 'Emblema monocromático' },
 ];
 // where a mark sits by default (fractions of the shirt body: 0..1) and how big it is (0.5..1.8)
-const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1, s1X: 0.25, s1Y: 0.86, s1S: 0.42, s1M: 2, s2X: 0.75, s2Y: 0.86, s2S: 0.42, s2M: 2 };
+const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1, s1X: 0.25, s1Y: 0.86, s1S: 0.42, s1M: 2, s2X: 0.75, s2Y: 0.86, s2S: 0.42, s2M: 2, crX: 0.25, crY: 0.2, crS: 1, crOn: 1 };
 function supGenOffers(t) {
   const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6), saBig = (t.c === 'BRA' || t.c === 'ARG') && fin >= 2;
   const maxPr = fin >= 4 || saBig ? 3 : fin >= 2 ? 2 : 1; // the big brands want the Brazilian market
@@ -7108,6 +7108,21 @@ function crestSrc(key) {
     CREST_URLS[key] = URL.createObjectURL(new Blob([bytes], { type: d.slice(5, d.indexOf(';')) }));
   } catch (e) { CREST_URLS[key] = d; }
   return CREST_URLS[key];
+}
+// the club crest as an <img> (custom picture, or the generated SVG) for canvas / SVG kits
+const CREST_EL = {};
+function crestImgSrc(t) {
+  if (!t) return null;
+  const c = customCrestOf(t);
+  if (c) return c;
+  const svg = crest(t, 80);
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.includes('xmlns') ? svg : svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
+}
+function crestImgEl(t) {
+  if (!t || typeof Image === 'undefined') return null;
+  const src = crestImgSrc(t), k = t.key || t.id;
+  if (!CREST_EL[k] || CREST_EL[k].src0 !== src) { const im = new Image(); im.src = src; im.src0 = src; CREST_EL[k] = im; }
+  return CREST_EL[k];
 }
 function customCrestOf(t) { return t && t.key && CUSTOM_CRESTS[t.key] ? crestSrc(t.key) : null; }
 function setCustomCrest(key, data) {
@@ -10999,12 +11014,14 @@ function drawShirtLogos(ctx, kit, side, tx, ty, s) {
   const K = Object.assign({}, KIT_LOGO_DEF, kit), bx = tx - s * 0.42, by = ty, bw = s * 0.84, bh = s * 0.78;
   const spt = G_SP.tag && G_SP.tag[side], lg = G_SP.logo && G_SP.logo[side];
   if (spt) drawLogoModel(ctx, K.spM, lg || { sh: 1, c1: '#444', c2: '#fff' }, G_SP.br[side], spt, bx + K.spX * bw, by + K.spY * bh, s * 0.1 * K.spS, kit.shirt);
+  const tm = G_SP.tid && S.teams[G_SP.tid[side]];
+  if (tm && K.crOn && typeof crestImgEl === 'function') { const im = crestImgEl(tm), r = s * 0.075 * K.crS; if (im && im.complete && im.naturalWidth) ctx.drawImage(im, bx + K.crX * bw - r, by + K.crY * bh - r, r * 2, r * 2); }
   const sec = G_SP.sec && G_SP.sec[side];
   if (sec) for (const k of ['s1', 's2']) if (sec[k] != null) { const b = sec[k], lgk = typeof lgWithImg === 'function' ? lgWithImg('sp', b, SP_BRANDS[b][4]) : SP_BRANDS[b][4]; drawLogoModel(ctx, K[k + 'M'], lgk, spIconOf(b), SP_BRANDS[b][1], bx + K[k + 'X'] * bw, by + K[k + 'Y'] * bh, s * 0.1 * K[k + 'S'], kit.shirt); }
   const sb = G_SP.sup && G_SP.sup[side];
   if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, typeof lgWithImg === 'function' ? lgWithImg('su', sb, sp) : sp, sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
 }
-const G_SP = { tag: null, logo: null, br: null, sup: null, sec: null };
+const G_SP = { tag: null, logo: null, br: null, sup: null, sec: null, tid: null };
 const Game2D = (() => {
   const PL = 105, PW = 68, GOAL_W = 7.32, GOAL_H = 2.44, BOX_W = 40.32, BOX_D = 16.5;
   // difficulty: what the computer-controlled side gets (team 1); in automatic test runs both sides use "normal"
@@ -11234,7 +11251,7 @@ const Game2D = (() => {
     G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : (typeof lgWithImg === 'function' ? lgWithImg('sp', b, SP_BRANDS[b][4]) : SP_BRANDS[b][4]); });
     G.spSup = [0, 1].map((k) => supplierOf(st.sides[k].id));
     G.spSec = [0, 1].map((k) => { const sa = typeof sponsActive === 'function' ? sponsActive() : null; return sa && sa.team === st.sides[k].id ? { s1: sa.sec1 ? sa.sec1.b : null, s2: sa.sec2 ? sa.sec2.b : null } : null; });
-    G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup; G_SP.sec = G.spSec;
+    G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup; G_SP.sec = G.spSec; G_SP.tid = [st.sides[0].id, st.sides[1].id];
     buildPlayers();
     resetKickoff(0);
     if (!G.auto) {
@@ -17737,9 +17754,9 @@ function kitEffective(t, role) { return Object.assign({}, KIT_LOGO_DEF, kitBase(
 // which marks the club wears right now (for the preview): the shirt sponsor and the kit supplier of the user's contracts
 function kitLogoOpts(t) {
   const s = typeof sponsActive === 'function' ? sponsActive() : null;
-  if (!s || s.team !== t.id) return null;
+  if (!s || s.team !== t.id) return { sp: null, sup: -1, cr: t.id };
   const sec = (k) => (s[k] ? { b: s[k].b, tag: SP_BRANDS[s[k].b][1] } : null);
-  return { sp: sec('shirt'), s1: sec('sec1'), s2: sec('sec2'), sup: s.kit ? s.kit.b : -1 };
+  return { sp: sec('shirt'), s1: sec('sec1'), s2: sec('sec2'), sup: s.kit ? s.kit.b : -1, cr: t.id };
 }
 // pattern over a shirt-shaped box (shared by the 2D game and the previews)
 function kitPattern(ctx, pat, col, x, y, w, h) {
@@ -17785,6 +17802,7 @@ function kitLogosSvg(k, lo) {
   let o = '';
   if (lo.sp) { const br = SP_BRANDS[lo.sp.b], u = 5.4 * K.spS, cx = B.x + K.spX * B.w, cy = B.y + K.spY * B.h; o += hit('sp', cx, cy, u * 1.9, logoModelSvg(K.spM, lgWithImg('sp', lo.sp.b, br[4]), spIconOf(lo.sp.b), lo.sp.tag, cx, cy, u, K.shirt)); }
   for (const k of ['s1', 's2']) if (lo[k]) { const x = lo[k], br = SP_BRANDS[x.b], u = 5.4 * K[k + 'S'], cx = B.x + K[k + 'X'] * B.w, cy = B.y + K[k + 'Y'] * B.h; o += hit(k, cx, cy, u * 1.9, logoModelSvg(K[k + 'M'], lgWithImg('sp', x.b, br[4]), spIconOf(x.b), x.tag, cx, cy, u, K.shirt)); }
+  if (lo.cr && K.crOn && S.teams[lo.cr]) { const r = 4.2 * K.crS, cx = B.x + K.crX * B.w, cy = B.y + K.crY * B.h; o += hit('cr', cx, cy, r * 1.15, `<image href="${esc(crestImgSrc(S.teams[lo.cr]))}" x="${(cx - r).toFixed(2)}" y="${(cy - r).toFixed(2)}" width="${(r * 2).toFixed(2)}" height="${(r * 2).toFixed(2)}" preserveAspectRatio="xMidYMid meet"/>`); }
   if (lo.sup != null && lo.sup >= 0) { const sp = SP_SUPS[lo.sup], u = 3.3 * K.suS, cx = B.x + K.suX * B.w, cy = B.y + K.suY * B.h; o += hit('su', cx, cy, u * 1.7, logoModelSvg(K.suM, lgWithImg('su', lo.sup, sp), sp.ic, sp.n.toUpperCase(), cx, cy, u, K.shirt)); }
   return o;
 }
@@ -17797,11 +17815,14 @@ function kitHtml() {
       <label class="field"><span class="muted up" style="font-size:10px">Modelo do logo</span><select data-a="kitMdl" data-k="${key}M" class="input">${mdls.map((m) => `<option value="${m.k}" ${+v[key + 'M'] === m.k ? 'selected' : ''}>${m.n}</option>`).join('')}</select></label>
       <div class="row wrap" style="gap:8px;margin-top:6px">${rg('X', 'Horizontal', 0.02, 0.98, 0.01)}${rg('Y', 'Vertical', 0.04, 0.98, 0.01)}${rg('S', 'Tamanho', 0.3, 2.6, 0.05)}</div></div>`;
   };
-  const logos = (lo.sp ? logoCtl('sp', 'Patrocinador master', SP_LOGO_MODELS, SP_BRANDS[lo.sp.b][0]) : '') + (lo.s1 ? logoCtl('s1', 'Patrocinador secundário 1', SP_LOGO_MODELS, SP_BRANDS[lo.s1.b][0]) : '') + (lo.s2 ? logoCtl('s2', 'Patrocinador secundário 2', SP_LOGO_MODELS, SP_BRANDS[lo.s2.b][0]) : '') + (lo.sup >= 0 ? logoCtl('su', 'Fornecedor', SP_LOGO_MODELS, SP_SUPS[lo.sup].n) : '')
+  const crCtl = `<div class="panel" style="padding:10px"><div class="row" style="gap:8px;align-items:center;margin-bottom:6px">${crest(t, 22)}<b style="font-size:13px">Escudo do clube</b><label class="toggle" style="margin-left:auto"><input type="checkbox" data-a="kitCrOn" ${v.crOn ? 'checked' : ''}><span class="sw"></span>Mostrar</label></div>
+      <div class="row wrap" style="gap:8px">${['X', 'Y', 'S'].map((f) => `<label class="field" style="min-width:90px;flex:1"><span class="muted up" style="font-size:10px">${{ X: 'Horizontal', Y: 'Vertical', S: 'Tamanho' }[f]}</span><input type="range" min="${{ X: 0.02, Y: 0.04, S: 0.4 }[f]}" max="${{ X: 0.98, Y: 0.98, S: 2.6 }[f]}" step="${f === 'S' ? 0.05 : 0.01}" value="${v['cr' + f]}" data-a="kitRng" data-live="1" data-k="cr${f}" style="width:100%"></label>`).join('')}</div>
+      <div class="muted" style="font-size:11px;margin-top:4px">Usa o escudo que você adicionou (ou o gerado pelo jogo).</div></div>`;
+  const logos = crCtl + (lo.sp ? logoCtl('sp', 'Patrocinador master', SP_LOGO_MODELS, SP_BRANDS[lo.sp.b][0]) : '') + (lo.s1 ? logoCtl('s1', 'Patrocinador secundário 1', SP_LOGO_MODELS, SP_BRANDS[lo.s1.b][0]) : '') + (lo.s2 ? logoCtl('s2', 'Patrocinador secundário 2', SP_LOGO_MODELS, SP_BRANDS[lo.s2.b][0]) : '') + (lo.sup >= 0 ? logoCtl('su', 'Fornecedor', SP_LOGO_MODELS, SP_SUPS[lo.sup].n) : '')
     || '<p class="muted" style="font-size:12px;margin:0">Sem logos no uniforme: feche contratos de material esportivo e de patrocínio da camisa em Escritório → Patrocínios.</p>';
   const col = (k, lab) => `<label class="field" style="min-width:110px"><span class="muted up" style="font-size:11px">${lab}</span><input type="color" value="${kitHex(v[k])}" data-a="kitCol" data-k="${k}" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--line2);background:none;padding:2px"></label>`;
   return modalShell('👕 Uniforme', `<div class="row wrap" style="gap:8px;margin-bottom:12px"><div class="seg"><button class="${K.role === 'home' ? 'on' : ''}" data-a="kitRole" data-v="home">Uniforme 1 (casa)</button><button class="${K.role === 'away' ? 'on' : ''}" data-a="kitRole" data-v="away">Uniforme 2 (fora)</button></div><span class="muted">${esc(t.n)}</span></div>
-    <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center"><div id="kit-prev" style="touch-action:none">${kitSvg(v, 250, null, Object.assign({ drag: true }, lo))}</div>${lo.sp || lo.s1 || lo.s2 || lo.sup >= 0 ? '<div class="muted" style="font-size:11px">Arraste as logos (e as suas imagens) na camisa</div>' : ''}</div>
+    <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center"><div id="kit-prev" style="touch-action:none">${kitSvg(v, 250, null, Object.assign({ drag: true }, lo))}</div><div class="muted" style="font-size:11px">Arraste o escudo e as logos na camisa</div></div>
     <div class="col grow" style="min-width:230px;gap:12px"><div class="row wrap" style="gap:10px">${col('shirt', 'Camisa')}${col('trim', 'Detalhes')}${col('shorts', 'Calção')}${col('socks', 'Meias')}</div>
       <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Padrão da camisa (usa a cor dos detalhes)</div><div class="seg wrapseg">${KIT_PATS.map((n, i) => `<button class="${v.pat === i ? 'on' : ''}" data-a="kitPat" data-v="${i}">${n}</button>`).join('')}</div></div>
       <div class="col" style="gap:8px">${logos}</div>
@@ -17821,6 +17842,7 @@ act('kitCol', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = el.value; refreshM
 act('kitReset', () => { const t = S.teams[UI.kit.team]; UI.kit.v[UI.kit.role] = Object.assign({}, KIT_LOGO_DEF, kitBase(t, UI.kit.role)); refreshModal(); });
 // logo placement: sliders, model picker and dragging on the preview
 function kitPrev() { const n = document.getElementById('kit-prev'); if (!n || !UI.kit) return; const t = S.teams[UI.kit.team]; n.innerHTML = kitSvg(UI.kit.v[UI.kit.role], 250, null, Object.assign({ drag: true }, kitLogoOpts(t) || { sp: null, sup: -1 })); }
+act('kitCrOn', (el) => { UI.kit.v[UI.kit.role].crOn = el.checked ? 1 : 0; refreshModal(); });
 act('kitRng', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = +el.value; kitPrev(); });
 act('kitMdl', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = +el.value; refreshModal(); });
 (function kitDrag() {
