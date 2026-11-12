@@ -5960,12 +5960,15 @@ const SP_PERKS = {
 };
 const SP_STD_FMT = ['{b} Arena', 'Estádio {b}', '{b} Stadium', 'Arena {b}', '{b} Park'];
 
+// spaces: stadium name, master shirt sponsor, two smaller shirt sponsors under it, kit supplier
+const SP_SLOTS = ['std', 'shirt', 'sec1', 'sec2', 'kit'];
+const spIsSec = (slot) => slot === 'sec1' || slot === 'sec2';
+const spSlotName = (slot) => (slot === 'std' ? 'do nome do estádio' : slot === 'shirt' ? 'master da camisa' : 'secundário da camisa');
 function sponsInit() {
   if (!S.spons) S.spons = { team: 0, std: null, shirt: null, kit: null, offers: { std: [], shirt: [], kit: [] }, offD: -999, total: 0, hist: [] };
-  if (S.spons.kit === undefined) S.spons.kit = null;
-  if (!S.spons.offers.kit) S.spons.offers.kit = [];
+  for (const k of SP_SLOTS) { if (S.spons[k] === undefined) S.spons[k] = null; if (!S.spons.offers[k]) S.spons.offers[k] = []; }
   const uid = S.user && S.user.team;
-  if (S.spons.team !== uid) Object.assign(S.spons, { team: uid || 0, std: null, shirt: null, kit: null, offers: { std: [], shirt: [], kit: [] }, offD: -999 }); // new club: new deals
+  if (S.spons.team !== uid) Object.assign(S.spons, { team: uid || 0, std: null, shirt: null, sec1: null, sec2: null, kit: null, offers: { std: [], shirt: [], sec1: [], sec2: [], kit: [] }, offD: -999 }); // new club: new deals
   return S.spons;
 }
 function sponsAvailable() { return !!(S.user && S.user.team && !S.coach.unemployed && !S.pl && S.mode !== 'national' && S.teams[S.user.team] && !S.teams[S.user.team].isNat); }
@@ -6003,7 +6006,8 @@ function sponsGenOffers(slot) {
   const s = sponsInit(), t = S.teams[s.team];
   if (!t) return [];
   if (slot === 'kit') return supGenOffers(t);
-  const used = new Set();
+  const used = new Set(SP_SLOTS.filter((k) => k !== 'kit' && s[k]).map((k) => s[k].b)); // no brand twice on the club
+  SP_SLOTS.forEach((k) => { if (k !== slot && k !== 'kit') (s.offers[k] || []).forEach((o) => used.add(o.b)); });
   const out = [];
   for (let i = 0; i < 3; i++) {
     let b, guard = 0;
@@ -6013,11 +6017,11 @@ function sponsGenOffers(slot) {
     used.add(b);
     const perk = SP_BRANDS[b][3];
     const yrs = rint(1, 5);
-    let per = sponsBase(t) * (slot === 'shirt' ? 0.16 : 0.12) * rfloat(0.85, 1.25) * (perk === 'cash' ? 1.2 : 0.92);
+    let per = sponsBase(t) * (slot === 'shirt' ? 0.16 : spIsSec(slot) ? 0.045 : 0.12) * rfloat(0.85, 1.25) * (perk === 'cash' ? 1.2 : 0.92); // the smaller shirt sponsors pay about 30% of the master
     per = roundMoney(per);
     const o = { id: nextId('sp'), slot, b, yrs, perYear: per, signing: roundMoney(per * 0.12 * yrs) };
     if (slot === 'std') o.fmt = rint(0, SP_STD_FMT.length - 1);
-    else o.winBonus = roundMoney(per * 0.012 * (perk === 'bonus' ? 3 : 1));
+    else if (slot === 'shirt') o.winBonus = roundMoney(per * 0.012 * (perk === 'bonus' ? 3 : 1));
     out.push(o);
   }
   return out;
@@ -6025,8 +6029,10 @@ function sponsGenOffers(slot) {
 function sponsRefresh(force) {
   const s = sponsInit();
   if (!sponsAvailable()) return;
-  if (force || S.date - s.offD >= 45 || (!s.offers.std.length && !s.offers.shirt.length && !s.offers.kit.length)) {
-    s.offers = { std: s.std ? [] : sponsGenOffers('std'), shirt: s.shirt ? [] : sponsGenOffers('shirt'), kit: s.kit ? [] : sponsGenOffers('kit') };
+  if (force || S.date - s.offD >= 45 || SP_SLOTS.every((k) => !s.offers[k].length)) {
+    s.offers = {};
+    for (const k of SP_SLOTS) s.offers[k] = [];
+    for (const k of SP_SLOTS) s.offers[k] = s[k] ? [] : sponsGenOffers(k);
     s.offD = S.date;
   }
 }
@@ -6043,12 +6049,13 @@ function sponsSign(slot, id) {
     addInbox('board', 'Diretoria', `${sp.n} é a nova fornecedora de material`, `${sp.n} vestirá o clube por ${o.yrs} ${o.yrs === 1 ? 'ano' : 'anos'}: ${fmtMoney(o.perYear)} por ano (parcelas mensais) mais ${fmtMoney(o.signing)} de luvas, já no caixa. Você pode posicionar a marca no uniforme em Clube → Uniforme.`);
     return { ok: true, msg: `${sp.n} fechada: ${fmtMoney(o.signing)} de luvas no caixa.` };
   }
-  if (slot === 'std') { c.fmt = o.fmt; c.name = sponsStdName(o); c.orig = t.std; } else c.winBonus = o.winBonus;
+  if (SP_SLOTS.some((k) => k !== 'kit' && k !== slot && s[k] && s[k].b === o.b)) return { ok: false, msg: 'Essa marca já patrocina o clube em outro espaço.' };
+  if (slot === 'std') { c.fmt = o.fmt; c.name = sponsStdName(o); c.orig = t.std; } else if (slot === 'shirt') c.winBonus = o.winBonus;
   s[slot] = c;
   s.offers[slot] = [];
   t.budget += o.signing; s.total += o.signing;
   const br = SP_BRANDS[o.b];
-  addInbox('board', 'Diretoria', slot === 'std' ? `Estádio agora se chama ${c.name}` : `${br[0]} é a nova patrocinadora da camisa`,
+  addInbox('board', 'Diretoria', slot === 'std' ? `Estádio agora se chama ${c.name}` : spIsSec(slot) ? `${br[0]} entra como patrocinadora secundária` : `${br[0]} é a nova patrocinadora master da camisa`,
     `${br[0]} fechou ${o.yrs} ${o.yrs === 1 ? 'ano' : 'anos'} de contrato: ${fmtMoney(o.perYear)} por ano (pagos em parcelas mensais) mais ${fmtMoney(o.signing)} de luvas, já no caixa.${slot === 'shirt' ? ` Bônus de ${fmtMoney(o.winBonus)} por vitória.` : ''}`);
   return { ok: true, msg: `${br[0]} fechada: ${fmtMoney(o.signing)} de luvas no caixa.` };
 }
@@ -6067,11 +6074,11 @@ function sponsMonth() {
   if (!sponsAvailable()) return;
   const s = sponsInit(), t = S.teams[s.team];
   if (!t) return;
-  for (const slot of ['std', 'shirt', 'kit']) {
+  for (const slot of SP_SLOTS) {
     const c = s[slot];
     if (!c) continue;
     if (S.date >= c.end) {
-      addInbox('board', 'Diretoria', `Contrato com ${slot === 'kit' ? SP_SUPS[c.b].n : SP_BRANDS[c.b][0]} terminou`, `${slot === 'kit' ? 'O contrato de material esportivo' : 'O patrocínio ' + (slot === 'std' ? 'do nome do estádio' : 'da camisa')} chegou ao fim. Há novas propostas na aba Patrocínios do Escritório.`);
+      addInbox('board', 'Diretoria', `Contrato com ${slot === 'kit' ? SP_SUPS[c.b].n : SP_BRANDS[c.b][0]} terminou`, `${slot === 'kit' ? 'O contrato de material esportivo' : 'O patrocínio ' + spSlotName(slot)} chegou ao fim. Há novas propostas na aba Patrocínios do Escritório.`);
       s.hist.push({ slot, b: c.b, start: c.start, end: c.end });
       s[slot] = null; s.offers[slot] = sponsGenOffers(slot);
       continue;
@@ -6176,7 +6183,7 @@ const SP_LOGO_MODELS = [
   { k: 3, n: 'Nome em faixa' }, { k: 4, n: 'Emblema ao lado do nome' }, { k: 5, n: 'Emblema monocromático' },
 ];
 // where a mark sits by default (fractions of the shirt body: 0..1) and how big it is (0.5..1.8)
-const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1 };
+const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1, s1X: 0.25, s1Y: 0.86, s1S: 0.42, s1M: 2, s2X: 0.75, s2Y: 0.86, s2S: 0.42, s2M: 2 };
 function supGenOffers(t) {
   const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6), saBig = (t.c === 'BRA' || t.c === 'ARG') && fin >= 2;
   const maxPr = fin >= 4 || saBig ? 3 : fin >= 2 ? 2 : 1; // the big brands want the Brazilian market
@@ -10967,6 +10974,7 @@ function drawLogoModel(ctx, m, lg, icon, text, cx, cy, u, shirt, fontFam) {
   const mono = { sh: lg.sh, c1: dark ? '#161616' : '#f4f4f4', c2: dark ? '#f4f4f4' : '#161616' };
   const fs = (k) => Math.max(4, Math.round(u * k));
   const font = (k) => { ctx.font = `800 ${fs(k)}px ${fontFam || '"Barlow Condensed", "Arial Narrow", sans-serif'}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; };
+  if (lg.imgEl && (m === 2 || m === 3)) { drawBrandMark(ctx, lg, cx, cy, u * 1.5, icon); return; } // the user's own image
   if (m === 1 || m === 5) { drawBrandMark(ctx, m === 5 ? mono : lg, cx, cy, u * 1.3, icon); return; }
   if (m === 2) { font(2); ctx.fillStyle = ink; ctx.fillText(text, cx, cy, u * 7); return; }
   if (m === 3) {
@@ -10991,10 +10999,12 @@ function drawShirtLogos(ctx, kit, side, tx, ty, s) {
   const K = Object.assign({}, KIT_LOGO_DEF, kit), bx = tx - s * 0.42, by = ty, bw = s * 0.84, bh = s * 0.78;
   const spt = G_SP.tag && G_SP.tag[side], lg = G_SP.logo && G_SP.logo[side];
   if (spt) drawLogoModel(ctx, K.spM, lg || { sh: 1, c1: '#444', c2: '#fff' }, G_SP.br[side], spt, bx + K.spX * bw, by + K.spY * bh, s * 0.1 * K.spS, kit.shirt);
+  const sec = G_SP.sec && G_SP.sec[side];
+  if (sec) for (const k of ['s1', 's2']) if (sec[k] != null) { const b = sec[k], lgk = typeof lgWithImg === 'function' ? lgWithImg('sp', b, SP_BRANDS[b][4]) : SP_BRANDS[b][4]; drawLogoModel(ctx, K[k + 'M'], lgk, spIconOf(b), SP_BRANDS[b][1], bx + K[k + 'X'] * bw, by + K[k + 'Y'] * bh, s * 0.1 * K[k + 'S'], kit.shirt); }
   const sb = G_SP.sup && G_SP.sup[side];
   if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, typeof lgWithImg === 'function' ? lgWithImg('su', sb, sp) : sp, sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
 }
-const G_SP = { tag: null, logo: null, br: null, sup: null };
+const G_SP = { tag: null, logo: null, br: null, sup: null, sec: null };
 const Game2D = (() => {
   const PL = 105, PW = 68, GOAL_W = 7.32, GOAL_H = 2.44, BOX_W = 40.32, BOX_D = 16.5;
   // difficulty: what the computer-controlled side gets (team 1); in automatic test runs both sides use "normal"
@@ -11223,7 +11233,8 @@ const Game2D = (() => {
     G.spBr = [0, 1].map((k) => sponsBrandOf(st.sides[k].id));
     G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : (typeof lgWithImg === 'function' ? lgWithImg('sp', b, SP_BRANDS[b][4]) : SP_BRANDS[b][4]); });
     G.spSup = [0, 1].map((k) => supplierOf(st.sides[k].id));
-    G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup;
+    G.spSec = [0, 1].map((k) => { const sa = typeof sponsActive === 'function' ? sponsActive() : null; return sa && sa.team === st.sides[k].id ? { s1: sa.sec1 ? sa.sec1.b : null, s2: sa.sec2 ? sa.sec2.b : null } : null; });
+    G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup; G_SP.sec = G.spSec;
     buildPlayers();
     resetKickoff(0);
     if (!G.auto) {
@@ -17555,6 +17566,7 @@ function logoModelSvg(m, lg, icon, text, cx, cy, u, shirt) {
   const em = (l, x, y, r) => `<g transform="translate(${(x - r).toFixed(2)} ${(y - r).toFixed(2)}) scale(${(r * 2 / 100).toFixed(4)})">${lg.img ? brandSvgImg(lg.img) : markInner(l, icon)}</g>`;
   const tx = (x, y, k, anchor, fill) => `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${anchor || 'middle'}" dominant-baseline="central" font-size="${(u * k).toFixed(2)}" font-weight="800" fill="${fill || ink}" font-family="Arial Narrow,Arial,sans-serif">${esc(text)}</text>`;
   const wd = (k) => text.length * u * k * 0.5;
+  if (lg.img && (m === 2 || m === 3)) return em(lg, cx, cy, u * 1.5); // the user's own image replaces the text-only models
   if (m === 1) return em(lg, cx, cy, u * 1.3);
   if (m === 5) return em(mono, cx, cy, u * 1.3);
   if (m === 2) return tx(cx, cy, 2);
@@ -17580,11 +17592,12 @@ function viewSponsors() {
   const perkChip = (b) => { const pk = SP_PERKS[brand(b)[3]]; return `<span class="chip" title="${esc(pk.desc)}">${pk.ico} ${pk.label}</span>`; };
   const contract = (slot) => {
     const c = s[slot], br = brand(c.b), left = Math.max(0, Math.ceil((c.end - S.date) / 365 * 10) / 10);
-    return `<div class="row wrap" style="gap:16px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 92, c.b) : `<div style="font-size:42px">🏟</div>`}<div title="${esc(br[0])}">${brandLogo(c.b, 56, true)}</div>
+    return `<div class="row wrap" style="gap:16px;align-items:center">${slot !== 'std' ? spShirtSvg(t, br[1], 92, c.b) : `<div style="font-size:42px">🏟</div>`}<div title="${esc(br[0])}">${brandLogo(c.b, 56, true)}${brandImgCtl('sp', c.b)}</div>
       <div class="grow" style="min-width:220px"><div class="disp" style="font-size:24px;font-weight:800">${slot === 'std' ? esc(c.name) : esc(br[0])}</div>
         <div class="muted" style="font-size:13px">${slot === 'std' ? `Patrocinador: ${esc(br[0])} · antes: ${esc(c.orig || '')}` : `Na camisa: ${esc(br[1])}`}</div>
         <div class="row wrap" style="gap:8px;margin-top:8px"><span class="chip">${money(c.perYear)}/ano</span><span class="chip">${left} ${left === 1 ? 'ano' : 'anos'} restantes</span>${slot === 'shirt' ? `<span class="chip">+${money(c.winBonus)} por vitória</span>${perkChip(c.b)}` : ''}</div>
-        ${slot === 'shirt' ? `<p class="muted" style="font-size:12px;margin:8px 0 0">${esc(SP_PERKS[br[3]].desc)}</p>` : ''}</div>
+        ${slot === 'shirt' ? `<p class="muted" style="font-size:12px;margin:8px 0 0">${esc(SP_PERKS[br[3]].desc)}</p>` : ''}
+        ${slot !== 'std' ? '<div class="row wrap" style="gap:8px;margin-top:10px"><button class="btn" data-a="openKit">👕 Posicionar no uniforme</button></div>' : ''}</div>
       <button class="btn" data-a="spBreak" data-slot="${slot}">Rescindir (multa ${money(c.perYear * 0.5)})</button></div>`;
   };
   const offers = (slot) => {
@@ -17592,7 +17605,7 @@ function viewSponsors() {
     if (!list.length) return '<div class="muted">Sem propostas no momento. Novas chegam em breve.</div>';
     return `<div class="col" style="gap:10px">${list.map((o) => {
       const br = brand(o.b);
-      return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center">${slot === 'shirt' ? spShirtSvg(t, br[1], 64, o.b) : '<div style="font-size:32px">🏟</div>'}${brandLogo(o.b, 48, true)}
+      return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center">${slot !== 'std' ? spShirtSvg(t, br[1], 64, o.b) : '<div style="font-size:32px">🏟</div>'}<div>${brandLogo(o.b, 48, true)}${brandImgCtl('sp', o.b)}</div>
         <div class="grow" style="min-width:200px"><b style="font-size:17px">${slot === 'std' ? esc(sponsStdName(o)) : esc(br[0])}</b>${slot === 'std' ? `<div class="muted" style="font-size:12px">${esc(br[0])}</div>` : ''}
           <div class="row wrap" style="gap:6px;margin-top:6px"><span class="chip">${money(o.perYear)}/ano</span><span class="chip">${o.yrs} ${o.yrs === 1 ? 'ano' : 'anos'}</span><span class="chip">luvas ${money(o.signing)}</span>${slot === 'shirt' ? `<span class="chip">+${money(o.winBonus)}/vitória</span>${perkChip(o.b)}` : ''}</div></div>
         <button class="btn gold" data-a="spSign" data-slot="${slot}" data-id="${o.id}">Fechar contrato</button></div></div>`;
@@ -17603,7 +17616,7 @@ function viewSponsors() {
     let body;
     if (s.kit) {
       const c = s.kit, sp = SP_SUPS[c.b], left = Math.max(0, Math.ceil((c.end - S.date) / 365 * 10) / 10);
-      body = `<div class="row wrap" style="gap:16px;align-items:center">${kitSvg(kitEffective(t, 'home'), 80, null, kitLogoOpts(t, 'home'))}<div title="${esc(sp.n)}">${supLogo(c.b, 56, true)}</div>
+      body = `<div class="row wrap" style="gap:16px;align-items:center">${kitSvg(kitEffective(t, 'home'), 80, null, kitLogoOpts(t, 'home'))}<div title="${esc(sp.n)}">${supLogo(c.b, 56, true)}${brandImgCtl('su', c.b)}</div>
         <div class="grow" style="min-width:220px"><div class="disp" style="font-size:24px;font-weight:800">${esc(sp.n)}</div><div class="muted" style="font-size:13px">${esc(SP_SUP_PERK[sp.pr])}</div>
           <div class="row wrap" style="gap:8px;margin-top:8px"><span class="chip">${money(c.perYear)}/ano</span><span class="chip">${left} ${left === 1 ? 'ano' : 'anos'} restantes</span>${supChip(c.b)}</div>
           <div class="row wrap" style="gap:8px;margin-top:10px"><button class="btn" data-a="openKit">👕 Posicionar logos no uniforme</button></div></div>
@@ -17612,7 +17625,7 @@ function viewSponsors() {
       const list = s.offers.kit || [];
       body = !list.length ? '<div class="muted">Sem propostas no momento. Novas chegam em breve.</div>' : `<div class="col" style="gap:10px">${list.map((o) => {
         const sp = SP_SUPS[o.b];
-        return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center">${supLogo(o.b, 48, true)}
+        return `<div class="panel" style="padding:12px"><div class="row wrap" style="gap:14px;align-items:center"><div>${supLogo(o.b, 48, true)}${brandImgCtl('su', o.b)}</div>
           <div class="grow" style="min-width:200px"><b style="font-size:17px">${esc(sp.n)}</b><div class="muted" style="font-size:12px">${esc(SP_SUP_PERK[sp.pr])}</div>
             <div class="row wrap" style="gap:6px;margin-top:6px"><span class="chip">${money(o.perYear)}/ano</span><span class="chip">${o.yrs} ${o.yrs === 1 ? 'ano' : 'anos'}</span><span class="chip">luvas ${money(o.signing)}</span>${supChip(o.b)}</div></div>
           <button class="btn gold" data-a="spSign" data-slot="kit" data-id="${o.id}">Fechar contrato</button></div></div>`;
@@ -17622,10 +17635,11 @@ function viewSponsors() {
   };
   const slotPanel = (slot, title, sub) => `<div class="panel"><h3>${title} <span class="sub">${sub}</span></h3>${s[slot] ? contract(slot) : offers(slot)}</div>`;
   return `<div class="grid g3" style="margin-bottom:16px"><div class="stat-tile"><div class="k">Caixa</div><div class="v">${money(t.budget)}</div></div>
-    <div class="stat-tile"><div class="k">Receita por ano</div><div class="v">${money((s.std ? s.std.perYear : 0) + (s.shirt ? s.shirt.perYear : 0) + (s.kit ? s.kit.perYear : 0))}</div><div class="muted" style="font-size:13px">pago em parcelas mensais</div></div>
+    <div class="stat-tile"><div class="k">Receita por ano</div><div class="v">${money(SP_SLOTS.reduce((a, k) => a + (s[k] ? s[k].perYear : 0), 0))}</div><div class="muted" style="font-size:13px">pago em parcelas mensais</div></div>
     <div class="stat-tile"><div class="k">Total já recebido</div><div class="v">${money(s.total)}</div><div class="muted" style="font-size:13px">${s.wins || 0} bônus por vitória</div></div></div>
     <div class="col" style="gap:16px">${kitPanel()}
-    ${slotPanel('shirt', 'Camisa', 'o patrocinador aparece no uniforme em campo e pode ajudar no jogo')}
+    ${slotPanel('shirt', 'Patrocinador master', 'o maior espaço da camisa: aparece no uniforme em campo, paga bônus por vitória e pode ajudar no jogo')}
+    <div class="grid g2">${slotPanel('sec1', 'Patrocinador secundário 1', 'logo menor abaixo do master; paga cerca de 30% do master')}${slotPanel('sec2', 'Patrocinador secundário 2', 'logo menor abaixo do master; paga cerca de 30% do master')}</div>
     ${slotPanel('std', 'Nome do estádio', `${esc(t.std || 'estádio')}: vender o nome rende luvas e parcelas mensais`)}
     <div class="row wrap" style="gap:10px"><button class="btn" data-a="spNew">Pedir novas propostas</button><button class="btn" data-a="spCat">📚 Catálogo de marcas (${SP_BRANDS.length})</button><span class="muted" style="font-size:12px;align-self:center">As propostas mudam a cada 45 dias e dependem da força e do porte do clube. Rescindir custa meio ano de contrato.</span></div></div>`;
 }
@@ -17724,7 +17738,8 @@ function kitEffective(t, role) { return Object.assign({}, KIT_LOGO_DEF, kitBase(
 function kitLogoOpts(t) {
   const s = typeof sponsActive === 'function' ? sponsActive() : null;
   if (!s || s.team !== t.id) return null;
-  return { sp: s.shirt ? { b: s.shirt.b, tag: SP_BRANDS[s.shirt.b][1] } : null, sup: s.kit ? s.kit.b : -1 };
+  const sec = (k) => (s[k] ? { b: s[k].b, tag: SP_BRANDS[s[k].b][1] } : null);
+  return { sp: sec('shirt'), s1: sec('sec1'), s2: sec('sec2'), sup: s.kit ? s.kit.b : -1 };
 }
 // pattern over a shirt-shaped box (shared by the 2D game and the previews)
 function kitPattern(ctx, pat, col, x, y, w, h) {
@@ -17769,6 +17784,7 @@ function kitLogosSvg(k, lo) {
   const hit = (key, cx, cy, r, inner) => `<g ${lo.drag ? `data-drag="${key}" style="cursor:grab"` : ''}>${inner}${lo.drag ? `<rect x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${(r * 2).toFixed(1)}" height="${(r * 2).toFixed(1)}" fill="transparent" stroke="rgba(255,200,60,.85)" stroke-dasharray="1.6 1.2" stroke-width=".5" rx="1.5"/>` : ''}</g>`;
   let o = '';
   if (lo.sp) { const br = SP_BRANDS[lo.sp.b], u = 5.4 * K.spS, cx = B.x + K.spX * B.w, cy = B.y + K.spY * B.h; o += hit('sp', cx, cy, u * 1.9, logoModelSvg(K.spM, lgWithImg('sp', lo.sp.b, br[4]), spIconOf(lo.sp.b), lo.sp.tag, cx, cy, u, K.shirt)); }
+  for (const k of ['s1', 's2']) if (lo[k]) { const x = lo[k], br = SP_BRANDS[x.b], u = 5.4 * K[k + 'S'], cx = B.x + K[k + 'X'] * B.w, cy = B.y + K[k + 'Y'] * B.h; o += hit(k, cx, cy, u * 1.9, logoModelSvg(K[k + 'M'], lgWithImg('sp', x.b, br[4]), spIconOf(x.b), x.tag, cx, cy, u, K.shirt)); }
   if (lo.sup != null && lo.sup >= 0) { const sp = SP_SUPS[lo.sup], u = 3.3 * K.suS, cx = B.x + K.suX * B.w, cy = B.y + K.suY * B.h; o += hit('su', cx, cy, u * 1.7, logoModelSvg(K.suM, lgWithImg('su', lo.sup, sp), sp.ic, sp.n.toUpperCase(), cx, cy, u, K.shirt)); }
   return o;
 }
@@ -17779,13 +17795,13 @@ function kitHtml() {
     const rg = (f, lab, min, max, st) => `<label class="field" style="min-width:90px;flex:1"><span class="muted up" style="font-size:10px">${lab}</span><input type="range" min="${min}" max="${max}" step="${st}" value="${v[key + f]}" data-a="kitRng" data-live="1" data-k="${key}${f}" style="width:100%"></label>`;
     return `<div class="panel" style="padding:10px"><div class="row" style="gap:8px;align-items:center;margin-bottom:6px"><b style="font-size:13px">${title}</b><span class="muted" style="font-size:12px">${esc(mark)}</span></div>
       <label class="field"><span class="muted up" style="font-size:10px">Modelo do logo</span><select data-a="kitMdl" data-k="${key}M" class="input">${mdls.map((m) => `<option value="${m.k}" ${+v[key + 'M'] === m.k ? 'selected' : ''}>${m.n}</option>`).join('')}</select></label>
-      <div class="row wrap" style="gap:8px;margin-top:6px">${rg('X', 'Horizontal', 0.1, 0.9, 0.01)}${rg('Y', 'Vertical', 0.08, 0.95, 0.01)}${rg('S', 'Tamanho', 0.5, 1.8, 0.05)}</div></div>`;
+      <div class="row wrap" style="gap:8px;margin-top:6px">${rg('X', 'Horizontal', 0.02, 0.98, 0.01)}${rg('Y', 'Vertical', 0.04, 0.98, 0.01)}${rg('S', 'Tamanho', 0.3, 2.6, 0.05)}</div></div>`;
   };
-  const logos = (lo.sp ? logoCtl('sp', 'Patrocinador', SP_LOGO_MODELS, SP_BRANDS[lo.sp.b][0]) : '') + (lo.sup >= 0 ? logoCtl('su', 'Fornecedor', SP_LOGO_MODELS, SP_SUPS[lo.sup].n) : '')
+  const logos = (lo.sp ? logoCtl('sp', 'Patrocinador master', SP_LOGO_MODELS, SP_BRANDS[lo.sp.b][0]) : '') + (lo.s1 ? logoCtl('s1', 'Patrocinador secundário 1', SP_LOGO_MODELS, SP_BRANDS[lo.s1.b][0]) : '') + (lo.s2 ? logoCtl('s2', 'Patrocinador secundário 2', SP_LOGO_MODELS, SP_BRANDS[lo.s2.b][0]) : '') + (lo.sup >= 0 ? logoCtl('su', 'Fornecedor', SP_LOGO_MODELS, SP_SUPS[lo.sup].n) : '')
     || '<p class="muted" style="font-size:12px;margin:0">Sem logos no uniforme: feche contratos de material esportivo e de patrocínio da camisa em Escritório → Patrocínios.</p>';
   const col = (k, lab) => `<label class="field" style="min-width:110px"><span class="muted up" style="font-size:11px">${lab}</span><input type="color" value="${kitHex(v[k])}" data-a="kitCol" data-k="${k}" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--line2);background:none;padding:2px"></label>`;
   return modalShell('👕 Uniforme', `<div class="row wrap" style="gap:8px;margin-bottom:12px"><div class="seg"><button class="${K.role === 'home' ? 'on' : ''}" data-a="kitRole" data-v="home">Uniforme 1 (casa)</button><button class="${K.role === 'away' ? 'on' : ''}" data-a="kitRole" data-v="away">Uniforme 2 (fora)</button></div><span class="muted">${esc(t.n)}</span></div>
-    <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center"><div id="kit-prev" style="touch-action:none">${kitSvg(v, 200, null, Object.assign({ drag: true }, lo))}</div>${lo.sp || lo.sup >= 0 ? '<div class="muted" style="font-size:11px">Arraste as logos na camisa</div>' : ''}</div>
+    <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center"><div id="kit-prev" style="touch-action:none">${kitSvg(v, 250, null, Object.assign({ drag: true }, lo))}</div>${lo.sp || lo.s1 || lo.s2 || lo.sup >= 0 ? '<div class="muted" style="font-size:11px">Arraste as logos (e as suas imagens) na camisa</div>' : ''}</div>
     <div class="col grow" style="min-width:230px;gap:12px"><div class="row wrap" style="gap:10px">${col('shirt', 'Camisa')}${col('trim', 'Detalhes')}${col('shorts', 'Calção')}${col('socks', 'Meias')}</div>
       <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Padrão da camisa (usa a cor dos detalhes)</div><div class="seg wrapseg">${KIT_PATS.map((n, i) => `<button class="${v.pat === i ? 'on' : ''}" data-a="kitPat" data-v="${i}">${n}</button>`).join('')}</div></div>
       <div class="col" style="gap:8px">${logos}</div>
@@ -17804,7 +17820,7 @@ act('kitPat', (el) => { UI.kit.v[UI.kit.role].pat = +el.dataset.v; refreshModal(
 act('kitCol', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = el.value; refreshModal(); });
 act('kitReset', () => { const t = S.teams[UI.kit.team]; UI.kit.v[UI.kit.role] = Object.assign({}, KIT_LOGO_DEF, kitBase(t, UI.kit.role)); refreshModal(); });
 // logo placement: sliders, model picker and dragging on the preview
-function kitPrev() { const n = document.getElementById('kit-prev'); if (!n || !UI.kit) return; const t = S.teams[UI.kit.team]; n.innerHTML = kitSvg(UI.kit.v[UI.kit.role], 200, null, Object.assign({ drag: true }, kitLogoOpts(t) || { sp: null, sup: -1 })); }
+function kitPrev() { const n = document.getElementById('kit-prev'); if (!n || !UI.kit) return; const t = S.teams[UI.kit.team]; n.innerHTML = kitSvg(UI.kit.v[UI.kit.role], 250, null, Object.assign({ drag: true }, kitLogoOpts(t) || { sp: null, sup: -1 })); }
 act('kitRng', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = +el.value; kitPrev(); });
 act('kitMdl', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = +el.value; refreshModal(); });
 (function kitDrag() {
@@ -17817,7 +17833,7 @@ act('kitMdl', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = +el.value; refresh
   document.addEventListener('pointermove', (e) => {
     if (!d || !UI.kit) return;
     const p = pos(e); if (!p) return; const v = UI.kit.v[UI.kit.role], B = KIT_BOX;
-    v[d + 'X'] = clamp(Math.round((p.x - B.x) / B.w * 100) / 100, 0.1, 0.9); v[d + 'Y'] = clamp(Math.round((p.y - B.y) / B.h * 100) / 100, 0.08, 0.95);
+    v[d + 'X'] = clamp(Math.round((p.x - B.x) / B.w * 100) / 100, 0.02, 0.98); v[d + 'Y'] = clamp(Math.round((p.y - B.y) / B.h * 100) / 100, 0.04, 0.98);
     kitPrev();
   });
   const up = () => { if (d) { d = null; if (UI.kit) refreshModal(); } };
