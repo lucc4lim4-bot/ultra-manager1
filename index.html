@@ -150,7 +150,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tbl tr.me td { background: rgba(111, 125, 255, 0.13); }
 .tbl tr.click { cursor: pointer; } .tbl tr.click:hover td { background: var(--panel2); }
 .tbl td.n, .tbl th.n { text-align: right; } .tbl td.c, .tbl th.c { text-align: center; }
-.zone-ucl { box-shadow: inset 3px 0 0 #4c7dff; } .zone-uel { box-shadow: inset 3px 0 0 #ff9a3c; } .zone-up { box-shadow: inset 3px 0 0 var(--win); } .zone-down { box-shadow: inset 3px 0 0 var(--loss); } .zone-lib { box-shadow: inset 3px 0 0 var(--gold); } .zone-sula { box-shadow: inset 3px 0 0 #1e88e5; } .zone-uclq { box-shadow: inset 3px 0 0 #9db8ff; } .zone-uecl { box-shadow: inset 3px 0 0 #2fbf71; }
+.zone-ucl { box-shadow: inset 3px 0 0 #4c7dff; } .zone-uel { box-shadow: inset 3px 0 0 #ff9a3c; } .zone-up { box-shadow: inset 3px 0 0 var(--win); } .zone-down { box-shadow: inset 3px 0 0 var(--loss); } .zone-lib { box-shadow: inset 3px 0 0 var(--gold); } .zone-sula { box-shadow: inset 3px 0 0 #1e88e5; } .zone-plib { box-shadow: inset 3px 0 0 #e0b85a; background-image: linear-gradient(90deg, rgba(224,184,90,0.08), transparent 40%); } .zone-uclq { box-shadow: inset 3px 0 0 #9db8ff; } .zone-uecl { box-shadow: inset 3px 0 0 #2fbf71; }
 .mun-reps { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .team-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .team-cell .tn { overflow: hidden; text-overflow: ellipsis; }
@@ -547,6 +547,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 .g2d .pad small { display:block; font-size:8px; font-weight:600; opacity:.65; letter-spacing:0; line-height:1; margin-top:2px; }
 .g2d .pad.plc { box-shadow:0 0 0 3px #ffd54a inset; transform:translateY(-6px) scale(.96); }
+
+.pot-up { color: var(--win); font-size: 11px; margin-left: 3px; } .pot-dn { color: var(--loss); font-size: 11px; margin-left: 3px; }
 
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>

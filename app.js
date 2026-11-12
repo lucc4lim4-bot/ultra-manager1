@@ -684,7 +684,7 @@ function cupAfterMatch(c, m) {
     // round complete
     const winners = rd.ties.map((tid) => c.ties[tid].w);
     const losers = rd.ties.map((tid) => { const t = c.ties[tid]; return t.w === t.a ? t.b : t.a; });
-    if (c.isQual) { c.done = true; launchUEFALeagues(c); return; }
+    if (c.isQual) { c.done = true; if (c.key === 'PLIB') launchLibertadores(c); else launchUEFALeagues(c); return; }
     if (c.plan && c.plan[c.stage] && c.plan[c.stage].name === 'Fase preliminar') {
       c.alive = c.alive.filter((id) => !losers.includes(id));
     } else c.alive = winners;
@@ -1388,7 +1388,7 @@ function applyMatchResult(m, st) {
       p.form = clamp((p.form || 0) * 0.7 + (r - (FORM_BASE[POS_GROUP[p.p]] || 6.55)) * 2, -6, 6); // form vs a normal game in his position
       const app = minutes >= 45 ? 1 : 0.5; // development: games of the year and of the quarter
       p.ay = (p.ay || 0) + app; p.aq = (p.aq || 0) + app;
-      if (minutes >= 30) { p.ar = (p.ar || 0) + r; p.an = (p.an || 0) + 1; } // average rating of the year (dynamic potential)
+      if (minutes >= 30) { p.ar = (p.ar || 0) + r; p.an = (p.an || 0) + 1; p.dr = (p.dr || 0) + (r - (FORM_BASE[POS_GROUP[p.p]] || 6.55)); p.dn = (p.dn || 0) + 1; } // ratings for the dynamic potential
       if (p.loan) p.loan.g = (p.loan.g || 0) + app;
       // fatigue
       const sta = p.a ? p.a[5] : 65;
@@ -1465,7 +1465,7 @@ function emptyState(opts) {
     user: { team: 0 }, teams: {}, players: {}, nations: {}, comps: {}, active: [], matches: {}, days: {}, tm: {},
     inbox: [], news: [], hist: [], titles: {}, lastTables: {}, board: { conf: 65, obj: '', objRank: 10 },
     tr: { offers: [], neg: [], log: [], short: [], counts: {} }, youth: { scouts: [], reports: [], squad: [], lastReport: 0 },
-    ultra: null, normal: null, flags: { potV2: 1, potV3: 1, braCut: 1 }, seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
+    ultra: null, normal: null, flags: { potV2: 1, potV3: 1, braCut: 1 }, sqVer: typeof SQUAD_VER === 'string' ? SQUAD_VER : '', seasonStart: 0, euSeason: 0, saSeason: 0, intl: { next: [] },
   };
 }
 
@@ -1497,14 +1497,19 @@ function loadPlayersTeams(data) {
   }
   for (const id in S.teams) setBudgets(S.teams[id]);
 }
-const BRA_BUDGET_K = 0.4;
-function setBudgets(t) {
+const BRA_BUDGET_K = 0.55;
+// July (or January in South America): the board sets the budgets. Half of what was left in the bank carries over
+// (capped), so a well-run club builds up money instead of starting from scratch every year; the wage budget leaves
+// room to sign and to renew
+function setBudgets(t, rollover) {
   const fin = t.fin || 2;
   const mf = moneyFactor();
-  const base = [3e6, 8e6, 20e6, 45e6, 90e6, 160e6, 240e6][clamp(fin, 0, 6)];
-  t.budget = roundMoney(base * mf * (0.75 + rnd() * 0.5) * (t.c === 'BRA' ? BRA_BUDGET_K : 1)); // Brazilian clubs have far less to spend
+  const base = [3e6, 8e6, 20e6, 45e6, 90e6, 160e6, 240e6][clamp(fin, 0, 6)] * (t.c === 'BRA' ? BRA_BUDGET_K : 1); // Brazilian clubs have less to spend
+  const fresh = base * mf * (0.75 + rnd() * 0.5);
+  const carry = rollover ? clamp(t.budget || 0, 0, base * mf * 2) * 0.5 : 0;
+  t.budget = roundMoney(fresh + carry);
   const wages = sum(squadOf(t.id), (p) => p.w || 0);
-  t.wb = Math.max(wages * 1.08, wages + 20000 * mf);
+  t.wb = Math.max(wages * 1.15, wages + 45000 * mf * (1 + fin / 3));
 }
 
 // structures from data -------------------------------------------------------
@@ -1829,28 +1834,92 @@ function createSASeason(y, initial) {
     const cup = makeCup({ key: 'CUP' + lg.id, name: lg.cup, short: 'COPA', zone: 'SA', season: label, year: y, teams: cupSeeds(cupTeams),
       legs: lg.id === 'BRA' ? 2 : 1, finalLegs: lg.id === 'BRA' ? 2 : 1, dates: cupDatesFor('SA', y, nPlan), country: lg.country, legGap: 7 });
   }
-  createLibertadores(y, label);
-  createSudamericana(y, label);
+  createLibertadoresQual(y, label);
   createStateChampionships(y);
   createCopinha(y);
   const ul = S.normal.find((l) => l.teams.includes(S.user.team));
   if (ul && ul.cal === 'SA' && !S.zoeira) makeYouthLeague(ul.teams, 'SA', y, label);
 }
-function createLibertadores(y, label) {
-  // the holders of the Libertadores and of the Sul-Americana have a place of their own, the others come from the
-  // league tables of the year before (LIB_PLACES, 16_access.js)
-  const holders = [holderOf('LIB', y - 1), holderOf('SULA', y - 1)].filter((id) => id && S.teams[id] && !S.teams[id].isNat);
-  const fixed = uniq(holders.concat(conmebolRows(LIB_PLACES, new Set(holders)))).slice(0, 32);
-  // careers started before the leagues of the smaller countries existed: the old pool of clubs
-  const fill = S.fill.liber.filter((id) => !fixed.includes(id) && validClub(id)).sort(by((id) => teamRating(id) + rnd() * 6, -1)).slice(0, 32 - fixed.length);
-  // 4 pots of 8, clubs of the same country kept apart when possible
-  const groups = drawGroups(fixed.concat(fill).slice(0, 32), 8);
-  const d = libertadoresDates(y);
-  const c = makeGroups({ key: 'LIB', name: 'Libertadores', short: 'LIB', zone: 'SA', season: label, year: y, groups, double: true, dates: d.groups, spread: 3 });
+// Libertadores places: holders (Libertadores and Sul-Americana), both Copa do Brasil finalists, the league places
+// (LIB_PLACES) and a Pré-Libertadores (two-legged ties in March) for the next places (LIB_PRE); its winners join the
+// groups, its losers drop to the Copa Sul-Americana
+function runnerUpOf(key, year) {
+  for (let i = S.hist.length - 1; i >= 0; i--) { const h = S.hist[i]; if (h.key === key && h.year === year) return h.ru || 0; }
+  return year < S.era ? teamIdByKey((REAL_RUNNERS[key] || {})[year]) : 0;
+}
+function libertadoresEntrants(y) {
+  const ok = (id) => id && S.teams[id] && !S.teams[id].isNat && validClub(id);
+  const holders = uniq([holderOf('LIB', y - 1), holderOf('SULA', y - 1)].filter(ok));
+  const cupBra = leagueById('BRA') ? uniq([holderOf('CUPBRA', y - 1), runnerUpOf('CUPBRA', y - 1)].filter(ok)) : [];
+  const taken = new Set(holders.concat(cupBra));
+  const direct = holders.concat(cupBra.filter((id) => !holders.includes(id)));
+  const pre = [];
+  CONMEBOL_RANK.forEach((ctry) => {
+    if (!leagueById(ctry)) return;
+    const rows = leagueRankingSA(ctry).filter((id) => ok(id) && !taken.has(id));
+    const nD = LIB_PLACES[ctry] || 0, nP = LIB_PRE[ctry] || 0;
+    rows.slice(0, nD).forEach((id) => { direct.push(id); taken.add(id); });
+    rows.slice(nD, nD + nP).forEach((id) => { pre.push(id); taken.add(id); });
+  });
+  // careers started before the smaller countries existed: fill with the old pool
+  const fillPool = S.fill.liber.filter((id) => ok(id) && !taken.has(id)).sort(by((id) => teamRating(id) + rnd() * 6, -1));
+  let preN = pre.length - (pre.length % 2);
+  while (direct.length + preN / 2 > 32 && preN > 0) preN -= 2;
+  pre.length = preN;
+  const directN = 32 - preN / 2;
+  if (direct.length > directN) direct.length = directN;
+  while (direct.length < directN && fillPool.length) direct.push(fillPool.shift());
+  return { direct, pre, holders, cupBra };
+}
+function createLibertadoresQual(y, label) {
+  const E = libertadoresEntrants(y);
+  S.pendingLIB = { y, label, direct: E.direct, holders: E.holders, qid: 0 };
+  if (E.pre.length >= 2) {
+    const tue = (m, d) => onOrAfter(dayOf(y, m, d), 2);
+    const q = newComp({ kind: 'cup', key: 'PLIB', name: 'Pré-Libertadores', short: 'PRÉ', zone: 'SA', season: label, year: y, legs: 2, teams: E.pre.slice() });
+    // the strongest clubs host the second leg
+    const seeds = E.pre.slice().sort(by((id) => teamRating(id), -1));
+    q.plan = [{ size: seeds.length, name: 'Pré-Libertadores' }];
+    q.alive = seeds.slice(); q.seeds = seeds.slice(); q.dates = [tue(3, 3)];
+    q.onStageDone = null;
+    q.isQual = true;
+    startCupRound(q, 0);
+    S.pendingLIB.qid = q.id;
+    const uid = S.user && S.user.team;
+    if (uid && !S.coach.unemployed && E.pre.includes(uid) && !S.presim) addInbox('board', 'Diretoria', 'Vaga na Pré-Libertadores', `${TA(uid)} disputa a Pré-Libertadores em março (ida e volta). Quem passa entra na fase de grupos da Libertadores; quem cai vai para a Copa Sul-Americana.`);
+  } else launchLibertadores(null);
+  const uid = S.user && S.user.team;
+  if (uid && !S.coach.unemployed && E.direct.includes(uid) && !S.presim) addInbox('board', 'Diretoria', 'Vaga na Libertadores', `${TA(uid)} está classificado direto para a fase de grupos da Libertadores ${label}.${E.cupBra.includes(uid) ? ' A vaga veio da final da Copa do Brasil.' : ''}`);
+}
+// the Pré-Libertadores is over (or there was none): draw the groups of the Libertadores and of the Sul-Americana
+function launchLibertadores(qComp) {
+  const P = S.pendingLIB;
+  if (!P) return;
+  S.pendingLIB = null;
+  const direct = P.direct.slice();
+  const q = qComp || (P.qid && S.comps[P.qid]);
+  if (q && q.rounds[0]) {
+    const ties = q.rounds[0].ties.map((tid) => q.ties[tid]);
+    for (const t of ties) {
+      direct.push(t.w);
+      const lo = t.w === t.a ? t.b : t.a;
+      if (isUserTeam(lo) && !S.presim) addInbox('board', 'Diretoria', 'Eliminado na Pré-Libertadores', `${TA(lo)} caiu na Pré-Libertadores e vai disputar a Copa Sul-Americana.`);
+      if (isUserTeam(t.w) && !S.presim) addInbox('board', 'Diretoria', 'Classificado para a Libertadores!', `${TA(t.w)} passou pela Pré-Libertadores e está na fase de grupos.`);
+    }
+  }
+  const taken = new Set(direct);
+  const fill = S.fill.liber.filter((id) => !taken.has(id) && validClub(id)).sort(by((id) => teamRating(id) + rnd() * 6, -1));
+  while (direct.length < 32 && fill.length) direct.push(fill.shift());
+  const groups = drawGroups(direct.slice(0, 32), 8);
+  const d = libertadoresDates(P.y);
+  const c = makeGroups({ key: 'LIB', name: 'Libertadores', short: 'LIB', zone: 'SA', season: P.label, year: P.y, groups, double: true, dates: d.groups, spread: 3 });
   c.koPlan = [{ name: 'Oitavas de final', d: d.r16[0], legs: 2 }, { name: 'Quartas de final', d: d.qf[0], legs: 2 },
     { name: 'Semifinal', d: d.sf[0], legs: 2 }, { name: 'Final', d: d.final, legs: 1, neutral: true }];
-  c.holders = holders;
+  c.holders = P.holders;
+  createSudamericana(P.y, P.label);
 }
+// kept for old code paths (and saves): straight to the groups
+function createLibertadores(y, label) { createLibertadoresQual(y, label); }
 function leagueRankingSA(id) {
   const lg = S.normal.find((l) => l.id === id);
   if (!lg) return [];
@@ -1990,7 +2059,7 @@ function euRollover() {
   yearlyPlayers(y);
   if (S.pl) plYearly();
   if (S.mode !== 'national') {
-    for (const id in S.teams) { const t = S.teams[id]; if (!t.isNat) setBudgets(t); }
+    for (const id in S.teams) { const t = S.teams[id]; if (!t.isNat) setBudgets(t, true); }
     S.tr.counts = {};
   }
   createEUSeason(y);
@@ -2079,6 +2148,7 @@ const highDamp = (o) => (o >= 88 ? 0.3 : o >= 85 ? 0.45 : o >= 82 ? 0.55 : o >= 
 // dynamic potential (July, 19 to 24 years old): a youngster who hardly plays loses some of it, one who plays well
 // every week can raise it
 function potentialChange(p, mf) {
+  return 0; // replaced by the monthly dynamic potential (dynamicPotentialMonth)
   if (p.age < 19 || p.age > 24 || p.natOnly) return 0;
   const avgR = p.an ? p.ar / p.an : 0;
   if (mf < 0.25 && p.pot - p.o > 3) return -rint(p.age >= 22 ? 1 : 0, 2);
@@ -2130,7 +2200,7 @@ function yearlyPlayers(y) {
     }
     // season stats reset for EU comps already done by archive; refresh wage on expiry
     p.cnp = 0;
-    p.ay = 0; p.ar = 0; p.an = 0;
+    p.ay = 0; p.ar = 0; p.an = 0; p.dpY = 0; p.dpYd = 0;
   }
   if (devReport.length && !S.presim) devInbox(devReport, 'Evolução do elenco na temporada', true);
   for (const p of retired) retirePlayer(p);
@@ -2390,6 +2460,61 @@ function devInbox(rows, title, yearly) {
   addInbox('scout', 'Comissão técnica', title, parts.join(' '));
 }
 
+/* ---------- dynamic potential (like FC's): every month the games played since the last check move the ceiling.
+   A player who keeps rating well above a normal game for his position raises it (and can "break" the potential he had),
+   one who plays badly or does not play at all while young loses some of it. Up to 30 years old. */
+const DP_MAX = 95;
+function dynamicPotentialMonth() {
+  if (S.zoeira || S.mode === 'national') return;
+  const ups = [], downs = [];
+  const tq = {};
+  for (const id in S.players) {
+    const p = S.players[id];
+    if (p.natOnly || p.yth === -1) continue;
+    const n = p.dn || 0, rel = n ? (p.dr || 0) / n : 0;
+    p.dm = (p.dm || 0) + 1; // months since the last change of the counters
+    if (p.age > 30) { p.dr = 0; p.dn = 0; p.dm = 0; continue; }
+    let d = 0;
+    if (n >= 4) {
+      // a good game in a strong team counts a bit more than in a weak one
+      const lvl = p.t && S.teams[p.t] ? (tq[p.t] ?? (tq[p.t] = teamRating(p.t))) : 60;
+      const score = rel + clamp((lvl - 72) / 40, -0.15, 0.2) + clamp((n - 4) * 0.02, 0, 0.12);
+      const room = p.pot - p.o; // how close he is to his ceiling
+      const hiK = p.pot >= 90 ? 0.3 : p.pot >= 86 ? 0.6 : 1; // the top of the scale is the hardest to reach
+      const capY = p.age <= 21 ? 5 : 4; // at most this much up in a season
+      if (score >= 0.75 && (p.dpY || 0) < capY) {
+        const big = score >= 1.2;
+        if (p.age <= 21) d = rnd() < 0.75 * hiK ? (big && rnd() < 0.4 ? 2 : 1) : 0;
+        else if (p.age <= 25) d = rnd() < (big ? 0.6 : 0.35) * hiK ? 1 : 0;
+        else if (p.age <= 28) d = room <= 2 && rnd() < (big ? 0.45 : 0.2) * hiK ? 1 : 0;
+        else d = room <= 1 && big && rnd() < 0.3 * hiK ? 1 : 0;
+      } else if (score <= -0.7 && n >= 5 && p.age <= 25 && room > 3 && (p.dpYd || 0) < 2) d = rnd() < 0.35 ? -1 : 0;
+      p.dr = 0; p.dn = 0; p.dm = 0;
+    } else if (p.dm >= 3) {
+      // three months almost without playing: a youngster's potential fades a little
+      if (p.age <= 20 && p.t && dpRoom(p) > 6 && (p.dpYd || 0) < 2 && rnd() < 0.08) d = -1;
+      p.dr = 0; p.dn = 0; p.dm = 0;
+    }
+    if (!d) continue;
+    const before = p.pot;
+    p.pot = clamp(p.pot + d, p.o, Math.max(DP_MAX, before));
+    if (p.pot > DP_MAX && d > 0) p.pot = Math.max(before, DP_MAX);
+    const real = p.pot - before;
+    if (!real) continue;
+    p.dpT = real; p.dpD = S.date; if (real > 0) p.dpY = (p.dpY || 0) + real; else p.dpYd = (p.dpYd || 0) - real;
+    if (isUserTeam(p.t) || (p.loan && isUserTeam(p.loan.from)) || (S.pl && p.id === S.pl.pid)) (real > 0 ? ups : downs).push({ p, d: real, from: before });
+  }
+  if (S.presim || (!ups.length && !downs.length)) return;
+  const nm = (r) => `${r.p.n} ${r.from}→${r.p.pot} (${r.d > 0 ? '+' : ''}${r.d})`;
+  const parts = [];
+  if (ups.length) parts.push(`Em alta pelas atuações: ${ups.sort((a, b) => b.d - a.d).map(nm).join(', ')}.`);
+  if (downs.length) parts.push(`Em queda (atuações fracas ou poucos minutos): ${downs.map(nm).join(', ')}.`);
+  parts.push('O potencial é dinâmico: ele sobe com boas notas jogo após jogo e cai com notas baixas ou falta de minutos (até os 30 anos).');
+  addInbox('scout', 'Comissão técnica', ups.length ? 'Potencial dinâmico: jogadores em alta' : 'Potencial dinâmico: alerta', parts.join(' '));
+}
+const dpRoom = (p) => p.pot - p.o;
+const potTrend = (p) => (p.dpT && S.date - (p.dpD || 0) < 120 ? (p.dpT > 0 ? `<span class="pot-up" title="Potencial em alta (+${p.dpT})">▲</span>` : `<span class="pot-dn" title="Potencial em queda (${p.dpT})">▼</span>`) : '');
+
 /* ===================== transfers & contracts ===================== */
 function isWindowOpen(day = S.date) { const m = monthOf(day); return m === 6 || m === 7 || m === 8 || m === 1; }
 function windowInfo() {
@@ -2471,6 +2596,9 @@ function activeClubIds() {
 }
 function aiTransferDay(fast) {
   if (S.mode === 'national') return;
+  // the months simulated before the career starts are already history: the database has the real squads of today,
+  // so the clubs do not trade players among themselves then (only free agents find clubs)
+  if (S.presim) { aiFreeAgentDay(0.02, false); return; }
   const t = ymd(S.date);
   const open = isWindowOpen();
   // free agents can sign at any time of the year (more in the windows)
@@ -2795,8 +2923,9 @@ function budgetWeeksLeft() {
   return clamp(Math.ceil((reset - S.date) / 7), 4, 52);
 }
 const niceWage = (v) => Math.max(1000, Math.ceil(v / 1000) * 1000);
-function wageRaiseCost(perWeek) { return Math.round(perWeek * budgetWeeksLeft() / 1000) * 1000; }
-function wageLowerReturn(perWeek) { return Math.round(perWeek * budgetWeeksLeft() * 0.8 / 1000) * 1000; }
+// a raise of the wage budget costs half of the weeks left (the club's revenue covers the rest); giving room back returns 40%
+function wageRaiseCost(perWeek) { return Math.round(perWeek * budgetWeeksLeft() * 0.5 / 1000) * 1000; }
+function wageLowerReturn(perWeek) { return Math.round(perWeek * budgetWeeksLeft() * 0.4 / 1000) * 1000; }
 function raiseWageBudget(t, perWeek) {
   perWeek = niceWage(perWeek);
   const cost = wageRaiseCost(perWeek);
@@ -3108,7 +3237,7 @@ function compIsMinor(c) {
     if (c.teams && c.teams.includes(S.user.team)) return false;
     return userLeagueCountry() !== 'BRA' || !(BIG_STATES.has(c.key) || c.key === 'COPINHA');
   }
-  if (S.mode !== 'normal' || !c || c.zone === 'UEFA' || ['LIB', 'SULA', 'MUN'].includes(c.key)) return false;
+  if (S.mode !== 'normal' || !c || c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN'].includes(c.key)) return false;
   const id = c.lgId || (c.key.startsWith('CUP') ? c.key.slice(3) : c.key);
   if (MAIN_LEAGUES.has(id) || !leagueById(id)) return false;
   return c.country !== userLeagueCountry();
@@ -3128,6 +3257,7 @@ function onCompFinished(c, entry) {
   if (S.presim) return;
   const uid = S.user.team;
   if (c.isQual) return;
+  clubPrize(c, entry);
   if (uid && !S.coach.unemployed && entry.ch === uid) {
     const coins = futcoinsFor(c.key);
     const trophy = { key: c.key, name: c.name, season: c.season, team: uid, teamN: teamName(uid), coins, d: S.date };
@@ -3214,7 +3344,7 @@ function dailyEvents() {
     if (S.coach.unemployed && rnd() < 0.6) { S.jobs = generateJobs(6); jobOfferMessage(); }
     scoutingWeek();
   }
-  if (t.d === 1) sponsMonth();
+  if (t.d === 1) { sponsMonth(); dynamicPotentialMonth(); clubFinanceMonth(); academyMonth(); }
   if (t.d === 1 && t.m === 1) contractReminders();
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
   if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
@@ -3233,7 +3363,7 @@ function dailyEvents() {
 function fastDailyEvents() {
   aiTransferDay(true);
   const t = ymd(S.date);
-  if (t.d === 1) sponsMonth();
+  if (t.d === 1) { sponsMonth(); dynamicPotentialMonth(); clubFinanceMonth(); academyMonth(); }
   if (t.w === 1) { weeklyLoans(); freeAgentWeek(); }
   if (t.d === 1 && (t.m === 1 || t.m === 4 || t.m === 10)) midSeasonDevelopment();
   if (t.d === 1 && [1, 3, 5, 9, 11].includes(t.m)) aiMidSeasonRenewals();
@@ -3379,6 +3509,31 @@ function closeSeasonEnd(choice) {
   S.celebrate = [];
 }
 
+// first of each month: gate receipts and TV money for the user's club (the season budget only falls with signings
+// and wage raises, now it also earns)
+function clubFinanceMonth() {
+  if (!S.user || !S.user.team || S.coach.unemployed || S.pl || S.mode === 'national') return;
+  const t = S.teams[S.user.team];
+  if (!t || t.isNat) return;
+  if (!S.finIn || S.finIn.team !== t.id) S.finIn = { team: t.id, gate: 0, prize: 0 };
+  const fanK = typeof S.fans === 'object' && S.fans && S.fans.mood != null ? clamp(0.8 + S.fans.mood / 250, 0.8, 1.2) : 1;
+  const inc = roundMoney(sponsBase(t) * 0.014 * fanK * (t.c === 'BRA' ? 1.25 : 1));
+  t.budget += inc; S.finIn.gate += inc;
+}
+// prize money for the user's club when it wins (or reaches the final of) a competition
+function clubPrize(c, entry) {
+  if (!S.user || !S.user.team || S.coach.unemployed || S.pl || S.mode === 'national' || S.presim) return;
+  const uid = S.user.team, t = S.teams[uid];
+  if (!t || t.isNat || (entry.ch !== uid && entry.ru !== uid)) return;
+  const big = ['UCL', 'LIB', 'MUN'].includes(c.key) ? 0.3 : ['UEL', 'SULA', 'UECL'].includes(c.key) ? 0.16 : c.kind === 'league' ? (c.tier > 1 || c.second ? 0.05 : 0.14) : c.kind === 'cup' ? 0.08 : 0.03;
+  const v = roundMoney(sponsBase(t) * big * (entry.ch === uid ? 1 : 0.45) * (t.c === 'BRA' ? 1.2 : 1));
+  if (v <= 0) return;
+  t.budget += v;
+  if (!S.finIn || S.finIn.team !== t.id) S.finIn = { team: t.id, gate: 0, prize: 0 };
+  S.finIn.prize += v;
+  addInbox('info', 'Departamento financeiro', `Premiação: ${c.name}`, `${entry.ch === uid ? 'O título' : 'O vice-campeonato'} ${cA(c.name, 'do')} rendeu ${fmtMoney(v)}, que já entraram no orçamento.`);
+}
+
 /* ===================== youth academy & scouting ===================== */
 const SCOUT_COUNTRIES = ['BRA', 'ARG', 'URU', 'COL', 'CHI', 'PAR', 'ECU', 'PER', 'VEN', 'MEX', 'USA', 'CAN', 'ENG', 'FRA', 'ESP', 'POR', 'GER',
   'ITA', 'NED', 'BEL', 'CRO', 'SRB', 'DEN', 'SWE', 'NOR', 'POL', 'CZE', 'AUT', 'SUI', 'TUR', 'GRE', 'UKR', 'SCO', 'IRL', 'WAL', 'NGA',
@@ -3492,6 +3647,71 @@ function releaseYouth(pid) {
   if (p) { p.yth = 0; p.t = 0; }
 }
 function youthPlayers() { return S.youth.squad.map((id) => S.players[id]).filter(Boolean); }
+
+/* ---------- a living academy: facility level, monthly growth, breakthroughs and slumps, two home-grown intakes a
+   year and youngsters knocking on the first team's door ---------- */
+function academyLevel() {
+  const y = S.youth;
+  if (y.lvlT !== S.user.team) { y.lvl = 0; y.lvlT = S.user.team; }
+  if (!y.lvl) { const t = S.teams[S.user.team]; y.lvl = clamp(1 + Math.floor(((t && t.fin) || 2) / 2), 1, 4); }
+  return y.lvl;
+}
+function academyUpCost(lvl) { const t = S.teams[S.user.team]; return roundMoney(lvl * lvl * 1.2e6 * moneyFactor() * (t && t.c === 'BRA' ? 0.6 : 1)); }
+function upgradeAcademy() {
+  const t = S.teams[S.user.team], lvl = academyLevel();
+  if (lvl >= 5) return 'A base já está no nível máximo.';
+  const cost = academyUpCost(lvl + 1);
+  if (t.budget < cost) return `Faltam ${fmtMoney(cost - t.budget)} no orçamento.`;
+  t.budget -= cost; S.youth.lvl = lvl + 1;
+  return `Estrutura da base melhorada para o nível ${lvl + 1}. Os garotos vão evoluir mais rápido e as novas gerações virão melhores.`;
+}
+function academyIntake(lvl, t) {
+  const n = rint(1, 2) + (lvl >= 4 ? 1 : 0);
+  const out = [];
+  for (let i = 0; i < n && S.youth.squad.length < 30; i++) {
+    const nat = rnd() < 0.85 && t.c && S.nations[t.c] ? t.c : pick(['BRA', 'ARG', 'POR', 'COL', 'URU']);
+    const age = rint(14, 16);
+    const talent = COUNTRY_TALENT[nat] || 3;
+    const ovrV = clamp(Math.round(36 + rnd() * 9 + lvl * 1.6 + (age - 14) * 2.5 + talent), 36, 60);
+    const potHi = clamp(Math.round(56 + lvl * 4.2 + talent * 2.2 + gauss() * 7), ovrV + 8, 93);
+    const p = generatePlayer({ nat, age, ovr: ovrV, potBoost: potHi - ovrV });
+    p.yth = t.id; p.t = 0; p.ct = yearOf(S.date) + 3; p.w = 300; p.yNew = S.date;
+    S.youth.squad.push(p.id);
+    out.push(p);
+  }
+  return out;
+}
+function academyMonth() {
+  if (S.zoeira || S.mode === 'national' || !S.user || !S.user.team || S.coach.unemployed || S.pl) return;
+  const t = S.teams[S.user.team];
+  if (!t || t.isNat) return;
+  const lvl = academyLevel(), m = ymd(S.date).m;
+  const grew = [], boom = [], slump = [], ready = [];
+  for (const p of youthPlayers()) {
+    // growth: younger kids and better facilities grow faster; the closer to the ceiling, the slower
+    const gap = p.pot - p.o;
+    if (gap > 0 && rnd() < clamp((0.28 + lvl * 0.07 + (p.age <= 16 ? 0.12 : 0)) * clamp(gap / 10, 0.35, 1.2), 0, 0.85)) {
+      const d = rnd() < 0.15 + lvl * 0.03 ? 2 : 1;
+      const o0 = p.o; p.o = Math.min(p.pot, p.o + d);
+      if (p.a) p.a = p.a.map((v) => clamp(v + (p.o - o0), 15, 99));
+      grew.push(p);
+    }
+    // breakthrough or slump
+    const r = rnd();
+    if (r < 0.025 + lvl * 0.006 && p.pot < 92) { const d = rint(2, 4); p.pot = Math.min(93, p.pot + d); p.dpT = d; p.dpD = S.date; boom.push([p, d]); }
+    else if (r > 0.985 && p.pot - p.o > 6) { p.pot -= 2; p.dpT = -2; p.dpD = S.date; slump.push(p); }
+    // ready for the first team
+    if (p.age >= 17 && !p.yAsk && p.o >= teamRating(t.id) - 13) { p.yAsk = 1; ready.push(p); }
+  }
+  // two home-grown intakes a year (February and August)
+  const intake = m === 2 || m === 8 ? academyIntake(lvl, t) : [];
+  if (S.presim) return;
+  if (boom.length) addInbox('scout', 'Academia', `Joia da base: ${boom[0][0].n} explodiu!`, `Os treinadores da base estão impressionados: ${boom.map(([p, d]) => `${p.n} (${p.age} anos, ${POS_PT[p.p]}) teve o potencial elevado em +${d}, agora ${p.pot}`).join('; ')}.`);
+  if (slump.length) addInbox('scout', 'Academia', 'Base: garoto estagnou', `${slump.map((p) => p.n).join(', ')} parou de evoluir como se esperava (potencial -2).`);
+  if (ready.length) addInbox('scout', 'Academia', `${ready[0].n} pede passagem`, `${ready.map((p) => `${p.n} (${p.age} anos, ${p.o} de overall, potencial ${p.pot})`).join(', ')} já tem nível para treinar com o profissional. Promova na aba Academia → Base.`);
+  if (intake.length) addInbox('scout', 'Academia', 'Nova geração da base', `A peneira do clube revelou ${intake.length === 1 ? 'um garoto' : intake.length + ' garotos'}: ${intake.map((p) => `${p.n} (${p.age} anos, ${POS_PT[p.p]}, potencial ${p.pot - rint(0, 3)}–${p.pot + rint(0, 3)})`).join(', ')}.`);
+  if ([1, 4, 7, 10].includes(m) && grew.length) addInbox('scout', 'Academia', 'Evolução da base', `Nos últimos meses evoluíram: ${grew.slice(0, 8).map((p) => `${p.n} (${p.o})`).join(', ')}${grew.length > 8 ? ` e mais ${grew.length - 8}` : ''}.`);
+}
 
 /* ===================== national teams & international football ===================== */
 const NAT_POOL = {
@@ -4013,7 +4233,9 @@ const REAL_HOLDERS = {
   UCL: { 2015: 'realmadrid', 2020: 'chelsea', 2025: 'psg' },
   UEL: { 2015: 'sevilla', 2020: 'villarreal', 2025: 'astonvilla' },
   UECL: { 2025: 'crystalpalace' }, // first played in 2021/22
+  CUPBRA: { 2015: 'palmeiras', 2020: 'palmeiras', 2025: 'corinthians' },
 };
+const REAL_RUNNERS = { CUPBRA: { 2015: 'santos', 2020: 'gremio', 2025: 'vasco' } };
 // clubs that can represent the other confederations at the Mundial (the strongest one usually wins its continent)
 const CWC_POOL = {
   CONCACAF: ['america', 'monterrey', 'cruzazul', 'chivas', 'pachuca', 'intermiami', 'lafc', 'lagalaxy', 'nycfc'],
@@ -4319,7 +4541,11 @@ const UEFA_SLOTS = {
 };
 // CONMEBOL: Libertadores places, then Sul-Americana places right below them
 const CONMEBOL_RANK = ['BRA', 'ARG', 'COL', 'ECU', 'URU', 'PAR', 'CHI', 'PER', 'BOL', 'VEN'];
-const LIB_PLACES = { BRA: 7, ARG: 6, COL: 3, ECU: 3, URU: 2, PAR: 2, CHI: 2, PER: 2, BOL: 2, VEN: 2 };
+// direct group-stage places by league position; LIB_PRE = the next places, which go to the Pré-Libertadores
+// (Brazil also sends both Copa do Brasil finalists straight to the groups; the holders of the Libertadores and of the
+// Sul-Americana have places of their own; a club that already qualified passes its league place to the next one)
+const LIB_PLACES = { BRA: 4, ARG: 5, COL: 3, ECU: 3, URU: 2, PAR: 2, CHI: 1, PER: 1, BOL: 1, VEN: 1 };
+const LIB_PRE = { BRA: 2, ARG: 1, COL: 1, ECU: 1, URU: 1, PAR: 1, CHI: 1, PER: 1, BOL: 1, VEN: 0 };
 const SULA_PLACES = { BRA: 6, ARG: 6, COL: 3, ECU: 3, URU: 3, PAR: 2, CHI: 3, PER: 2, BOL: 2, VEN: 2 };
 // the leagues every career starts with (the others came with the Conference League update)
 const MAIN_LEAGUES = new Set(['ENG', 'ESP', 'GER', 'FRA', 'ITA', 'BRA', 'ARG', 'POR', 'NED']);
@@ -4371,14 +4597,16 @@ function continentalZone(c, pos) {
   const slot = UEFA_SLOTS[ctry] && UEFA_SLOTS[ctry][pos - 1];
   if (slot) return { U: 'zone-ucl', Q: 'zone-uclq', E: 'zone-uel', C: 'zone-uecl' }[slot];
   if (LIB_PLACES[ctry]) {
+    const pre = LIB_PRE[ctry] || 0;
     if (pos <= LIB_PLACES[ctry]) return 'zone-lib';
-    if (pos <= LIB_PLACES[ctry] + (SULA_PLACES[ctry] || 0)) return 'zone-sula';
+    if (pos <= LIB_PLACES[ctry] + pre) return 'zone-plib';
+    if (pos <= LIB_PLACES[ctry] + pre + (SULA_PLACES[ctry] || 0)) return 'zone-sula';
   }
   return '';
 }
 const ZONE_LEGEND = {
   'zone-ucl': ['#4c7dff', 'Champions League'], 'zone-uclq': ['#9db8ff', 'Pré-Champions'], 'zone-uel': ['#ff9a3c', 'Europa League'],
-  'zone-uecl': ['#2fbf71', 'Conference League'], 'zone-lib': ['var(--gold)', 'Libertadores'], 'zone-sula': ['#1e88e5', 'Sul-Americana'],
+  'zone-uecl': ['#2fbf71', 'Conference League'], 'zone-lib': ['var(--gold)', 'Libertadores'], 'zone-plib': ['#e0b85a', 'Pré-Libertadores'], 'zone-sula': ['#1e88e5', 'Sul-Americana'],
 };
 
 /* ===================== Brazilian state championships (estaduais) and the Copinha ===================== */
@@ -5591,6 +5819,31 @@ const SP_BRANDS = [
   SP_BRANDS.forEach((x, i) => { x[4] = logos[i]; });
 })();
 
+// real companies as sponsors (names written as text; the marks drawn by the game are generic symbols, never the
+// companies' official logos — the player can put an image of their own on any brand, kept only on their device)
+const SP_REAL = {
+  cash: ['Crefisa', 'Banco do Brasil', 'Caixa', 'Itaú', 'Bradesco', 'Santander', 'Nubank', 'Banco Inter', 'BRB', 'Banrisul', 'Banco BMG', 'PicPay',
+    'Mercado Pago', 'XP Investimentos', 'BTG Pactual', 'Sicredi', 'Sicoob', 'C6 Bank', 'PagBank', 'Unimed', 'Hapvida', 'Porto Seguro', 'Allianz', 'Visa',
+    'Mastercard', 'Standard Chartered', 'Revolut'],
+  energy: ['Coca-Cola', 'Pepsi', 'Guaraná Antarctica', 'Brahma', 'Heineken', 'Monster Energy', 'Gatorade', 'Powerade', 'Nestlé', 'Sadia', 'Seara',
+    'Friboi', "McDonald's", 'Burger King', 'Red Bull'],
+  boots: ['Smart Fit', 'Centauro', 'Netshoes', 'Decathlon', 'Bluefit', 'Track&Field'],
+  media: ['Vivo', 'Claro', 'TIM', 'Samsung', 'Motorola', 'Sony', 'Amazon', 'Spotify', 'Rakuten', 'Globoplay', 'Magazine Luiza', 'Casas Bahia',
+    'Mercado Livre', 'Shopee', 'iFood', '99', 'Uber', 'Kwai', 'TikTok'],
+  bonus: ['Emirates', 'Qatar Airways', 'Etihad Airways', 'Turkish Airlines', 'Azul', 'LATAM', 'GOL', 'Booking.com', 'Decolar', 'Localiza', 'Movida',
+    'Volkswagen', 'Fiat', 'Jeep', 'Chevrolet', 'Toyota'],
+};
+const SP_REAL_START = SP_BRANDS.length;
+(function addRealBrands() {
+  const hash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  for (const perk of Object.keys(SP_REAL)) for (const n of SP_REAL[perk]) {
+    const h = hash(n), hue = h % 360, word = n.replace(/[^A-Za-zÀ-ú0-9& ]/g, '').split(' ')[0];
+    const tag = n.toUpperCase().length <= 12 ? n.toUpperCase() : word.toUpperCase();
+    SP_BRANDS.push([n, tag, n, perk, { sh: (h >>> 9) % 9, c1: `hsl(${hue},68%,${36 + ((h >>> 3) % 14)}%)`, c2: (h & 1) ? '#ffffff' : `hsl(${(hue + 170) % 360},85%,66%)` }, 1]);
+  }
+})();
+const spIsReal = (b) => b >= SP_REAL_START;
+const spRealIdx = (perk) => SP_BRANDS.map((x, i) => i).filter((i) => i >= SP_REAL_START && (!perk || SP_BRANDS[i][3] === perk));
 const SP_PERKS = {
   cash: { ico: '🏦', label: 'Mais dinheiro', desc: 'Paga mais, sem efeito em campo.' },
   energy: { ico: '⚡', label: 'Energia', desc: 'O fôlego da corrida dura 20% mais no jogo 2D e o time rende um pouco mais na simulação (+0,4).' },
@@ -5626,14 +5879,18 @@ function sponsBrandOf(teamId) {
   if (s && teamId === s.team) return s.shirt ? s.shirt.b : -1;
   const t = S.teams[teamId];
   if (!t || t.isNat) return -1;
-  return hashStr('sp' + teamId + (t.n || '')) % SP_BRANDS.length;
+  const h = hashStr('sp' + teamId + (t.n || ''));
+  const real = spRealIdx();
+  return (t.fin || 0) >= 2 || t.c === 'BRA' ? real[h % real.length] : h % SP_BRANDS.length; // bigger clubs carry real companies
 }
 function sponsTag(teamId) { const b = sponsBrandOf(teamId); return b < 0 ? '' : SP_BRANDS[b][1]; }
 function sponsBase(t) {
   const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6);
   const base = [3e6, 8e6, 20e6, 45e6, 90e6, 160e6, 240e6][fin] * moneyFactor();
   const r = typeof teamRating === 'function' ? teamRating(t.id) : 65;
-  return base * clamp(0.8 + (r - 65) / 60, 0.7, 1.4);
+  // Brazilian and Argentinian clubs: huge fan bases, the brands pay above what the club's budget would suggest
+  const mk = t.c === 'BRA' ? 1.45 : t.c === 'ARG' ? 1.2 : 1;
+  return base * mk * clamp(0.8 + (r - 65) / 60, 0.7, 1.4);
 }
 function sponsGenOffers(slot) {
   const s = sponsInit(), t = S.teams[s.team];
@@ -5643,7 +5900,9 @@ function sponsGenOffers(slot) {
   const out = [];
   for (let i = 0; i < 3; i++) {
     let b, guard = 0;
-    do { b = rint(0, SP_BRANDS.length - 1); } while ((used.has(b) || (i === 0 && SP_BRANDS[b][3] !== 'cash')) && guard++ < 200); // the first offer is always the money one
+    // most proposals come from real companies (banks, drinks, telecoms, airlines…), some from the game's own brands
+    const realPool = spRealIdx(i === 0 ? 'cash' : null);
+    do { b = rnd() < 0.85 ? realPool[rint(0, realPool.length - 1)] : rint(0, SP_REAL_START - 1); } while ((used.has(b) || (i === 0 && SP_BRANDS[b][3] !== 'cash')) && guard++ < 200); // the first offer is always the money one
     used.add(b);
     const perk = SP_BRANDS[b][3];
     const yrs = rint(1, 5);
@@ -5716,6 +5975,11 @@ function sponsMonth() {
   if (s.shirt && SP_BRANDS[s.shirt.b][3] === 'media') for (const p of squadOf(t.id)) p.mor = clamp((p.mor || 70) + 3, 5, 100);
   if (s.kit && SP_SUPS[s.kit.b].pr >= 3) for (const p of squadOf(t.id)) p.mor = clamp((p.mor || 70) + 2, 5, 100);
   if (S.date - s.offD >= 45) sponsRefresh(false);
+  if (!s.kit && (t.c === 'BRA' || t.c === 'ARG') && rnd() < 0.35) {
+    s.offers.kit = supGenOffers(t);
+    const o = s.offers.kit[0];
+    if (o && !S.presim) addInbox('board', 'Diretoria', `${SP_SUPS[o.b].n} quer vestir ${tA(t)}`, `${SP_SUPS[o.b].n} procurou a diretoria com uma proposta de material esportivo: ${fmtMoney(o.perYear)} por ano, ${o.yrs} ano${o.yrs > 1 ? 's' : ''}, luvas de ${fmtMoney(o.signing)}. Veja em Escritório → Patrocínios.`);
+  }
 }
 // a win pays the shirt sponsor's bonus
 function sponsAfterMatch(m) {
@@ -5807,12 +6071,13 @@ const SP_LOGO_MODELS = [
 // where a mark sits by default (fractions of the shirt body: 0..1) and how big it is (0.5..1.8)
 const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1 };
 function supGenOffers(t) {
-  const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6), maxPr = fin >= 4 ? 3 : fin >= 2 ? 2 : 1;
+  const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6), saBig = (t.c === 'BRA' || t.c === 'ARG') && fin >= 2;
+  const maxPr = fin >= 4 || saBig ? 3 : fin >= 2 ? 2 : 1; // the big brands want the Brazilian market
   const pool = SP_SUPS.map((x, i) => i).filter((i) => SP_SUPS[i].pr <= maxPr);
   const out = [], used = new Set();
   const top = pool.filter((i) => SP_SUPS[i].pr === maxPr);
   for (let k = 0; k < 3; k++) {
-    const src = k === 0 && top.length ? top : pool;
+    const src = (k === 0 || (k === 1 && saBig)) && top.length ? top : pool;
     let b, g = 0;
     do { b = src[rint(0, src.length - 1)]; } while (used.has(b) && g++ < 60);
     if (used.has(b)) break;
@@ -5829,7 +6094,9 @@ function supplierOf(teamId) {
   if (s && teamId === s.team) return s.kit ? s.kit.b : -1;
   const t = S.teams[teamId];
   if (!t || t.isNat) return -1;
-  return hashStr('su' + teamId + (t.n || '')) % SP_SUPS.length;
+  const h = hashStr('su' + teamId + (t.n || ''));
+  if ((t.fin || 0) >= 3 || ((t.c === 'BRA' || t.c === 'ARG') && (t.fin || 0) >= 2)) return h % 4; // big clubs wear the big brands
+  return h % SP_SUPS.length;
 }
 
 /* ===================== torcida: humor, reclamações, eventos inesperados e torcidas organizadas (só no Brasil) ===================== */
@@ -6163,6 +6430,70 @@ function applyBraPromotions(lg) {
   }
 }
 
+/* ===================== squad update for careers already in progress ===================== */
+// When the era's database gets new squads (transfer window), a career saved before keeps the old ones: this moves
+// every player to the club the database has now (and brings the new signings), without touching the user's club
+// unless asked. Played stats, ratings growth and contracts already in the save are kept for players who stay.
+const SQUAD_VER = '2026-11-a'; // bump when data/era2026.json gets a new transfer window
+const sqNorm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function squadSyncNeeded() {
+  return !!(S && DATA && DATA.era === S.era && S.era === 2026 && S.mode !== 'national' && S.sqVer !== SQUAD_VER && !S.zoeira);
+}
+function syncSquads(includeUser) {
+  if (!DATA || DATA.era !== S.era) return null;
+  const T = DATA.tcols, P = DATA.pcols;
+  const keyOf = {};
+  for (const r of DATA.teams) keyOf[r[T.indexOf('id')]] = r[T.indexOf('key')];
+  const idx = {};
+  for (const id in S.players) { const p = S.players[id]; if (p.yth === -1 || p.natOnly) continue; (idx[sqNorm(p.n)] = idx[sqNorm(p.n)] || []).push(p); }
+  const yearsIn = Math.max(0, yearOf(S.date) - S.era);
+  const uid = S.user && S.user.team;
+  const guarded = (tid) => !includeUser && tid && isUserTeam(tid);
+  const touched = new Set();
+  const res = { moved: 0, added: 0, freed: 0, list: [] };
+  for (const r of DATA.players) {
+    const o = {}; P.forEach((k, i) => (o[k] = r[i]));
+    const key = o.team ? keyOf[o.team] : null;
+    const to = key ? teamIdByKey(key) : 0;
+    if (key && (!to || !S.teams[to] || S.teams[to].isNat)) continue; // club the career does not have
+    // the same player in the save: same id and name, or same name and nationality, age close to the database's
+    let p = S.players[o.id] && sqNorm(S.players[o.id].n) === sqNorm(o.name) ? S.players[o.id] : null;
+    if (!p) {
+      const c = (idx[sqNorm(o.name)] || []).filter((q) => q.nat === o.nat && Math.abs(q.age - (o.age + yearsIn)) <= 1);
+      if (c.length === 1) p = c[0];
+    }
+    if (p) {
+      if (S.pl && p.id === S.pl.pid) continue;
+      if (p.t === to) continue;
+      if (guarded(p.t) || guarded(to)) continue;
+      if (p.loan && p.loan.from && (p.loan.from === to)) continue;
+      if (!to) {
+        if (!p.t || isUserTeam(p.t) || p.joined) continue; // only from AI clubs, and not players the AI signed during the career
+        touched.add(p.t); releasePlayer(p, true); res.freed++; continue;
+      }
+      if (p.loan) p.loan = null;
+      const from = p.t;
+      if (from) touched.add(from);
+      touched.add(to);
+      movePlayer(p, to, { ct: Math.max(p.ct || 0, yearOf(S.date) + 2), w: wageDemand(p, S.teams[to]) });
+      res.moved++;
+      if (res.list.length < 400) res.list.push([p.id, from, to]);
+    } else if (to && !guarded(to)) {
+      // a player the career did not have: brought in from the database
+      const id = S.seq.p++;
+      const np = { id, n: o.name, s: o.short, t: 0, p: o.pos, alt: o.alt, age: o.age + yearsIn, o: o.ovr, pot: Math.max(o.ovr, o.pot), nat: o.nat,
+        f: o.foot, h: o.h, a: [o.pac, o.sho, o.pas, o.dri, o.def, o.phy], num: o.num, ct: Math.max(o.contract || 0, yearOf(S.date) + 2), fit: 100, fitD: 0, form: 0, mor: 70, car: [0, 0, 0] };
+      S.players[id] = np;
+      movePlayer(np, to, { ct: np.ct, w: wageDemand(np, S.teams[to]) });
+      touched.add(to);
+      res.added++;
+    }
+  }
+  for (const tid of touched) { const t = S.teams[tid]; if (t && !t.isNat && !t.ext && !isUserTeam(tid)) enforceSquadSize(t); }
+  S.sqVer = SQUAD_VER;
+  return res;
+}
+
 /* ===================== UI core ===================== */
 const UI = {
   screen: 'start', tab: 'central', sub: {}, sel: null, newsIdx: 0, filters: {}, wiz: null, busy: false,
@@ -6402,7 +6733,7 @@ function compBadge(c, size = 26) {
   if (!c) return '';
   const key = c.key || '';
   const col = COMP_LOGO[key] || (key.startsWith('CUP') ? COMP_LOGO.CUP : key.startsWith('UL') ? COMP_LOGO.UL1 : key === 'QUAL' ? COMP_LOGO.QUAL : '#4b5b62');
-  const lbl = { UCL: 'UCL', UEL: 'UEL', UECL: 'UECL', UCLQ: 'PRÉ', UECLQ: 'PRÉ', LIB: 'LIB', SULA: 'SUL', MUN: 'MUN', WC: 'WC', EURO: 'EU', COPA: 'CA', QUAL: 'EL', FRIEND: 'AM', YOUTH: 'S19', COPINHA: 'S20' }[key] ||
+  const lbl = { UCL: 'UCL', UEL: 'UEL', UECL: 'UECL', UCLQ: 'PRÉ', UECLQ: 'PRÉ', PLIB: 'PRÉ', LIB: 'LIB', SULA: 'SUL', MUN: 'MUN', WC: 'WC', EURO: 'EU', COPA: 'CA', QUAL: 'EL', FRIEND: 'AM', YOUTH: 'S19', COPINHA: 'S20' }[key] ||
     (key.startsWith('CUP') ? 'COPA' : key.startsWith('UL') ? key : key.startsWith('EST') ? key.slice(3) : key.slice(0, 3));
   return `<svg width="${size}" height="${size}" viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="8" fill="${col}"/><text x="15" y="19" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-weight="800" font-size="${lbl.length > 3 ? 8.5 : 10.5}" fill="${textOn(col)}">${lbl}</text></svg>`;
 }
@@ -6624,6 +6955,7 @@ act('loadSave', async (el) => {
     UI.screen = 'career'; UI.tab = 'central';
     render();
     toast('Carreira carregada.');
+    if (squadSyncNeeded()) offerSquadSync();
   } catch (e) { UI.screen = 'start'; render(); toast(e.message, true); }
 });
 act('importSave', async (el) => {
@@ -6946,6 +7278,24 @@ act('pickOffer', async (el) => {
     UI.screen = 'career'; UI.tab = 'central'; UI.sub = {};
     render();
   } catch (e) { console.error(e); UI.screen = 'wizard'; render(); toast('Erro ao iniciar: ' + e.message, true); }
+});
+
+// careers saved before the latest transfer window: offer to bring every squad up to date
+function offerSquadSync() {
+  openModal(modalShell('Elencos atualizados disponíveis', `<p>O banco de dados recebeu os elencos da janela de transferências 2026/27 (Europa e as duas janelas do Brasileirão). Esta carreira foi salva antes e ainda usa os elencos antigos.</p>
+    <p>Atualizar move cada jogador para o clube atual dele e traz os reforços que faltavam. Estatísticas, evolução e títulos continuam. Atenção: quem trocou de clube durante a sua carreira volta para o clube que o banco de dados indica.</p>
+    <p class="muted" style="font-size:13px">"Menos o meu time" não mexe no seu elenco (ninguém sai nem chega). Dá para atualizar depois em Escritório → Finanças.</p>`,
+    `<button class="btn" data-a="sqSyncLater">Agora não</button><button class="btn" data-a="sqSync" data-u="1">Atualizar tudo</button><button class="btn primary" data-a="sqSync" data-u="0">Atualizar, menos o meu time</button>`), { size: 'narrow' });
+}
+act('sqSyncLater', () => { closeAllModals(); });
+act('sqSync', async (el) => {
+  closeAllModals();
+  const r = syncSquads(el.dataset.u === '1');
+  if (!r) { toast('Os dados da era não estão carregados.', true); return; }
+  addInbox('info', 'Mercado da bola', 'Elencos atualizados', `Janela 2026/27 aplicada: ${r.moved} jogadores trocaram de clube, ${r.added} chegaram do banco de dados e ${r.freed} ficaram livres.`);
+  try { await saveGame(S.id); } catch (e) { /* saved on the next autosave */ }
+  render();
+  toast(`Elencos atualizados: ${r.moved} transferências, ${r.added} reforços.`);
 });
 
 /* ===================== career shell & central ===================== */
@@ -7509,7 +7859,7 @@ function viewSquadHub() {
   const head = `<tr><th>Nº</th><th>Nome</th><th>Pos</th><th class="n">Idade</th><th class="c">OVR</th><th class="n">POT</th><th>Condição</th>${t.isNat ? '<th>Clube</th>' : '<th class="n">Valor</th><th class="n">Salário</th><th class="n">Contrato</th>'}<th class="n">J</th><th class="n">G</th><th class="n">A</th></tr>`;
   const rows = players.map((p) => {
     const [a, g, as] = statsOf(p);
-    return `<tr class="click" data-a="openPlayer" data-id="${p.id}"><td class="tnum">${p.num || ''}</td><td>${esc(p.n)}${statusFlags(p)}</td><td>${posBadge(p.p)}</td><td class="n">${p.age}</td><td class="c nw">${ovrBadge(p.o)}${formTag(p, true)}</td><td class="n">${p.pot}</td><td>${fitBar(p)}</td>
+    return `<tr class="click" data-a="openPlayer" data-id="${p.id}"><td class="tnum">${p.num || ''}</td><td>${esc(p.n)}${statusFlags(p)}</td><td>${posBadge(p.p)}</td><td class="n">${p.age}</td><td class="c nw">${ovrBadge(p.o)}${formTag(p, true)}</td><td class="n nw">${p.pot}${potTrend(p)}</td><td>${fitBar(p)}</td>
       ${t.isNat ? `<td>${p.t ? esc(teamName(p.t)) : 'Clube local'}</td>` : `<td class="n">${money(playerValue(p))}</td><td class="n">${money(p.w || 0)}</td><td class="n">${p.loan ? 'Emp.' : p.ct || '—'}</td>`}
       <td class="n">${a}</td><td class="n">${g}</td><td class="n">${as}</td></tr>`;
   }).join('');
@@ -7663,7 +8013,7 @@ function openPlayerModal(pid) {
             ${p.pc ? `<span class="k">Treino de posição</span><span>${posBadge(p.pc.to)} ${Math.round(posChangeProgress(p) * 100)}% · conclui em ${fmtDate(p.pc.d0 + p.pc.days, 'short')} · overall previsto ${p.pc.o}</span>` : ''}
             <span class="k">Nacionalidade</span><span>${natFlag(p.nat)} ${esc(natName(p.nat))}</span>
             <span class="k">Idade</span><span>${p.age} anos · ${p.h} cm · pé ${p.f === 'L' ? 'esquerdo' : 'direito'}</span>
-            <span class="k">Potencial</span><span>${mine || yth ? p.pot : `${clamp(p.pot - 2, p.o, 99)}–${clamp(p.pot + 2, p.o, 99)}`}</span>
+            <span class="k">Potencial</span><span>${mine || yth ? p.pot : `${clamp(p.pot - 2, p.o, 99)}–${clamp(p.pot + 2, p.o, 99)}`}${potTrend(p)}${p.dn ? ` <span class="muted" style="font-size:12px">(${p.dn} jogo${p.dn > 1 ? 's' : ''} no mês, nota ${(p.dr / p.dn >= 0 ? '+' : '') + (p.dr / p.dn).toFixed(2)} vs média)</span>` : ''}</span>
             <span class="k">Valor de mercado</span><span>${money(val)}</span>
             ${p.t ? `<span class="k">Salário</span><span>${money(p.w || 0)}/semana</span><span class="k">Contrato até</span><span>${p.ct || '—'}</span>` : ''}
             <span class="k">Condição</span><span>${fitBar(p)} ${Math.round(fitnessNow(p))}% ${isInjured(p) ? `<span class="flag-inj">· ${esc(p.injN || 'Lesionado')} até ${fmtDate(p.inj, 'short')}</span>` : ''}${isSuspended(p) ? ' <span class="flag-sus">· suspenso</span>' : ''}</span>
@@ -8064,11 +8414,18 @@ function viewReports() {
 }
 act('signYouth', (el) => { toast(signProspect(+el.dataset.id)); render(); });
 act('dropRep', (el) => { dismissProspect(+el.dataset.id); render(); });
+function viewAcademyLevel() {
+  const lvl = academyLevel(), t = S.teams[S.user.team], next = lvl < 5 ? academyUpCost(lvl + 1) : 0;
+  return `<div class="panel row wrap" style="align-items:center;margin-bottom:12px"><div class="grow"><b>Estrutura da base: nível ${lvl}/5</b> <span class="stars">${scoutStars(lvl)}</span>
+    <div class="muted" style="font-size:13px">Os garotos evoluem todo mês, alguns explodem (potencial sobe) e outros estagnam. Em fevereiro e agosto a peneira do clube revela novos talentos — quanto melhor a estrutura, melhores eles vêm.</div></div>
+    ${lvl < 5 ? `<button class="btn primary sm" data-a="acadUp" ${next > t.budget ? 'disabled' : ''}>Melhorar para nível ${lvl + 1} (${money(next)})</button>` : '<span class="chip">Nível máximo</span>'}</div>`;
+}
+act('acadUp', () => { toast(upgradeAcademy()); render(); });
 function viewYouthSquad() {
   const ys = youthPlayers().sort(by((p) => p.o, -1));
-  if (!ys.length) return '<div class="panel empty">A base está vazia. Contrate jovens a partir dos relatórios.</div>';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jogador</th><th>Pos</th><th class="n">Idade</th><th>Nac.</th><th class="c">OVR</th><th class="n">POT</th><th></th></tr></thead><tbody>
-    ${ys.map((p) => `<tr><td><span data-a="openPlayer" data-id="${p.id}" style="cursor:pointer;font-weight:700">${esc(p.n)}</span></td><td>${posBadge(p.p)}</td><td class="n">${p.age}</td><td>${natFlag(p.nat)}</td><td class="c">${ovrBadge(p.o)}</td><td class="n">${p.pot}</td>
+  if (!ys.length) return viewAcademyLevel() + '<div class="panel empty">A base está vazia. Contrate jovens a partir dos relatórios ou espere a peneira de fevereiro/agosto.</div>';
+  return viewAcademyLevel() + `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jogador</th><th>Pos</th><th class="n">Idade</th><th>Nac.</th><th class="c">OVR</th><th class="n">POT</th><th></th></tr></thead><tbody>
+    ${ys.map((p) => `<tr><td><span data-a="openPlayer" data-id="${p.id}" style="cursor:pointer;font-weight:700">${esc(p.n)}</span></td><td>${posBadge(p.p)}</td><td class="n">${p.age}</td><td>${natFlag(p.nat)}</td><td class="c">${ovrBadge(p.o)}</td><td class="n nw">${p.pot}${potTrend(p)}${p.yNew && S.date - p.yNew < 60 ? ' <span class="chip" style="font-size:10px">novo</span>' : ''}</td>
       <td class="n"><button class="btn xs primary" data-a="promote" data-id="${p.id}" ${p.age < 16 ? 'disabled title="Precisa ter 16 anos"' : ''}>Promover</button> <button class="btn xs" data-a="relYouth" data-id="${p.id}">Dispensar</button></td></tr>`).join('')}
   </tbody></table></div><p class="muted" style="font-size:13px">Os garotos evoluem a cada temporada e disputam o Campeonato Sub-19. A partir dos 16 anos podem subir para o profissional.</p>`;
 }
@@ -8187,7 +8544,7 @@ const COMP_REGIONS = ['Minhas competições', 'Copas continentais', 'Principais'
 function compRegion(c, mine) {
   if (mine && mine.includes(c.id)) return 'Minhas competições';
   if (c.state) return 'Estaduais';
-  if (c.zone === 'UEFA' || ['LIB', 'SULA', 'MUN'].includes(c.key)) return 'Copas continentais';
+  if (c.zone === 'UEFA' || ['LIB', 'PLIB', 'SULA', 'MUN'].includes(c.key)) return 'Copas continentais';
   if (S.mode !== 'normal') return 'Outras';
   const id = c.lgId || (c.key.startsWith('CUP') ? c.key.slice(3) : c.key);
   if (MAIN_LEAGUES.has(id)) return 'Principais';
@@ -8447,7 +8804,13 @@ function viewFinance() {
   return `<div class="grid g3" style="margin-bottom:16px"><div class="stat-tile"><div class="k">Orçamento de transferências</div><div class="v">${money(t.budget)}</div></div>
     <div class="stat-tile"><div class="k">Folha salarial</div><div class="v">${wageFmt(bill)}/sem</div><div class="muted" style="font-size:13px">limite ${wageFmt(t.wb)}/sem</div></div>
     <div class="stat-tile"><div class="k">Valor do elenco</div><div class="v">${money(sum(sq, (p) => playerValue(p)))}</div></div></div>
+    ${S.finIn && S.finIn.team === t.id ? `<div class="panel"><h3>Receitas da temporada <span class="sub">entram no orçamento</span></h3><div class="grid g3" style="gap:8px">
+      <div class="stat-tile"><div class="k">Bilheteria e TV</div><div class="v">${money(S.finIn.gate || 0)}</div><div class="muted" style="font-size:12px">todo dia 1º</div></div>
+      <div class="stat-tile"><div class="k">Premiações</div><div class="v">${money(S.finIn.prize || 0)}</div><div class="muted" style="font-size:12px">títulos e campanhas</div></div>
+      <div class="stat-tile"><div class="k">Patrocínios</div><div class="v">${money((S.spons && S.spons.team === t.id && S.spons.total) || 0)}</div><div class="muted" style="font-size:12px">desde que você chegou</div></div></div>
+      <p class="muted" style="font-size:13px;margin-bottom:0">Na virada da temporada metade do que sobrar no caixa continua com você, somada à verba nova da diretoria.</p></div>` : ''}
     ${viewBudgetMove(t, bill)}
+    ${S.era === 2026 && S.mode !== 'national' && DATA && DATA.era === S.era ? `<div class="panel row wrap" style="align-items:center"><div class="grow"><b>Elencos da janela 2026/27</b><div class="muted" style="font-size:13px">${S.sqVer === SQUAD_VER ? 'Esta carreira já usa os elencos atuais.' : 'Esta carreira ainda usa elencos de antes da última janela.'}</div></div><button class="btn sm ${S.sqVer === SQUAD_VER ? '' : 'primary'}" data-a="sqOffer">Atualizar elencos</button></div>` : ''}
     <div class="panel"><h3>Maiores salários</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jogador</th><th class="n">Salário/sem</th><th class="n">Contrato</th><th class="n">Valor</th></tr></thead><tbody>
     ${sq.slice(0, 15).map((p) => `<tr class="click" data-a="openPlayer" data-id="${p.id}"><td>${esc(p.n)}</td><td class="n">${money(p.w || 0)}</td><td class="n">${p.ct}</td><td class="n">${money(playerValue(p))}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
@@ -8461,7 +8824,7 @@ function viewBudgetMove(t, bill) {
   const up = steps.map((w) => { const c = wageRaiseCost(w); return `<button class="btn sm" data-a="wbMove" data-v="${w}" ${c > t.budget ? 'disabled' : ''}>+${money(w)}/sem <span class="muted">(${money(c)})</span></button>`; }).join('');
   const down = steps.filter((w) => w <= room).map((w) => `<button class="btn sm" data-a="wbMove" data-v="${-w}">−${money(w)}/sem <span class="muted">(+${money(wageLowerReturn(w))})</span></button>`).join('');
   return `<div class="panel"><h3>Remanejar verba <span class="sub">entre transferências e folha salarial</span></h3>
-    <p class="muted" style="font-size:13px;margin-top:0">Cada ${money(1000)} a mais por semana na folha custa ${money(1000 * weeks)} do orçamento de transferências (as ${weeks} semanas que faltam até 1º de julho, quando a diretoria recalcula a folha a partir dos salários do elenco). Devolver folga da folha devolve 80% desse valor.</p>
+    <p class="muted" style="font-size:13px;margin-top:0">Cada ${money(1000)} a mais por semana na folha custa ${money(wageRaiseCost(1000))} do orçamento de transferências (as ${weeks} semanas que faltam até 1º de julho, quando a diretoria recalcula a folha a partir dos salários do elenco). Devolver folga da folha devolve parte desse valor.</p>
     <div class="row wrap" style="gap:8px;margin-bottom:6px"><span class="chip">Folga na folha: ${money(room)}/sem</span><span class="chip">Orçamento: ${money(t.budget)}</span></div>
     <div class="muted up" style="font-size:11px;margin:8px 0 4px">Ampliar a folha</div><div class="row wrap" style="gap:8px">${up}</div>
     ${down ? `<div class="muted up" style="font-size:11px;margin:10px 0 4px">Devolver para transferências</div><div class="row wrap" style="gap:8px">${down}</div>` : ''}
@@ -8477,6 +8840,8 @@ function doWbMove(v) {
 act('wbMove', (el) => doWbMove(+el.dataset.v));
 act('wbMoveX', (el) => { const v = Math.round(+($('#wb-x').value) || 0); if (v <= 0) { toast('Digite um valor por semana.', true); return; } doWbMove(v * +el.dataset.dir); });
 act('goFinance', () => { closeAllModals(); UI.tab = 'office'; UI.sub.office = 'finance'; render(); window.scrollTo(0, 0); });
+
+act('sqOffer', () => offerSquadSync());
 
 /* ===================== team modal (other teams) ===================== */
 act('openTeam', (el) => { const id = +el.dataset.id; if (S.teams[id]) openTeamModal(id); });
@@ -10006,6 +10371,7 @@ function g2LayoutEdit(root, onDone) {
 // the emblems of the generated brands (frame + symbol), drawn small on the shirts
 const BRAND_P2D = {};
 function drawBrandMark(ctx, lg, x, y, r, b) {
+  if (lg.imgEl && lg.imgEl.complete && lg.imgEl.naturalWidth) { ctx.drawImage(lg.imgEl, x - r, y - r, r * 2, r * 2); return; } // the player's own image
   const fr = lg.sh % 9, ink = Math.abs(lum(lg.c1) - lum(lg.c2)) > 0.28 ? lg.c2 : (lum(lg.c1) > 0.5 ? '#111' : '#fff');
   ctx.save();
   ctx.fillStyle = lg.c1; ctx.strokeStyle = lg.c1; ctx.lineWidth = Math.max(1, r * 0.3);
@@ -10055,7 +10421,7 @@ function drawShirtLogos(ctx, kit, side, tx, ty, s) {
   const spt = G_SP.tag && G_SP.tag[side], lg = G_SP.logo && G_SP.logo[side];
   if (spt) drawLogoModel(ctx, K.spM, lg || { sh: 1, c1: '#444', c2: '#fff' }, G_SP.br[side], spt, bx + K.spX * bw, by + K.spY * bh, s * 0.1 * K.spS, kit.shirt);
   const sb = G_SP.sup && G_SP.sup[side];
-  if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, sp, sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
+  if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, lgWithImg('su', sb, sp), sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
 }
 const G_SP = { tag: null, logo: null, br: null, sup: null };
 const Game2D = (() => {
@@ -10268,7 +10634,7 @@ const Game2D = (() => {
     }
     G.spTag = [sponsTag(st.sides[0].id), sponsTag(st.sides[1].id)];
     G.spBr = [0, 1].map((k) => sponsBrandOf(st.sides[k].id));
-    G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : SP_BRANDS[b][4]; });
+    G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : lgWithImg('sp', b, SP_BRANDS[b][4]); });
     G.spSup = [0, 1].map((k) => supplierOf(st.sides[k].id));
     G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup;
     buildPlayers();
@@ -16538,7 +16904,7 @@ act('admInject', async () => {
 /* ===================== sponsorship tab (Escritório → Patrocínios) ===================== */
 // logo of a generated brand (SVG): shape in two colours with the initial letter
 function brandLogo(b, size = 48, word) {
-  const br = SP_BRANDS[b], inner = markInner(br[4], spIconOf(b));
+  const br = SP_BRANDS[b], src = typeof brandImgSrc === 'function' ? brandImgSrc('sp', b) : null, inner = src ? brandSvgImg(src) : markInner(br[4], spIconOf(b));
   if (!word) return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">${inner}</svg>`;
   return markWord(inner, br[2], size);
 }
@@ -16570,14 +16936,14 @@ function markWord(inner, name, size) {
 }
 // a supplier's own generic mark
 function supLogo(i, size = 48, word) {
-  const sp = SP_SUPS[i], inner = markInner(sp, sp.ic);
+  const sp = SP_SUPS[i], src = typeof brandImgSrc === 'function' ? brandImgSrc('su', i) : null, inner = src ? brandSvgImg(src) : markInner(sp, sp.ic);
   return word ? markWord(inner, sp.n, size) : `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">${inner}</svg>`;
 }
 // SVG version of drawLogoModel: logo model m centred on (cx, cy) in the kit preview's units (u = unit)
 function logoModelSvg(m, lg, icon, text, cx, cy, u, shirt) {
   const dark = lum(shirt) > 0.6, ink = dark ? '#111' : '#fff';
   const mono = { sh: lg.sh, c1: dark ? '#161616' : '#f4f4f4', c2: dark ? '#f4f4f4' : '#161616' };
-  const em = (l, x, y, r) => `<g transform="translate(${(x - r).toFixed(2)} ${(y - r).toFixed(2)}) scale(${(r * 2 / 100).toFixed(4)})">${markInner(l, icon)}</g>`;
+  const em = (l, x, y, r) => `<g transform="translate(${(x - r).toFixed(2)} ${(y - r).toFixed(2)}) scale(${(r * 2 / 100).toFixed(4)})">${lg.img ? brandSvgImg(lg.img) : markInner(l, icon)}</g>`;
   const tx = (x, y, k, anchor, fill) => `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${anchor || 'middle'}" dominant-baseline="central" font-size="${(u * k).toFixed(2)}" font-weight="800" fill="${fill || ink}" font-family="Arial Narrow,Arial,sans-serif">${esc(text)}</text>`;
   const wd = (k) => text.length * u * k * 0.5;
   if (m === 1) return em(lg, cx, cy, u * 1.3);
@@ -16670,22 +17036,28 @@ act('spNew', () => {
 
 // ---------- catalogue of all brands: search by name, filter by effect, paged
 const SP_PAGE = 48;
-act('spCat', () => { UI.spc = { q: '', perk: 'all', page: 0 }; closeAllModals(); openModal(() => spCatHtml(), { size: 'wide' }); });
+act('spCat', () => { UI.spc = { q: '', perk: 'all', page: 0, kind: 'real' }; closeAllModals(); openModal(() => spCatHtml(), { size: 'wide' }); });
+act('spcKind', (el) => { UI.spc.kind = el.dataset.v; UI.spc.page = 0; refreshModal(); });
 function spCatList() {
   const c = UI.spc, q = strip(c.q || '');
-  return SP_BRANDS.map((b, i) => i).filter((i) => (c.perk === 'all' || SP_BRANDS[i][3] === c.perk) && (!q || strip(SP_BRANDS[i][0]).includes(q)));
+  if (c.kind === 'sup') return SP_SUPS.map((x, i) => i).filter((i) => !q || strip(SP_SUPS[i].n).includes(q));
+  return SP_BRANDS.map((b, i) => i).filter((i) => (c.kind === 'real' ? i >= SP_REAL_START : c.kind === 'game' ? i < SP_REAL_START : true)
+    && (c.perk === 'all' || SP_BRANDS[i][3] === c.perk) && (!q || strip(SP_BRANDS[i][0]).includes(q)));
 }
 function spCatHtml() {
   const c = UI.spc, list = spCatList(), pages = Math.max(1, Math.ceil(list.length / SP_PAGE));
   c.page = clamp(c.page, 0, pages - 1);
   const s = sponsInit(), inUse = new Set([s.shirt && s.shirt.b, s.std && s.std.b]);
   const items = list.slice(c.page * SP_PAGE, (c.page + 1) * SP_PAGE).map((i) => {
+    if (c.kind === 'sup') { const sp = SP_SUPS[i]; return `<div class="panel" style="padding:10px;text-align:center;${s.kit && s.kit.b === i ? 'outline:2px solid var(--gold,#ffc54d)' : ''}"><div style="display:flex;justify-content:center">${supLogo(i, 56)}</div><div style="font-weight:700;font-size:13px;margin-top:6px">${esc(sp.n)}</div><div class="muted" style="font-size:11px">${'★'.repeat(sp.pr)}</div>${brandImgCtl('su', i)}</div>`; }
     const br = SP_BRANDS[i], pk = SP_PERKS[br[3]];
     return `<div class="panel" style="padding:10px;text-align:center;${inUse.has(i) ? 'outline:2px solid var(--gold,#ffc54d)' : ''}" title="${esc(pk.label + ': ' + pk.desc)}"><div style="display:flex;justify-content:center">${brandLogo(i, 56)}</div>
-      <div style="font-weight:700;font-size:13px;margin-top:6px;line-height:1.15">${esc(br[0])}</div><div class="muted" style="font-size:11px">${pk.ico} ${pk.label}</div></div>`;
+      <div style="font-weight:700;font-size:13px;margin-top:6px;line-height:1.15">${esc(br[0])}</div><div class="muted" style="font-size:11px">${pk.ico} ${pk.label}</div>${brandImgCtl('sp', i)}</div>`;
   }).join('');
-  return modalShell('📚 Catálogo de marcas', `<div class="row wrap" style="gap:8px;margin-bottom:10px"><input id="spc-q" class="input" placeholder="Buscar marca…" value="${esc(c.q)}" data-a="spcQ" data-live="1" style="max-width:220px">
-    <div class="seg wrapseg"><button class="${c.perk === 'all' ? 'on' : ''}" data-a="spcPerk" data-v="all">Todas</button>${Object.keys(SP_PERKS).map((k) => `<button class="${c.perk === k ? 'on' : ''}" data-a="spcPerk" data-v="${k}">${SP_PERKS[k].ico} ${SP_PERKS[k].label}</button>`).join('')}</div></div>
+  return modalShell('📚 Catálogo de marcas', `<div class="seg" style="margin-bottom:8px">${[['real', 'Empresas reais'], ['game', 'Marcas do jogo'], ['sup', 'Material esportivo']].map(([k, l]) => `<button class="${c.kind === k ? 'on' : ''}" data-a="spcKind" data-v="${k}">${l}</button>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Toque em 📷 Imagem para usar o logo que você quiser em qualquer marca (fica só neste aparelho, como os escudos). Sem imagem, o jogo usa um símbolo genérico.</p>
+    <div class="row wrap" style="gap:8px;margin-bottom:10px"><input id="spc-q" class="input" placeholder="Buscar marca…" value="${esc(c.q)}" data-a="spcQ" data-live="1" style="max-width:220px">
+    <div class="seg wrapseg" ${c.kind === 'sup' ? 'style="display:none"' : ''}><button class="${c.perk === 'all' ? 'on' : ''}" data-a="spcPerk" data-v="all">Todas</button>${Object.keys(SP_PERKS).map((k) => `<button class="${c.perk === k ? 'on' : ''}" data-a="spcPerk" data-v="${k}">${SP_PERKS[k].ico} ${SP_PERKS[k].label}</button>`).join('')}</div></div>
     <div class="muted" style="font-size:12px;margin-bottom:8px">${list.length} ${list.length === 1 ? 'marca' : 'marcas'} · página ${c.page + 1} de ${pages}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">${items || '<div class="muted">Nenhuma marca encontrada.</div>'}</div>`,
   `<button class="btn" data-a="spcPage" data-d="-1" ${c.page <= 0 ? 'disabled' : ''}>← Anterior</button><button class="btn" data-a="spcPage" data-d="1" ${c.page >= pages - 1 ? 'disabled' : ''}>Próxima →</button><button class="btn gold" data-a="closeModal">Fechar</button>`);
@@ -16787,8 +17159,8 @@ function kitLogosSvg(k, lo) {
   const K = Object.assign({}, KIT_LOGO_DEF, k), B = KIT_BOX;
   const hit = (key, cx, cy, r, inner) => `<g ${lo.drag ? `data-drag="${key}" style="cursor:grab"` : ''}>${inner}${lo.drag ? `<rect x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${(r * 2).toFixed(1)}" height="${(r * 2).toFixed(1)}" fill="transparent" stroke="rgba(255,200,60,.85)" stroke-dasharray="1.6 1.2" stroke-width=".5" rx="1.5"/>` : ''}</g>`;
   let o = '';
-  if (lo.sp) { const br = SP_BRANDS[lo.sp.b], u = 5.4 * K.spS, cx = B.x + K.spX * B.w, cy = B.y + K.spY * B.h; o += hit('sp', cx, cy, u * 1.9, logoModelSvg(K.spM, br[4], spIconOf(lo.sp.b), lo.sp.tag, cx, cy, u, K.shirt)); }
-  if (lo.sup != null && lo.sup >= 0) { const sp = SP_SUPS[lo.sup], u = 3.3 * K.suS, cx = B.x + K.suX * B.w, cy = B.y + K.suY * B.h; o += hit('su', cx, cy, u * 1.7, logoModelSvg(K.suM, sp, sp.ic, sp.n.toUpperCase(), cx, cy, u, K.shirt)); }
+  if (lo.sp) { const br = SP_BRANDS[lo.sp.b], u = 5.4 * K.spS, cx = B.x + K.spX * B.w, cy = B.y + K.spY * B.h; o += hit('sp', cx, cy, u * 1.9, logoModelSvg(K.spM, lgWithImg('sp', lo.sp.b, br[4]), spIconOf(lo.sp.b), lo.sp.tag, cx, cy, u, K.shirt)); }
+  if (lo.sup != null && lo.sup >= 0) { const sp = SP_SUPS[lo.sup], u = 3.3 * K.suS, cx = B.x + K.suX * B.w, cy = B.y + K.suY * B.h; o += hit('su', cx, cy, u * 1.7, logoModelSvg(K.suM, lgWithImg('su', lo.sup, sp), sp.ic, sp.n.toUpperCase(), cx, cy, u, K.shirt)); }
   return o;
 }
 function kitHtml() {
@@ -16925,6 +17297,62 @@ act('swpUndo', (el) => {
   drawModals(); render();
 });
 
+/* ===================== the player's own images for brands (sponsors and kit suppliers), kept only on this device ===================== */
+const CUSTOM_BRANDS = {}; // 'sp:<brand name>' | 'su:<supplier name>' -> PNG data URL
+const BRAND_URLS = {}, BRAND_EL = {};
+const brandImgKey = (kind, i) => (kind === 'su' ? 'su:' + (SP_SUPS[i] ? SP_SUPS[i].n : i) : 'sp:' + (SP_BRANDS[i] ? SP_BRANDS[i][0] : i));
+function brandImgSrc(kind, i) {
+  if (i == null || i < 0) return null;
+  const k = brandImgKey(kind, i), d = CUSTOM_BRANDS[k];
+  if (!d) return null;
+  if (BRAND_URLS[k]) return BRAND_URLS[k];
+  try {
+    const bin = atob(d.slice(d.indexOf(',') + 1)), bytes = new Uint8Array(bin.length);
+    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+    BRAND_URLS[k] = URL.createObjectURL(new Blob([bytes], { type: d.slice(5, d.indexOf(';')) }));
+  } catch (e) { BRAND_URLS[k] = d; }
+  return BRAND_URLS[k];
+}
+// an <img>-like element for the canvas (match screens); null until it has loaded
+function brandImgEl(kind, i) {
+  const src = brandImgSrc(kind, i);
+  if (!src) return null;
+  const k = brandImgKey(kind, i);
+  if (!BRAND_EL[k]) { const im = new Image(); im.src = src; BRAND_EL[k] = im; }
+  return BRAND_EL[k];
+}
+// a logo description (as used by the kit/shirt drawings) carrying the player's image when there is one
+function lgWithImg(kind, i, lg) {
+  const src = brandImgSrc(kind, i);
+  return src ? Object.assign({}, lg, { img: src, imgEl: brandImgEl(kind, i) }) : lg;
+}
+const brandSvgImg = (src) => `<image href="${src}" x="4" y="4" width="92" height="92" preserveAspectRatio="xMidYMid meet"/>`;
+function setCustomBrand(k, data) {
+  if (BRAND_URLS[k] && String(BRAND_URLS[k]).startsWith('blob:')) URL.revokeObjectURL(BRAND_URLS[k]);
+  delete BRAND_URLS[k]; delete BRAND_EL[k];
+  if (data) CUSTOM_BRANDS[k] = data; else delete CUSTOM_BRANDS[k];
+}
+async function loadCustomBrands() {
+  try { const c = await IDB.get('brands'); if (c && typeof c === 'object') for (const k in c) if (isCrestData(c[k])) CUSTOM_BRANDS[k] = c[k]; } catch (e) { /* storage unavailable */ }
+}
+async function persistCustomBrands() { try { await IDB.set('brands', Object.assign({}, CUSTOM_BRANDS)); } catch (e) { /* storage unavailable */ } }
+act('brandFile', async (el) => {
+  const f = el.files && el.files[0];
+  if (!f) return;
+  try {
+    setCustomBrand(el.dataset.k, await imageFileToCrest(f));
+    await persistCustomBrands();
+    render(); refreshModal();
+    toast('Imagem da marca atualizada.');
+  } catch (e) { toast(e.message || 'Não foi possível usar essa imagem.', true); }
+});
+act('brandRemove', async (el) => { setCustomBrand(el.dataset.k, null); await persistCustomBrands(); render(); refreshModal(); toast('A marca voltou ao símbolo do jogo.'); });
+// upload / remove buttons for one brand
+function brandImgCtl(kind, i) {
+  const k = brandImgKey(kind, i), has = !!CUSTOM_BRANDS[k];
+  return `<div class="row" style="gap:4px;justify-content:center;margin-top:6px"><label class="btn xs" style="cursor:pointer" title="Usar uma imagem sua para esta marca">${has ? 'Trocar' : '📷 Imagem'}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="hide" data-a="brandFile" data-k="${esc(k)}"></label>${has ? `<button class="btn xs" data-a="brandRemove" data-k="${esc(k)}" title="Voltar ao símbolo do jogo">✕</button>` : ''}</div>`;
+}
+
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); });
@@ -16935,6 +17363,7 @@ window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); 
   render();
   try { await loadWallet(); } catch (e) { console.error(e); }
   await loadCustomCrests();
+  await loadCustomBrands();
   UI.loadP = 0.5;
   try { SAVES = await listSaves(); } catch (e) { SAVES = []; }
   UI.loadP = 0.8;
