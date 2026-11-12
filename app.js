@@ -1530,6 +1530,7 @@ function setupNations() {
     S.teams[t.id] = t;
     n.tid = t.id;
   }
+  ensureExtraNations();
 }
 function natTeam(code) { return S.teams[S.nations[code].tid]; }
 
@@ -1574,7 +1575,8 @@ async function createWorld(opts) {
   setupStructures(DATA);
   setupNations();
   if (S.mode === 'normal') { const d0 = S.date; if (!S.date) S.date = dayOf(S.era, 7, 1); ensureBraPyramid(true); S.date = d0; }
-  if (S.mode === 'national') prepareNationalPools();
+  if (S.mode === 'national' || opts.dual) prepareNationalPools();
+  if (opts.dual) S.dualMode = 1;
   return S;
 }
 
@@ -1602,6 +1604,11 @@ function prepareCareerStart(teamId) {
       target = now;
     }
     if (S.zoeira) scheduleZoeira99(Y, 'EU');
+    if (S.dualMode && S.dualPick) { // club + national team: the international calendar runs too, starting before the summer tournament
+      S.dual = { club: teamId, nat: S.dualPick };
+      setupInternational(Y);
+      if (target > dayOf(Y, 6, 1)) target = dayOf(Y, 6, 1);
+    }
   } else {
     S.date = dayOf(Y, 6, 1);
     setupInternational(Y);
@@ -1628,6 +1635,7 @@ function finishCareerStart(teamId) {
   S.seasonStart = S.date;
   if (!t.isNat) { t.form = t.form || '4-3-3'; const lu = autoLineup(squadOf(teamId), t.form); t.xi = lu.xi; t.bench = lu.bench; }
   else { autoCallUp(t.code, true); const lu = autoLineup(nationSquad(t.code), t.form); t.xi = lu.xi; t.bench = lu.bench; }
+  if (S.dual) { const nt = S.teams[S.dual.nat]; nt.form = nt.form || '4-3-3'; autoCallUp(nt.code, true); const lu = autoLineup(nationSquad(nt.code), nt.form); nt.xi = lu.xi; nt.bench = lu.bench; }
   setBoardObjective();
   welcomeMessages();
   S.started = true;
@@ -1649,6 +1657,7 @@ async function startCareerAsync(teamId, onProgress) {
         const t = ymd(S.date);
         if (t.m === 7 && t.d === 1 && S.euSeason < t.y && !S.euPending) euRollover();
         if (t.m === 1 && t.d === 1 && S.mode === 'normal' && (S.saSeason || 0) < t.y) saRollover();
+        if (S.dual) intlDaily();
       }
       if (onProgress) onProgress((S.date - start) / Math.max(1, target - start));
       await new Promise((r) => setTimeout(r, 0));
@@ -1667,11 +1676,20 @@ function seasonEndDay() {
 }
 function userLeagueZone() {
   if (S.mode !== 'normal') return S.mode === 'national' ? 'INTL' : 'EU';
-  const uid = S.user.team;
+  const uid = S.dual ? S.dual.club : S.user.team;
   const lg = S.normal.find((l) => l.teams.includes(uid) || l.bank.includes(uid));
   return lg ? lg.cal : 'EU';
 }
-const isUserTeam = (id) => !!S.user && S.user.team === id && !S.coach.unemployed;
+const isUserTeam = (id) => !!S.user && (S.user.team === id || (!!S.dual && (S.dual.club === id || S.dual.nat === id))) && !S.coach.unemployed;
+// club + national team at the same time: S.user.team is the side being shown, S.dual keeps both
+const userIsNat = () => !!(S && S.user && S.teams[S.user.team] && S.teams[S.user.team].isNat);
+const userNatTid = () => (S.dual ? S.dual.nat : S.mode === 'national' ? S.user.team : 0);
+function withClub(fn) {
+  if (!S.dual || S.user.team === S.dual.club) return fn();
+  const cur = S.user.team; S.user.team = S.dual.club;
+  try { return fn(); } finally { if (S.dual) S.user.team = cur; }
+}
+function dualSwitch(to) { if (!S.dual) return; S.user.team = to === 'nat' ? S.dual.nat : to === 'club' ? S.dual.club : (S.user.team === S.dual.club ? S.dual.nat : S.dual.club); }
 // the club is run by the computer when the user plays as a player (player career)
 const isCoachTeam = (id) => !S.pl && isUserTeam(id);
 
@@ -2081,7 +2099,12 @@ function saRollover() {
 function matchesToday() { return (S.days[S.date] || []).map((id) => S.matches[id]).filter(Boolean); }
 function userMatchToday() {
   if (!S.user.team || S.coach.unemployed) return null;
-  return matchesToday().find((m) => !m.done && (m.h === S.user.team || m.a === S.user.team)) || null;
+  const ids = S.dual ? [S.user.team, S.dual.club, S.dual.nat] : [S.user.team];
+  const list = matchesToday().filter((m) => !m.done && (ids.includes(m.h) || ids.includes(m.a)));
+  const m = list.find((x) => x.h === S.user.team || x.a === S.user.team) || list[0] || null;
+  // club + national team: the day's match decides which side is shown
+  if (m && S.dual && m.h !== S.user.team && m.a !== S.user.team && !S.presim) { S.user.team = (m.h === S.dual.nat || m.a === S.dual.nat) ? S.dual.nat : S.dual.club; S.dualAuto = S.user.team; }
+  return m;
 }
 // play all pending AI matches of the current day (user match must already be done)
 function playDay() {
@@ -2094,16 +2117,21 @@ function playDay() {
 }
 function advanceDay(fast) {
   const um = userMatchToday();
-  if (um && !fast) return { blocked: um };
-  playDay();
-  if (!fast) dailyEvents();
-  else fastDailyEvents();
-  S.date++;
-  const t = ymd(S.date);
-  if (t.m === 7 && t.d === 1 && S.euSeason < t.y) euRollover();
-  if (t.m === 1 && t.d === 1 && S.mode === 'normal' && (S.saSeason || 0) < t.y) saRollover();
-  if (S.mode === 'national') intlDaily();
-  checkSeasonEnd();
+  if (um && !fast) {
+    // club + national team: the day's match decides which side is shown
+    return { blocked: um };
+  }
+  withClub(() => {
+    playDay();
+    if (!fast) dailyEvents();
+    else fastDailyEvents();
+    S.date++;
+    const t = ymd(S.date);
+    if (t.m === 7 && t.d === 1 && S.euSeason < t.y) euRollover();
+    if (t.m === 1 && t.d === 1 && S.mode === 'normal' && (S.saSeason || 0) < t.y) saRollover();
+  });
+  if (S.mode === 'national' || S.dual) intlDaily();
+  withClub(() => checkSeasonEnd());
   return { ok: true };
 }
 function fastForward(target, onProgress) {
@@ -2116,6 +2144,7 @@ function fastForward(target, onProgress) {
     const t = ymd(S.date);
     if (t.m === 7 && t.d === 1 && S.euSeason < t.y && !S.euPending) euRollover();
     if (t.m === 1 && t.d === 1 && S.mode === 'normal' && (S.saSeason || 0) < t.y) saRollover();
+    if (S.dual) intlDaily();
     if (onProgress && ++n % 15 === 0) onProgress((S.date - start) / Math.max(1, target - start));
   }
 }
@@ -2171,7 +2200,7 @@ function yearlyPlayers(y) {
   const devReport = [];
   for (const id in S.players) {
     const p = S.players[id];
-    if (p.natOnly && S.mode !== 'national') continue;
+    if (p.natOnly && S.mode !== 'national' && !S.dual) continue;
     if (!skipAging) {
       p.age++;
       if (S.zoeira) {
@@ -3087,7 +3116,7 @@ function userLeagueTeams() {
 function setBoardObjective() {
   const uid = S.user.team;
   if (!uid) return;
-  if (S.mode === 'national') {
+  if (S.mode === 'national' || userIsNat()) {
     const r = nationRating(S.teams[uid].code);
     S.board.obj = r >= 82 ? 'Brigar por títulos' : r >= 76 ? 'Chegar às fases finais dos torneios' : 'Classificar para os torneios e fazer bons jogos';
     S.board.objRank = 0;
@@ -3732,11 +3761,14 @@ const NAT_POOL = {
     'SRB', 'WAL', 'IRL', 'NIR', 'SVK', 'SVN', 'HUN', 'ROU', 'GRE', 'ISL', 'FIN', 'ALB', 'MKD', 'MNE', 'GEO', 'ARM', 'AZE', 'KAZ', 'ISR', 'BUL',
     'BLR', 'LUX', 'CYP', 'EST', 'LVA', 'LTU', 'KVX', 'FRO', 'MDA', 'MLT', 'AND', 'LIE', 'GIB', 'SMR', 'RUS'],
   CONMEBOL: ['BRA', 'ARG', 'URU', 'COL', 'ECU', 'PAR', 'CHI', 'PER', 'VEN', 'BOL'],
-  CONCACAF: ['USA', 'MEX', 'CAN', 'PAN', 'HAI', 'CUW', 'CRC', 'JAM', 'HON', 'SLV', 'GUA', 'TRI', 'SUR'],
+  CONCACAF: ['USA', 'MEX', 'CAN', 'PAN', 'HAI', 'CUW', 'CRC', 'JAM', 'HON', 'SLV', 'GUA', 'TRI', 'SUR', 'NCA', 'CUB', 'DOM', 'PUR', 'GUY', 'BER', 'GRN', 'BLZ',
+    'ATG', 'BRB', 'SKN', 'LCA', 'VIN', 'DMA', 'BAH', 'ARU', 'CAY', 'MSR', 'TCA', 'VGB', 'VIR', 'AIA'],
   CAF: ['MAR', 'TUN', 'EGY', 'ALG', 'GHA', 'CPV', 'RSA', 'SEN', 'CIV', 'COD', 'NGA', 'CMR', 'MLI', 'BFA', 'GUI', 'GAB', 'ANG', 'ZAM', 'BEN',
-    'TOG', 'GAM', 'GNB', 'EQG', 'KEN', 'UGA', 'MOZ', 'ZIM', 'MAD', 'CGO', 'LBY', 'SUD', 'NAM'],
-  AFC: ['JPN', 'IRN', 'UZB', 'KOR', 'JOR', 'AUS', 'QAT', 'KSA', 'IRQ', 'UAE', 'OMA', 'CHN', 'SYR', 'BHR', 'PLE', 'LBN', 'KUW', 'THA', 'VIE', 'IDN', 'IND'],
-  OFC: ['NZL', 'NCL', 'FIJ'],
+    'TOG', 'GAM', 'GNB', 'EQG', 'KEN', 'UGA', 'MOZ', 'ZIM', 'MAD', 'CGO', 'LBY', 'SUD', 'NAM', 'COM', 'CTA', 'SLE', 'LBR', 'MTN', 'NIG', 'TAN', 'RWA',
+    'BDI', 'SSD', 'MWI', 'ETH', 'ERI', 'SOM', 'CHA', 'STP', 'MRI', 'BOT', 'LES', 'SWZ', 'DJI', 'SEY'],
+  AFC: ['JPN', 'IRN', 'UZB', 'KOR', 'JOR', 'AUS', 'QAT', 'KSA', 'IRQ', 'UAE', 'OMA', 'CHN', 'SYR', 'BHR', 'PLE', 'LBN', 'KUW', 'THA', 'VIE', 'IDN', 'IND',
+    'PRK', 'MAS', 'PHI', 'KGZ', 'TJK', 'TKM', 'HKG', 'TPE', 'AFG', 'BAN', 'SRI', 'PAK', 'YEM', 'BHU', 'GUM', 'MYA', 'SIN', 'NEP', 'MDV', 'CAM', 'LAO', 'MNG', 'BRU', 'TLS', 'MAC'],
+  OFC: ['NZL', 'NCL', 'FIJ', 'PNG', 'VAN', 'TAH', 'SOL', 'SAM', 'TGA', 'ASA', 'COK'],
 };
 const WC_QUOTA = { UEFA: 16, CONMEBOL: 6, CONCACAF: 6, CAF: 9, AFC: 8, OFC: 1 };
 const WC_HOSTS = { 2018: ['RUS'], 2022: ['QAT'], 2026: ['USA', 'MEX', 'CAN'], 2030: ['ESP', 'POR', 'MAR'], 2034: ['KSA'] };
@@ -3757,7 +3789,47 @@ const NAT_BASE = { // fallback strength for nations with few real players
   PLE: 58, LBN: 57, KUW: 56, THA: 58, VIE: 57, IDN: 59, IND: 55, SYR: 59, BHR: 58, OMA: 60, UAE: 62, CHN: 61, IRQ: 64, JOR: 63, UZB: 66,
   SUD: 54, NAM: 54, LBY: 57, CGO: 60, MAD: 58, ZIM: 60, MOZ: 57, UGA: 58, KEN: 57, EQG: 60, GNB: 61, GAM: 62, TOG: 60, BEN: 61, ZAM: 62, ANG: 62,
   GAB: 63, GUI: 64, BFA: 66, CPV: 64, RSA: 64,
+  // the nations added to complete the qualifiers
+  NCA: 55, CUB: 54, DOM: 55, PUR: 52, GUY: 53, BER: 50, GRN: 50, BLZ: 48, ATG: 49, BRB: 47, SKN: 48, LCA: 47, VIN: 47, DMA: 46, BAH: 44, ARU: 45, CAY: 43, MSR: 44, TCA: 40, VGB: 41, VIR: 41, AIA: 38,
+  COM: 57, CTA: 55, SLE: 57, LBR: 55, MTN: 59, NIG: 56, TAN: 58, RWA: 56, BDI: 55, SSD: 50, MWI: 55, ETH: 55, ERI: 46, SOM: 44, CHA: 47, STP: 46, MRI: 47, BOT: 54, LES: 51, SWZ: 51, DJI: 43, SEY: 43,
+  PRK: 58, MAS: 58, PHI: 54, KGZ: 57, TJK: 58, TKM: 54, HKG: 52, TPE: 50, AFG: 50, BAN: 47, SRI: 43, PAK: 46, YEM: 52, BHU: 41, GUM: 40, MYA: 50, SIN: 50, NEP: 46, MDV: 44, CAM: 46, LAO: 44, MNG: 42, BRU: 41, TLS: 40, MAC: 40,
+  PNG: 47, VAN: 48, TAH: 48, SOL: 50, SAM: 41, TGA: 40, ASA: 36, COK: 39,
 };
+// nations missing from the databases (name, confederation, colours)
+const EXTRA_NATIONS = [
+  ['NCA', 'Nicarágua', 'CONCACAF', '#0067c6', '#ffffff'], ['VIN', 'São Vicente e Granadinas', 'CONCACAF', '#009e60', '#fcd116'], ['DMA', 'Dominica', 'CONCACAF', '#006b3f', '#fcd116'],
+  ['BAH', 'Bahamas', 'CONCACAF', '#00abc9', '#fae042'], ['CAY', 'Ilhas Cayman', 'CONCACAF', '#c8102e', '#ffffff'], ['TCA', 'Turks e Caicos', 'CONCACAF', '#ffffff', '#012169'],
+  ['VGB', 'Ilhas Virgens Britânicas', 'CONCACAF', '#00843d', '#ffd100'], ['VIR', 'Ilhas Virgens Americanas', 'CONCACAF', '#ffd100', '#0b3d91'], ['AIA', 'Anguilla', 'CONCACAF', '#ff8200', '#0033a0'],
+  ['BOT', 'Botsuana', 'CAF', '#6da9d2', '#000000'], ['LES', 'Lesoto', 'CAF', '#00209f', '#009543'], ['SWZ', 'Essuatíni', 'CAF', '#3e5eb9', '#ffd900'],
+  ['DJI', 'Djibuti', 'CAF', '#6ab2e7', '#12ad2b'], ['SEY', 'Seychelles', 'CAF', '#d92223', '#003d88'],
+  ['TKM', 'Turcomenistão', 'AFC', '#28ae66', '#ffffff'], ['MYA', 'Mianmar', 'AFC', '#fecb00', '#ea2839'], ['SIN', 'Singapura', 'AFC', '#ef3340', '#ffffff'],
+  ['NEP', 'Nepal', 'AFC', '#dc143c', '#003893'], ['MDV', 'Maldivas', 'AFC', '#d21034', '#007e3a'], ['CAM', 'Camboja', 'AFC', '#032ea1', '#e00025'],
+  ['LAO', 'Laos', 'AFC', '#ce1126', '#002868'], ['MNG', 'Mongólia', 'AFC', '#c4272f', '#015197'], ['BRU', 'Brunei', 'AFC', '#f7e017', '#000000'],
+  ['TLS', 'Timor-Leste', 'AFC', '#dc241f', '#000000'], ['MAC', 'Macau', 'AFC', '#00785e', '#ffffff'],
+  ['TAH', 'Taiti', 'OFC', '#ce1126', '#ffffff'], ['SOL', 'Ilhas Salomão', 'OFC', '#0051ba', '#215b33'], ['SAM', 'Samoa', 'OFC', '#ce1126', '#002b7f'],
+  ['TGA', 'Tonga', 'OFC', '#c10000', '#ffffff'], ['ASA', 'Samoa Americana', 'OFC', '#002b7f', '#bf0a30'], ['COK', 'Ilhas Cook', 'OFC', '#00247d', '#ffffff'],
+];
+function ensureExtraNations() {
+  let id = Math.max(900000, ...Object.values(S.teams).filter((t) => t.isNat).map((t) => t.id));
+  const added = [];
+  for (const [code, n, conf, c1, c2] of EXTRA_NATIONS) {
+    if (S.nations[code]) continue;
+    S.nations[code] = { code, n, conf, c1, c2, cnt: 0 };
+    const t = { id: ++id, key: 'nat:' + code, n, s: code, c: code, c1, c2, ext: 0, std: '', fin: 3, sq: [], form: '4-3-3', isNat: 1, code, budget: 0, wb: 0 };
+    S.teams[t.id] = t; S.nations[code].tid = t.id;
+    added.push(code);
+  }
+  return added;
+}
+// careers saved before: the new nations join the pool (players generated for them) and play the next qualifiers
+function migrateExtraNations() {
+  if (!S.wcPool || (S.flags && S.flags.natX)) return;
+  S.flags = S.flags || {}; S.flags.natX = 1;
+  ensureExtraNations();
+  const before = new Set(S.wcPool);
+  prepareNationalPools();
+  if (S.wcPool.length > before.size) for (const c of S.wcPool) if (!before.has(c)) autoCallUp(c);
+}
 function prepareNationalPools() {
   S.wcPool = natPoolList();
   for (const code of S.wcPool) {
@@ -3875,11 +3947,11 @@ function finishQualifiers(c) {
   const key = c.tKey + c.tYear;
   S.intl.qual = S.intl.qual || {};
   S.intl.qual[key] = (S.intl.qual[key] || []).concat(q.map((tid) => S.teams[tid].code));
-  const uid = S.user.team;
+  const uid = userNatTid();
   if (uid && c.teams.concat(c.groups.flatMap((g) => g.teams)).includes(uid)) {
     const ok = q.includes(uid);
     addNews(ok ? `${teamName(uid)} está ${tGen(uid, 'classificado')}!` : `${teamName(uid)} fica fora`, ok ? `${teamName(uid)} garantiu vaga na ${c.tKey === 'WC' ? 'Copa do Mundo' : 'Eurocopa'} ${c.tYear}.` : `${teamName(uid)} não conseguiu a classificação para ${c.tKey === 'WC' ? 'a Copa do Mundo' : 'a Eurocopa'} ${c.tYear}.`, 'selecao', [uid], { cat: 'Seleção', hot: true });
-    S.board.conf = clamp(S.board.conf + (ok ? 12 : -20), 0, 100);
+    if (S.mode === 'national') S.board.conf = clamp(S.board.conf + (ok ? 12 : -20), 0, 100);
     if (ok) awardTrophyLike('Classificação', c);
   }
   S.hist.push({ key: 'QUAL', name: c.name, season: c.season, ch: q[0], chN: teamName(q[0]), ru: 0, ruN: '' });
@@ -3923,7 +3995,7 @@ function planQualifiersFrom(startDay, Y) {
   }
 }
 function planFriendlies(y, from) {
-  const uid = S.user.team;
+  const uid = userNatTid();
   if (!uid) return;
   const code = S.teams[uid].code;
   const c = newComp({ kind: 'friendly', key: 'FRIEND', name: 'Amistosos', short: 'AMIST', zone: 'INTL', season: String(y), year: y, teams: [] });
@@ -3968,8 +4040,8 @@ function intlDaily() {
   // call-ups before windows
   if (t.d === 25 || (t.m === 5 && t.d === 25)) {
     for (const code of S.wcPool) if (!isUserTeam(natTid(code))) autoCallUp(code);
-    if (S.user.team) {
-      const n = S.nations[S.teams[S.user.team].code];
+    if (userNatTid()) {
+      const n = S.nations[S.teams[userNatTid()].code];
       if (!n.sq || n.sq.length < 18) autoCallUp(n.code, true);
     }
   }
@@ -4105,6 +4177,7 @@ function adoptState(obj) {
   RNG.seed(S.rng || 1);
   cutBraBudgets();
   purgeWomen2026(); // careers saved before the 2026 database fix
+  try { migrateExtraNations(); } catch (e) { console.error('nations', e); }
   if (S.flags && !S.flags.potV2) { // higher ceiling for the young talents of older careers (once)
     S.flags.potV2 = 1; S.flags.potV3 = 1;
     for (const id in S.players) { const p = S.players[id]; if (!p.yth) boostYoungPot(p); }
@@ -6843,7 +6916,7 @@ function fifaWindows(y) {
 }
 function fifaWindowOn(day) { return fifaWindows(ymd(day).y).find((w) => day >= w.from && day <= w.to) || null; }
 const onNatDuty = (p, day = S.date) => !!(p.nd && day >= p.nd[0] && day <= p.nd[1]);
-const fifaOn = () => S.mode === 'normal' || S.mode === 'ultra';
+const fifaOn = () => (S.mode === 'normal' || S.mode === 'ultra') && !S.dual;
 const FIFA_NEED = { GK: 3, DEF: 8, MID: 7, ATT: 5 };
 
 function fifaCallUps(w) {
@@ -7543,6 +7616,7 @@ function viewWizard() {
       <div class="choice-grid" style="margin-top:16px">
         <button class="choice ${w.kind === 'club' ? 'on' : ''}" data-a="wizSet" data-k="kind" data-v="club"><span class="t">Clube</span><span class="d">Ultra Liga ou ligas nacionais, copas, Champions, Europa League e Libertadores.</span></button>
         <button class="choice ${w.kind === 'national' ? 'on' : ''}" data-a="wizSet" data-k="kind" data-v="national"><span class="t">Seleção</span><span class="d">${w.era === 2026 ? 'Assuma uma das 48 seleções da Copa de 2026 e dispute o Mundial.' : w.era === 2021 ? 'Comece com a Eurocopa e a Copa América de 2021.' : 'Comece com a Eurocopa e a Copa América de 2016.'} Depois vêm eliminatórias, Euro, Copa América e Copa do Mundo com 48 seleções.</span></button>
+        <button class="choice ${w.kind === 'both' ? 'on' : ''}" data-a="wizSet" data-k="kind" data-v="both"><span class="t">Clube e seleção</span><span class="d">Treine um clube das ligas normais e uma seleção ao mesmo tempo: Copa do Mundo, eliminatórias e amistosos nas datas FIFA. Um botão no topo alterna entre o clube e a seleção.</span></button>
       </div>
       <div class="row" style="margin-top:18px"><button class="btn" data-a="wizBack">Voltar</button><button class="btn primary right" data-a="wizNext">Continuar</button></div>`;
   } else if (w.step === 3) {
@@ -7721,7 +7795,7 @@ act('wizBack', () => {
   const w = UI.wiz;
   if (w.step === 0) { UI.screen = 'start'; render(); return; }
   w.step--;
-  if (w.step === 3 && w.kind === 'national') w.step = 2;
+  if (w.step === 3 && w.kind !== 'club') w.step = 2;
   w.offers = null;
   render();
 });
@@ -7734,7 +7808,8 @@ act('wizNext', async () => {
     if (!w.name) { toast('Digite o nome do treinador.', true); return; }
   }
   w.step++;
-  if (w.step === 3 && w.kind === 'national') w.step = 4;
+  if (w.step === 3 && w.kind !== 'club') w.step = 4;
+  if (w.kind === 'both') w.mode = 'normal';
   if (w.step === 5) { await prepareOffers(); return; }
   render();
 });
@@ -7746,7 +7821,7 @@ async function prepareOffers() {
     setLoading('Montando o mundo…', 0.6);
     await new Promise((r) => setTimeout(r, 20));
     const favT = STORE.find((t) => strip(t[1]) === strip(w.fav));
-    await createWorld({ era: w.era, mode: w.kind === 'national' ? 'national' : w.mode, coachName: w.name, coachAge: w.age, favKey: favT ? favT[0] : w.fav, zoeira: w.zoeira, noFire: w.noFire });
+    await createWorld({ era: w.era, mode: w.kind === 'national' ? 'national' : w.kind === 'both' ? 'normal' : w.mode, dual: w.kind === 'both', coachName: w.name, coachAge: w.age, favKey: favT ? favT[0] : w.fav, zoeira: w.zoeira, noFire: w.noFire });
     w.offers = initialOffers(S.mode);
     w.anyList = null; w.anyQ = ''; w.anyG = 'all';
     UI.screen = 'wizard';
@@ -7760,6 +7835,8 @@ act('wizReroll', () => { UI.wiz.offers = initialOffers(S.mode, { exclude: UI.wiz
 act('pickOffer', async (el) => {
   const id = +el.dataset.id;
   const w = UI.wiz;
+  if (S.dualMode && !S.teams[id].isNat && !S.dualPick) { w.dualClub = id; openDualNatPicker(); return; }
+  if (S.dualMode && S.teams[id].isNat) { S.dualPick = id; return startDual(); }
   S.noFire = !!w.noFire;
   closeAllModals();
   setLoading('Preparando o calendário…', 0.05);
@@ -7791,10 +7868,43 @@ act('sqSync', async (el) => {
   toast(`Elencos atualizados: ${r.moved} transferências, ${r.added} reforços.`);
 });
 
+// club + national team: after the club, choose the national team
+function dualNatRows() {
+  const q = strip(UI.wiz.dualQ || '');
+  return (S.wcPool || []).map((c) => S.nations[c]).filter((n) => n && n.tid && (!q || strip(n.n).includes(q)))
+    .map((n) => ({ n, r: nationRating(n.code) })).sort((a, b) => b.r - a.r);
+}
+function dualNatHtml() {
+  const rows = dualNatRows();
+  const opening = new Set(nationalOpeningCodes());
+  return modalShell('Escolha a seleção', `<p class="muted" style="margin-top:0">Clube: <b>${esc(teamName(UI.wiz.dualClub))}</b>. Agora escolha a seleção que você vai treinar ao mesmo tempo (${rows.length} seleções).</p>
+    <input class="input" id="dual-q" placeholder="Buscar seleção…" value="${esc(UI.wiz.dualQ || '')}" data-a="dualQ" data-live="1" style="margin-bottom:10px">
+    <div class="any-grid">${rows.slice(0, 120).map(({ n, r }) => `<button class="any-item" data-a="pickDualNat" data-id="${n.tid}">${crest(n.tid, 30)}<span class="grow"><span class="nm">${natFlag(n.code, 16)} ${esc(n.n)}</span><span class="wh">${esc(n.conf || '')} · força ${r.toFixed(1)}${opening.has(n.code) ? (S.era === 2026 ? ' · na Copa 2026' : ' · na Euro/Copa América') : ''}</span></span></button>`).join('')}</div>`,
+    '<button class="btn" data-a="closeModal">Voltar</button>');
+}
+function openDualNatPicker() { openModal(() => dualNatHtml(), { size: 'wide' }); }
+act('dualQ', (el) => { UI.wiz.dualQ = el.value; refreshModal(); const i = document.getElementById('dual-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } });
+act('pickDualNat', (el) => { S.dualPick = +el.dataset.id; startDual(); });
+async function startDual() {
+  const w = UI.wiz, id = w.dualClub;
+  if (!id) { toast('Escolha o clube primeiro.', true); S.dualPick = 0; return; }
+  S.noFire = !!w.noFire;
+  closeAllModals();
+  setLoading('Preparando o calendário do clube e da seleção…', 0.05);
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    await startCareerAsync(id, (p) => setLoading('Simulando o restante do mundo até o seu início…', 0.05 + p * 0.9));
+    await saveGame(S.id);
+    SAVES = await listSaves();
+    UI.screen = 'career'; UI.tab = 'central'; UI.sub = {};
+    render();
+  } catch (e) { console.error(e); UI.screen = 'wizard'; render(); toast('Erro ao iniciar: ' + e.message, true); }
+}
+
 /* ===================== career shell & central ===================== */
 function navTabs() {
   if (S.pl) return [['central', 'Central'], ['inbox', 'Notificações'], ['jogador', 'Jogador'], ['agente', 'Agente'], ['tabela', 'Tabela']];
-  const nat = S.mode === 'national';
+  const nat = userIsNat();
   const tabs = [['central', 'Central'], ['inbox', 'Notificações'], ['squad', nat ? 'Seleção' : 'Elenco']];
   if (!nat) tabs.push(['transfers', 'Transferências']);
   if (!nat && !S.zoeira) tabs.push(['academy', 'Academia']);
@@ -7824,11 +7934,13 @@ function viewCareer() {
       <div class="logo-mark" title="Ultra Manager">UM</div>
       <nav class="nav" aria-label="Seções">${nav}</nav>
       <div class="club-chip" ${S.coach.unemployed ? '' : `data-a="openTeam" data-id="${t.id}" role="button" tabindex="0" title="Ver o clube" style="cursor:pointer"`}>${S.coach.unemployed ? `<span class="chip">Sem clube</span>` : `${crest(t, 34)}<div><div class="nm">${esc(t.n)}</div><div class="conf-bar ${cls}" title="Confiança da diretoria: ${conf}%">${Array.from({ length: segs }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div></div>`}</div>
+      ${S.dual && !S.coach.unemployed ? `<button class="btn sm dual-sw" data-a="dualSw" title="Alternar entre o clube e a seleção">${crest(S.teams[S.user.team === S.dual.club ? S.dual.nat : S.dual.club], 20)} ${S.user.team === S.dual.club ? 'Ir para a seleção' : 'Ir para o clube'}</button>` : ''}
       ${coinPill()}
       <button class="icon-btn" data-a="openMenu" aria-label="Menu">☰</button>
     </div></header>
     <main class="page">${content}</main>`;
 }
+act('dualSw', () => { dualSwitch(); UI.tab = 'central'; UI.sub = {}; render(); toast(userIsNat() ? `Modo seleção: ${teamName(S.user.team)}` : `Modo clube: ${teamName(S.user.team)}`); });
 act('tab', (el) => { UI.tab = el.dataset.t; render(); window.scrollTo(0, 0); });
 act('goHub', () => { UI.screen = 'career'; UI.tab = 'central'; closeAllModals(); render(); });
 act('openMenu', () => {
@@ -7882,7 +7994,7 @@ function viewCentral() {
       <div class="fixture"><div class="crests">${crest(nm.h, 64)}${crest(nm.a, 64)}</div><div class="sep"></div>
         <div class="names">${esc(teamName(nm.h))}<br>${esc(teamName(nm.a))}</div></div>
       <div class="row wrap" style="margin:-6px 0 16px;gap:16px;font-size:13px"><span class="muted">Últimos 5:</span><span class="row" style="gap:6px">${crest(nm.h, 18)}${formRow(nm.h)}</span><span class="row" style="gap:6px">${crest(nm.a, 18)}${formRow(nm.a)}</span></div>`;
-  } else fixture = `<div class="panel" style="margin:12px 0 18px">Nenhum jogo marcado no momento. ${S.mode === 'national' ? 'A seleção aguarda a próxima data FIFA.' : 'Aproveite para reforçar o elenco.'}</div>`;
+  } else fixture = `<div class="panel" style="margin:12px 0 18px">Nenhum jogo marcado no momento. ${userIsNat() ? 'A seleção aguarda a próxima data FIFA.' : 'Aproveite para reforçar o elenco.'}</div>`;
   const sub = today ? 'Dia de jogo!' : nm ? (days === 1 ? 'Próximo jogo amanhã' : `Próximo jogo em ${days} dias`) : 'Sem jogos agendados';
   const advance = S.pendingEnd ? `<button class="btn primary big" data-a="openSeasonEnd"><span class="x-key">✕</span>Ver fim de temporada</button>`
     : today ? `<button class="btn primary big" data-a="goMatch" data-id="${today.id}"><span class="x-key">✕</span>Ir para a partida</button>`
@@ -7935,7 +8047,7 @@ function viewTeamData() {
     <div class="stat-tile"><div class="k">${lc ? esc(lc.name) : 'Posição'}</div><div class="v">${pos}</div><div class="muted" style="font-size:13px">${pts} pts ${played ? '· ' + played : ''}</div></div>
     <div class="stat-tile"><div class="k">Artilheiro</div><div class="v" style="font-size:20px">${ts ? esc(ts.name) : '—'}</div><div class="muted" style="font-size:13px">${ts ? `${ts.goals} gols` : 'Sem gols ainda'}</div></div>
     <div class="stat-tile"><div class="k">Carreira</div><div class="v">${rec.w}-${rec.d}-${rec.l}</div><div class="muted" style="font-size:13px">V-E-D · nota ${(S.coach.rating / 10).toFixed(1)}</div></div>
-    <div class="stat-tile"><div class="k">${t.isNat ? 'Federação' : 'Orçamento'}</div><div class="v" style="font-size:22px">${t.isNat ? Math.round(S.board.conf) + '%' : money(t.budget)}</div><div class="muted" style="font-size:13px">Objetivo: ${esc(S.board.obj)}</div></div>
+    ${S.dual && t.isNat ? (() => { const r = nationRating(t.code); return `<div class="stat-tile"><div class="k">Federação</div><div class="v" style="font-size:22px">${starStr(r)}</div><div class="muted" style="font-size:13px">Objetivo: ${r >= 82 ? 'Brigar por títulos' : r >= 76 ? 'Chegar às fases finais dos torneios' : 'Classificar para os torneios e fazer bons jogos'}</div></div>`; })() : `<div class="stat-tile"><div class="k">${t.isNat ? 'Federação' : 'Orçamento'}</div><div class="v" style="font-size:22px">${t.isNat ? Math.round(S.board.conf) + '%' : money(t.budget)}</div><div class="muted" style="font-size:13px">Objetivo: ${esc(S.board.obj)}</div></div>`}
   </div>`;
 }
 function viewUnemployed() {
@@ -9058,7 +9170,7 @@ act('copAll', () => { UI.copAll = !UI.copAll; render(); });
 /* ===================== office: tables, calendar, results, cups, gallery, board, jobs ===================== */
 function viewOffice() {
   const sub = UI.sub.office || 'table';
-  const nat = S.mode === 'national';
+  const nat = userIsNat();
   const tabs = [['table', nat ? 'Grupos' : 'Classificação'], ['calendar', 'Calendário'], ['results', 'Resultados'], ['cups', nat ? 'Mata-mata' : 'Copas e torneios'], ['gallery', 'Galeria de títulos'], ['career', 'Carreira'], ['board', nat ? 'Federação' : 'Diretoria'], ['jobs', 'Mercado de trabalho']];
   if (!nat) tabs.push(['finance', 'Finanças']);
   if (!nat && !S.pl) tabs.push(['spons', 'Patrocínios']);
@@ -9113,7 +9225,7 @@ function legendFor(c) {
   return `<div class="row wrap" style="font-size:12px;margin-top:8px;gap:14px">${items.map(([col, l]) => `<span class="row" style="gap:6px"><i class="dot" style="background:${col}"></i>${l}</span>`).join('')}</div>`;
 }
 function viewTables() {
-  if (S.mode === 'national') return viewNatTables();
+  if (userIsNat()) return viewNatTables();
   const c = (UI.tableComp && S.comps[UI.tableComp]) || userLeagueComp() || S.active.map((id) => S.comps[id]).find((x) => x && x.kind === 'league');
   if (!c) return '<div class="panel empty">Sem liga ativa no momento.</div>';
   const tab = sortTable(c.table, c.teams);
@@ -9369,7 +9481,7 @@ function viewBoard() {
   if (S.coach.unemployed) return '<div class="panel empty">Você está sem clube.</div>';
   const conf = Math.round(S.board.conf);
   const col = conf < 30 ? 'var(--loss)' : conf < 55 ? 'var(--warn)' : 'var(--win)';
-  return `<div class="grid g2"><div class="panel"><h3>Confiança ${S.mode === 'national' ? 'da federação' : 'da diretoria'}</h3>
+  return `<div class="grid g2"><div class="panel"><h3>Confiança ${userIsNat() ? 'da federação' : 'da diretoria'}</h3>
       <div class="disp" style="font-size:64px;font-weight:800;color:${col}">${conf}%</div>
       <div style="height:10px;border-radius:5px;background:var(--panel3);overflow:hidden"><i style="display:block;height:100%;width:${conf}%;background:${col}"></i></div>
       <p class="muted">${conf >= 70 ? 'A diretoria está muito satisfeita com o seu trabalho.' : conf >= 45 ? 'A diretoria acompanha de perto, mas confia em você.' : conf >= 25 ? 'A pressão aumentou. Resultados ruins podem custar o cargo.' : 'Situação crítica: o cargo está em risco.'}${S.noFire ? ' (modo sem demissão ativo)' : ''}</p>
