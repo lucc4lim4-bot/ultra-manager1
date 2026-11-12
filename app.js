@@ -10186,11 +10186,11 @@ const G3D = (() => {
     });
   }
   function shirtTex(kit, num) {
-    const key = 's' + kit.shirt + kit.trim + (kit.pat || 0) + '|' + (num == null ? '' : num);
+    const key = 's' + kit.shirt + kit.trim + (kit.trim2 || '') + (kit.pat || 0) + '|' + (num == null ? '' : num);
     if (texCache.has(key)) return texCache.get(key);
     const t = canvasTex(512, 256, (g, w, h) => {
       g.fillStyle = kit.shirt; g.fillRect(0, 0, w, h);
-      if (kit.pat && typeof kitPattern === 'function') kitPattern(g, kit.pat, kit.trim, 0, 0, w, h);
+      if (kit.pat && typeof kitPattern === 'function') kitPattern(g, kit.pat, kit.trim, 0, 0, w, h, kit.trim2, kit.shirt);
       // soft fabric shading: darker at the sides/under the arms
       const sh = g.createLinearGradient(0, 0, w, 0); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.25, 'rgba(0,0,0,0.10)'); sh.addColorStop(0.5, 'rgba(0,0,0,0)'); sh.addColorStop(0.75, 'rgba(0,0,0,0.10)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = sh; g.fillRect(0, 0, w, h);
@@ -10375,7 +10375,7 @@ const G3D = (() => {
   function buildRig(e) {
     const k = e.kit, H = bodyGeos(), longPants = !!e.longPants;
     const sk = (o = {}) => Object.assign({ skinning: true }, o);
-    const skin = mat(e.skin, sk({ roughness: 0.62 })), shirt = mat(0xffffff, sk({ map: shirtTex(k, e.num), roughness: 0.8 })), sleeveM = longPants ? shirt : mat(k.shirt, sk({ roughness: 0.8 })), shorts = mat(k.shorts, sk({ roughness: 0.85 })), socks = mat(k.socks, sk({ roughness: 0.9 })), boot = mat(e.boots || (e.gk ? '#222' : k.trim), sk({ roughness: 0.35, metalness: 0.1 })), glove = mat(k.trim, sk({ roughness: 0.6 }));
+    const skin = mat(e.skin, sk({ roughness: 0.62 })), shirt = mat(0xffffff, sk({ map: shirtTex(k, e.num), roughness: 0.8 })), sleeveM = longPants ? shirt : mat(k.sleeve || k.shirt, sk({ roughness: 0.8 })), shorts = mat(k.shorts, sk({ roughness: 0.85 })), socks = mat(k.socks, sk({ roughness: 0.9 })), boot = mat(e.boots || (e.gk ? '#222' : k.trim), sk({ roughness: 0.35, metalness: 0.1 })), glove = mat(k.trim, sk({ roughness: 0.6 }));
     const root = new T.Group(), dive = new T.Group();
     dive.add(root);
     // skeleton (same joint layout the pose code drives)
@@ -10427,7 +10427,7 @@ const G3D = (() => {
     _blob = canvasTex(64, 64, (g) => { const r = g.createRadialGradient(32, 32, 2, 32, 32, 30); r.addColorStop(0, 'rgba(0,0,0,0.9)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); });
     return _blob;
   }
-  const kitKey = (e) => [e.kit.shirt, e.kit.trim, e.kit.shorts, e.kit.socks, e.kit.pat || 0, e.skin, e.hair, e.hs, e.beard ? 1 : 0, e.num, e.gk ? 1 : 0, e.longPants ? 1 : 0].join('|');
+  const kitKey = (e) => [e.kit.shirt, e.kit.trim, e.kit.shorts, e.kit.socks, e.kit.pat || 0, e.kit.trim2 || '', e.kit.sleeve || '', e.skin, e.hair, e.hs, e.beard ? 1 : 0, e.num, e.gk ? 1 : 0, e.longPants ? 1 : 0].join('|');
   function disposeRig(r) { scene.remove(r.wrap); scene.remove(r.blob); }
 
   // pose a rig for this frame
@@ -15336,13 +15336,13 @@ const Game2D = (() => {
     const arm = (i) => {
       const sx = i ? 1 : -1, h = o.hands[i], shx = sx * 0.37, shy = -0.42;
       const ex = (shx + h[0]) / 2 + sx * h[2], ey = (shy + h[1]) / 2;
-      L(ex, ey, h[0], h[1], 0.13, p.skin); L(shx, shy, ex, ey, 0.2, kit.shirt);
+      L(ex, ey, h[0], h[1], 0.13, p.skin); L(shx, shy, ex, ey, 0.2, kit.sleeve || kit.shirt);
       ctx.fillStyle = p.gk ? '#f2f2f2' : p.skin; ctx.beginPath(); ctx.arc(h[0] * s, h[1] * s, s * (p.gk ? 0.15 : 0.1), 0, Math.PI * 2); ctx.fill();
       if (p.gk) { ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = Math.max(1, s * 0.03); ctx.stroke(); }
     };
     arm(0); arm(1);
     ctx.fillStyle = kit.shirt; rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.fill();
-    if (kit.pat) { ctx.save(); rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, -s * 0.4, -s * 0.58, s * 0.8, s * 0.72); ctx.restore(); }
+    if (kit.pat) { ctx.save(); rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, -s * 0.4, -s * 0.58, s * 0.8, s * 0.72, kit.trim2, kit.shirt); ctx.restore(); }
     const tg = ctx.createLinearGradient(-s * 0.4, 0, s * 0.4, 0); tg.addColorStop(0, 'rgba(255,255,255,0.22)'); tg.addColorStop(1, 'rgba(0,0,0,0.28)');
     ctx.fillStyle = tg; rr(-s * 0.4, -s * 0.58, s * 0.8, s * 0.72, s * 0.18); ctx.fill(); ctx.strokeStyle = ol; ctx.lineWidth = lw; ctx.stroke();
     // head, with face: eyes look where the body is going
@@ -15436,7 +15436,7 @@ const Game2D = (() => {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const hip = { x: 0.05, y: -0.2 - 0.06 * (1 - drop) };
       // far arm (up and forward for balance)
-      L(-0.72, -0.52 - 0.12 * (1 - drop), -0.4, -0.95, 0.12, p.skin); L(-0.8, -0.5, -0.55, -0.74, 0.19, kit.shirt);
+      L(-0.72, -0.52 - 0.12 * (1 - drop), -0.4, -0.95, 0.12, p.skin); L(-0.8, -0.5, -0.55, -0.74, 0.19, kit.sleeve || kit.shirt);
       // bent leg under the body
       L(hip.x, hip.y, 0.5, -0.42, 0.2, p.skin); L(0.5, -0.42, 0.05, -0.1, 0.19, kit.socks);
       ctx.fillStyle = '#16181a'; ctx.beginPath(); ctx.ellipse(-0.02 * s, -0.07 * s, s * 0.14, s * 0.08, 0.4, 0, Math.PI * 2); ctx.fill();
@@ -15456,7 +15456,7 @@ const Game2D = (() => {
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse((hh.x + 0.2) * s, (hh.y + 0.02) * s, s * 0.09, s * 0.1, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc((hh.x + 0.24) * s, (hh.y + 0.03) * s, s * 0.05, 0, Math.PI * 2); ctx.fill();
       // near arm propping on the ground behind
-      L(-0.85, -0.5, -1.3, -0.08, 0.12, p.skin); L(-0.82, -0.5, -1.05, -0.28, 0.19, kit.shirt);
+      L(-0.85, -0.5, -1.3, -0.08, 0.12, p.skin); L(-0.82, -0.5, -1.05, -0.28, 0.19, kit.sleeve || kit.shirt);
       // stretched leg: thigh, sock with its band, boot with studs, reaching for the ball
       const fxl = hip.x + 1.2 * ext, fyl = -0.1 - 0.05 * ext;
       L(hip.x, hip.y, hip.x + 0.55 * ext, hip.y + (fyl - hip.y) * 0.5, 0.21, p.skin);
@@ -15587,7 +15587,7 @@ const Game2D = (() => {
     const tx = X + lean * 0.7 + twist, ty = Y - s * 1.46 - jump - bob + crouch;
     ctx.fillStyle = kit.shirt;
     rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.fill();
-    if (kit.pat) { ctx.save(); rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, tx - s * 0.42, ty, s * 0.84, s * 0.78); ctx.restore(); }
+    if (kit.pat) { ctx.save(); rr(tx - s * 0.42, ty, s * 0.84, s * 0.78, s * 0.22); ctx.clip(); kitPattern(ctx, kit.pat, kit.trim, tx - s * 0.42, ty, s * 0.84, s * 0.78, kit.trim2, kit.shirt); ctx.restore(); }
     // cylinder-like shading: lit from the upper left, darker on the right and at the waist
     const tg = ctx.createLinearGradient(tx - s * 0.42, 0, tx + s * 0.42, 0);
     tg.addColorStop(0, 'rgba(255,255,255,0.24)'); tg.addColorStop(0.35, 'rgba(255,255,255,0.04)'); tg.addColorStop(0.65, 'rgba(0,0,0,0.04)'); tg.addColorStop(1, 'rgba(0,0,0,0.3)');
@@ -15619,7 +15619,7 @@ const Game2D = (() => {
       ctx.lineCap = 'round';
       ctx.strokeStyle = p.skin; ctx.lineWidth = s * 0.13;
       ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx, hy2); ctx.stroke();
-      ctx.strokeStyle = kit.shirt; ctx.lineWidth = s * 0.2;
+      ctx.strokeStyle = kit.sleeve || kit.shirt; ctx.lineWidth = s * 0.2;
       ctx.beginPath(); ctx.moveTo(shx, shy); ctx.lineTo(ex, ey); ctx.stroke();
       ctx.strokeStyle = kit.trim; ctx.lineWidth = s * 0.2;
       ctx.beginPath(); ctx.moveTo(ex - (ex - shx) * 0.12, ey - (ey - shy) * 0.12); ctx.lineTo(ex, ey); ctx.stroke();
@@ -17735,7 +17735,6 @@ function fanMsgActions(m) {
 act('fanAns', (el) => { const r = fanAnswer(+el.dataset.id, +el.dataset.i); if (r) toast(r.length > 120 ? r.slice(0, 117) + '…' : r); render(); });
 
 /* ===================== uniforme do seu clube: cores e padrões (casa e fora) ===================== */
-const KIT_PATS = ['Liso', 'Listras verticais', 'Listras horizontais', 'Faixa diagonal', 'Metades', 'Faixa no peito', 'Listras finas', 'Xadrez'];
 function kitCustom(teamId, role) { return S.kits && S.kits[teamId] && S.kits[teamId][role] || null; }
 function kitHex(c) { try { const [r, g, b] = hexToRgb(c); return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); } catch (e) { return '#ffffff'; } }
 // default colours of a club's kit (what the match uses when nothing is customised)
@@ -17758,38 +17757,83 @@ function kitLogoOpts(t) {
   const sec = (k) => (s[k] ? { b: s[k].b, tag: SP_BRANDS[s[k].b][1] } : null);
   return { sp: sec('shirt'), s1: sec('sec1'), s2: sec('sec2'), sup: s.kit ? s.kit.b : -1, cr: t.id };
 }
-// pattern over a shirt-shaped box (shared by the 2D game and the previews)
-function kitPattern(ctx, pat, col, x, y, w, h) {
+// patterns: shapes over the shirt box, drawn on canvas (2D/3D) and as SVG (previews). c = detail colour, c2 = third colour, base = shirt
+const KIT_PATS = ['Liso', 'Listras verticais', 'Listras horizontais', 'Faixa diagonal', 'Metades', 'Faixa no peito', 'Listras finas', 'Xadrez',
+  'Listras tricolores', 'Faixa central', 'Aros largos', 'Faixa diagonal com borda', 'Degradê', 'Ombros', 'Listras largas', 'Riscas de giz', 'Quartos', 'Faixa em V', 'Listras de 3 cores finas', 'Gola e punhos'];
+function kitShapes(pat, x, y, w, h, c, c2, base) {
+  const R = (X, Y, W, H, f) => ({ t: 'r', x: X, y: Y, w: W, h: H, f }), out = [];
+  c2 = c2 || c;
+  switch (pat) {
+    case 1: for (let i = 1; i < 7; i += 2) out.push(R(x + i * w / 7, y, w / 7, h, c)); break;
+    case 2: for (let i = 1; i < 6; i += 2) out.push(R(x, y + i * h / 6, w, h / 6, c)); break;
+    case 3: out.push({ t: 'l', x1: x - w * 0.1, y1: y + h * 0.05, x2: x + w * 1.1, y2: y + h * 0.95, sw: w * 0.3, f: c }); break;
+    case 4: out.push(R(x + w / 2, y, w / 2, h, c)); break;
+    case 5: out.push(R(x, y + h * 0.28, w, h * 0.24, c)); break;
+    case 6: for (let i = 1; i < 15; i += 2) out.push(R(x + i * w / 15, y, w / 15, h, c)); break;
+    case 7: for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) if ((i + j) % 2) out.push(R(x + i * w / 6, y + j * h / 5, w / 6, h / 5, c)); break;
+    case 8: for (let i = 0; i < 9; i++) if (i % 3) out.push(R(x + i * w / 9, y, w / 9, h, i % 3 === 1 ? c : c2)); break; // tricolour stripes
+    case 9: out.push(R(x + w * 0.36, y, w * 0.28, h, c)); if (c2 !== c) { out.push(R(x + w * 0.33, y, w * 0.03, h, c2)); out.push(R(x + w * 0.64, y, w * 0.03, h, c2)); } break;
+    case 10: for (let i = 0; i < 4; i++) out.push(R(x, y + (i * 2 + 1) * h / 8, w, h / 8, c)); break;
+    case 11: out.push({ t: 'l', x1: x - w * 0.1, y1: y + h * 0.05, x2: x + w * 1.1, y2: y + h * 0.95, sw: w * 0.34, f: c2 }); out.push({ t: 'l', x1: x - w * 0.1, y1: y + h * 0.05, x2: x + w * 1.1, y2: y + h * 0.95, sw: w * 0.24, f: c }); break;
+    case 12: out.push({ t: 'g', x, y, w, h, f: c }); break;
+    case 13: out.push(R(x, y, w, h * 0.22, c)); if (c2 !== c) out.push(R(x, y + h * 0.22, w, h * 0.03, c2)); break;
+    case 14: out.push(R(x + w * 0.25, y, w * 0.25, h, c)); out.push(R(x + w * 0.75, y, w * 0.25, h, c)); break;
+    case 15: for (let i = 1; i < 12; i++) out.push(R(x + i * w / 12 - w * 0.006, y, w * 0.012, h, c)); break;
+    case 16: out.push(R(x + w / 2, y, w / 2, h / 2, c)); out.push(R(x, y + h / 2, w / 2, h / 2, c)); break;
+    case 17: out.push({ t: 'p', pts: [[x, y], [x + w * 0.16, y], [x + w / 2, y + h * 0.42], [x + w * 0.84, y], [x + w, y], [x + w / 2, y + h * 0.56]], f: c }); break;
+    case 18: for (let i = 0; i < 15; i++) if (i % 3) out.push(R(x + i * w / 15, y, w / 15, h, i % 3 === 1 ? c : c2)); break;
+    case 19: out.push(R(x, y, w, h * 0.07, c)); out.push(R(x, y + h * 0.93, w, h * 0.07, c2)); break;
+  }
+  return out;
+}
+function kitPattern(ctx, pat, col, x, y, w, h, col2, base) {
   if (!pat) return;
-  ctx.save(); ctx.fillStyle = col; ctx.strokeStyle = col;
-  if (pat === 1) { for (let i = 1; i < 7; i += 2) ctx.fillRect(x + i * w / 7, y, w / 7, h); }
-  else if (pat === 2) { for (let i = 1; i < 6; i += 2) ctx.fillRect(x, y + i * h / 6, w, h / 6); }
-  else if (pat === 3) { ctx.lineWidth = w * 0.3; ctx.beginPath(); ctx.moveTo(x - w * 0.1, y + h * 0.05); ctx.lineTo(x + w * 1.1, y + h * 0.95); ctx.stroke(); }
-  else if (pat === 4) ctx.fillRect(x + w / 2, y, w / 2, h);
-  else if (pat === 5) ctx.fillRect(x, y + h * 0.28, w, h * 0.24);
-  else if (pat === 6) { for (let i = 1; i < 15; i += 2) ctx.fillRect(x + i * w / 15, y, w / 15, h); }
-  else if (pat === 7) { for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) if ((i + j) % 2) ctx.fillRect(x + i * w / 6, y + j * h / 5, w / 6, h / 5); }
+  ctx.save();
+  for (const sh of kitShapes(pat, x, y, w, h, col, col2, base)) {
+    ctx.fillStyle = sh.f; ctx.strokeStyle = sh.f;
+    if (sh.t === 'r') ctx.fillRect(sh.x, sh.y, sh.w, sh.h);
+    else if (sh.t === 'l') { ctx.lineWidth = sh.sw; ctx.beginPath(); ctx.moveTo(sh.x1, sh.y1); ctx.lineTo(sh.x2, sh.y2); ctx.stroke(); }
+    else if (sh.t === 'p') { ctx.beginPath(); sh.pts.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); ctx.closePath(); ctx.fill(); }
+    else if (sh.t === 'g') { const g = ctx.createLinearGradient(0, sh.y, 0, sh.y + sh.h); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, sh.f); ctx.fillStyle = g; ctx.fillRect(sh.x, sh.y, sh.w, sh.h); }
+  }
   ctx.restore();
 }
+function kitPatternSvg(pat, B, c, c2, base, gid) {
+  return kitShapes(pat, B.x, B.y, B.w, B.h, c, c2, base).map((sh) => {
+    if (sh.t === 'r') return `<rect x="${sh.x.toFixed(2)}" y="${sh.y.toFixed(2)}" width="${sh.w.toFixed(2)}" height="${sh.h.toFixed(2)}" fill="${sh.f}"/>`;
+    if (sh.t === 'l') return `<line x1="${sh.x1.toFixed(2)}" y1="${sh.y1.toFixed(2)}" x2="${sh.x2.toFixed(2)}" y2="${sh.y2.toFixed(2)}" stroke="${sh.f}" stroke-width="${sh.sw.toFixed(2)}"/>`;
+    if (sh.t === 'p') return `<path d="M${sh.pts.map((q) => q.map((v) => v.toFixed(2)).join(' ')).join(' L')}Z" fill="${sh.f}"/>`;
+    return `<defs><linearGradient id="${gid}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sh.f}" stop-opacity="0"/><stop offset="1" stop-color="${sh.f}"/></linearGradient></defs><rect x="${sh.x}" y="${sh.y}" width="${sh.w}" height="${sh.h}" fill="url(#${gid}g)"/>`;
+  }).join('');
+}
+// styles inspired by famous kits (colours + pattern; no club marks)
+const KIT_PRESETS = [
+  ['Grená e azul listrado', { shirt: '#a50044', trim: '#004d98', trim2: '#004d98', shorts: '#004d98', socks: '#a50044', pat: 1 }],
+  ['Preto e branco listrado', { shirt: '#ffffff', trim: '#111111', trim2: '#111111', shorts: '#111111', socks: '#111111', pat: 1 }],
+  ['Rubro-negro em aros', { shirt: '#c8102e', trim: '#111111', trim2: '#111111', shorts: '#ffffff', socks: '#111111', pat: 10 }],
+  ['Branco com faixa vermelha', { shirt: '#ffffff', trim: '#d0021b', trim2: '#d0021b', shorts: '#111111', socks: '#ffffff', pat: 3 }],
+  ['Preto com faixa branca', { shirt: '#111111', trim: '#ffffff', trim2: '#d0021b', shorts: '#ffffff', socks: '#111111', pat: 11 }],
+  ['Azul com faixa amarela', { shirt: '#103f8f', trim: '#ffd21f', trim2: '#ffd21f', shorts: '#103f8f', socks: '#103f8f', pat: 5 }],
+  ['Tricolor grená, verde e branco', { shirt: '#8a1538', trim: '#ffffff', trim2: '#00703c', shorts: '#ffffff', socks: '#ffffff', pat: 8 }],
+  ['Tricolor azul, preto e branco', { shirt: '#0d80bf', trim: '#111111', trim2: '#ffffff', shorts: '#111111', socks: '#ffffff', pat: 8 }],
+  ['Verde e branco em aros', { shirt: '#ffffff', trim: '#008a3e', trim2: '#008a3e', shorts: '#ffffff', socks: '#ffffff', pat: 10 }],
+  ['Branco com faixa central vermelha', { shirt: '#ffffff', trim: '#d2122e', trim2: '#d2122e', shorts: '#ffffff', socks: '#ffffff', pat: 9 }],
+  ['Marinho com faixa central', { shirt: '#0b1d3a', trim: '#d2122e', trim2: '#ffffff', shorts: '#0b1d3a', socks: '#0b1d3a', pat: 9 }],
+  ['Rubro-negro listrado', { shirt: '#c8102e', trim: '#111111', trim2: '#111111', shorts: '#ffffff', socks: '#111111', pat: 1 }],
+  ['Azul e preto listrado', { shirt: '#0057b8', trim: '#111111', trim2: '#111111', shorts: '#111111', socks: '#111111', pat: 1 }],
+  ['Verde com detalhes brancos', { shirt: '#006437', trim: '#ffffff', trim2: '#ffffff', shorts: '#ffffff', socks: '#006437', pat: 19 }],
+  ['Celeste com ombros', { shirt: '#6cabdd', trim: '#1c2c5b', trim2: '#ffffff', shorts: '#ffffff', socks: '#6cabdd', pat: 13 }],
+  ['Amarelo e verde (seleção)', { shirt: '#ffdf00', trim: '#009c3b', trim2: '#009c3b', shorts: '#002776', socks: '#ffffff', pat: 19 }],
+];
 function kitSvg(k, size = 150, num, lo) {
   // same pattern logic as the canvas, as SVG
   const id = 'kp' + Math.floor(Math.random() * 1e6), B = { x: 22, y: 8, w: 56, h: 52 };
-  let pt = '';
-  const f = k.trim;
-  switch (k.pat) {
-    case 1: for (let i = 1; i < 7; i += 2) pt += `<rect x="${B.x + i * B.w / 7}" y="${B.y}" width="${B.w / 7}" height="${B.h}" fill="${f}"/>`; break;
-    case 2: for (let i = 1; i < 6; i += 2) pt += `<rect x="${B.x}" y="${B.y + i * B.h / 6}" width="${B.w}" height="${B.h / 6}" fill="${f}"/>`; break;
-    case 3: pt = `<line x1="${B.x - 6}" y1="${B.y + 3}" x2="${B.x + B.w + 6}" y2="${B.y + B.h - 3}" stroke="${f}" stroke-width="${B.w * 0.3}"/>`; break;
-    case 4: pt = `<rect x="${B.x + B.w / 2}" y="${B.y}" width="${B.w / 2}" height="${B.h}" fill="${f}"/>`; break;
-    case 5: pt = `<rect x="${B.x}" y="${B.y + B.h * 0.28}" width="${B.w}" height="${B.h * 0.24}" fill="${f}"/>`; break;
-    case 6: for (let i = 1; i < 15; i += 2) pt += `<rect x="${B.x + i * B.w / 15}" y="${B.y}" width="${B.w / 15}" height="${B.h}" fill="${f}"/>`; break;
-    case 7: for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) if ((i + j) % 2) pt += `<rect x="${B.x + i * B.w / 6}" y="${B.y + j * B.h / 5}" width="${B.w / 6}" height="${B.h / 5}" fill="${f}"/>`; break;
-  }
+  const pt = k.pat ? kitPatternSvg(k.pat, B, k.trim, k.trim2 || k.trim, k.shirt, id) : '';
   const shirt = 'M30 6 L8 20 L16 40 L26 34 L26 62 L74 62 L74 34 L84 40 L92 20 L70 6 C64 14 36 14 30 6Z';
   return `<svg width="${size}" height="${Math.round(size * 1.3)}" viewBox="0 0 100 130" aria-hidden="true"><defs><clipPath id="${id}"><path d="${shirt}"/></clipPath></defs>
     <rect x="30" y="94" width="14" height="30" rx="3" fill="${k.socks}" stroke="rgba(0,0,0,.35)"/><rect x="56" y="94" width="14" height="30" rx="3" fill="${k.socks}" stroke="rgba(0,0,0,.35)"/>
     <rect x="26" y="64" width="48" height="34" rx="6" fill="${k.shorts}" stroke="rgba(0,0,0,.35)"/>
-    <path d="${shirt}" fill="${k.shirt}"/><g clip-path="url(#${id})">${pt}</g><path d="${shirt}" fill="none" stroke="rgba(0,0,0,.4)" stroke-width="1.6"/>
+    <path d="${shirt}" fill="${k.shirt}"/><g clip-path="url(#${id})">${pt}${k.sleeve && k.sleeve !== k.shirt ? `<path d="M30 6 L8 20 L16 40 L26 34 L26 12Z" fill="${k.sleeve}"/><path d="M70 6 L92 20 L84 40 L74 34 L74 12Z" fill="${k.sleeve}"/>` : ''}</g><path d="${shirt}" fill="none" stroke="rgba(0,0,0,.4)" stroke-width="1.6"/>
     <path d="M30 6 C36 14 64 14 70 6" fill="none" stroke="${k.trim}" stroke-width="3"/>
     ${lo ? kitLogosSvg(k, lo) : ''}
     ${num != null ? `<text x="50" y="46" text-anchor="middle" font-size="22" font-weight="900" font-family="Arial Black,Arial,sans-serif" fill="${lum(k.shirt) > 0.55 ? '#111' : '#fff'}">${num}</text>` : ''}</svg>`;
@@ -17820,11 +17864,16 @@ function kitHtml() {
       <div class="muted" style="font-size:11px;margin-top:4px">Usa o escudo que você adicionou (ou o gerado pelo jogo).</div></div>`;
   const logos = crCtl + (lo.sp ? logoCtl('sp', 'Patrocinador master', SP_LOGO_MODELS, SP_BRANDS[lo.sp.b][0]) : '') + (lo.s1 ? logoCtl('s1', 'Patrocinador secundário 1', SP_LOGO_MODELS, SP_BRANDS[lo.s1.b][0]) : '') + (lo.s2 ? logoCtl('s2', 'Patrocinador secundário 2', SP_LOGO_MODELS, SP_BRANDS[lo.s2.b][0]) : '') + (lo.sup >= 0 ? logoCtl('su', 'Fornecedor', SP_LOGO_MODELS, SP_SUPS[lo.sup].n) : '')
     || '<p class="muted" style="font-size:12px;margin:0">Sem logos no uniforme: feche contratos de material esportivo e de patrocínio da camisa em Escritório → Patrocínios.</p>';
-  const col = (k, lab) => `<label class="field" style="min-width:110px"><span class="muted up" style="font-size:11px">${lab}</span><input type="color" value="${kitHex(v[k])}" data-a="kitCol" data-k="${k}" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--line2);background:none;padding:2px"></label>`;
+  const cf = UI.kit.cf || 'shirt';
+  const col = (k, lab) => `<label class="field" style="min-width:92px;flex:1"><span class="muted up" style="font-size:11px;${cf === k ? 'color:var(--gold,#ffc54d)' : ''}">${lab}</span><input type="color" value="${kitHex(v[k] || (k === 'trim2' ? v.trim : v.shirt))}" data-a="kitCol" data-k="${k}" style="width:100%;height:38px;border-radius:8px;border:${cf === k ? '2px solid var(--gold,#ffc54d)' : '1px solid var(--line2)'};background:none;padding:2px"></label>`;
+  const SW = ['#ffffff', '#f2f2f2', '#9aa0a6', '#4a4f55', '#111111', '#c8102e', '#8a1538', '#e4002b', '#ff6a13', '#ffb81c', '#ffd21f', '#fff200', '#00a651', '#006437', '#00703c', '#7cc242', '#6cabdd', '#00a3e0', '#0057b8', '#103f8f', '#0b1d3a', '#5b2c83', '#e31c79', '#a67c52', '#c9a227', '#7a263a', '#00857c', '#f5e1a4'];
+  const swatches = `<div><div class="muted up" style="font-size:11px;margin-bottom:6px">Cores rápidas (aplicam em: <b>${{ shirt: 'Camisa', trim: 'Detalhes', trim2: 'Terceira cor', sleeve: 'Mangas', shorts: 'Calção', socks: 'Meias' }[cf]}</b> — toque num campo para escolher)</div><div class="row wrap" style="gap:5px">${SW.map((c) => `<button class="kit-sw" style="background:${c}" data-a="kitSw" data-c="${c}" title="${c}"></button>`).join('')}</div></div>`;
+  const presets = `<div><div class="muted up" style="font-size:11px;margin-bottom:6px">Estilos de camisas famosas</div><div class="row wrap" style="gap:6px">${KIT_PRESETS.map(([n, k], i) => `<button class="kit-pre" data-a="kitPre" data-i="${i}" title="${esc(n)}">${kitSvg(Object.assign({}, KIT_LOGO_DEF, k), 34)}<span>${esc(n)}</span></button>`).join('')}</div></div>`;
   return modalShell('👕 Uniforme', `<div class="row wrap" style="gap:8px;margin-bottom:12px"><div class="seg"><button class="${K.role === 'home' ? 'on' : ''}" data-a="kitRole" data-v="home">Uniforme 1 (casa)</button><button class="${K.role === 'away' ? 'on' : ''}" data-a="kitRole" data-v="away">Uniforme 2 (fora)</button></div><span class="muted">${esc(t.n)}</span></div>
     <div class="row wrap" style="gap:18px;align-items:flex-start;justify-content:center"><div style="text-align:center"><div id="kit-prev" style="touch-action:none">${kitSvg(v, 250, null, Object.assign({ drag: true }, lo))}</div><div class="muted" style="font-size:11px">Arraste o escudo e as logos na camisa</div></div>
-    <div class="col grow" style="min-width:230px;gap:12px"><div class="row wrap" style="gap:10px">${col('shirt', 'Camisa')}${col('trim', 'Detalhes')}${col('shorts', 'Calção')}${col('socks', 'Meias')}</div>
-      <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Padrão da camisa (usa a cor dos detalhes)</div><div class="seg wrapseg">${KIT_PATS.map((n, i) => `<button class="${v.pat === i ? 'on' : ''}" data-a="kitPat" data-v="${i}">${n}</button>`).join('')}</div></div>
+    <div class="col grow" style="min-width:230px;gap:12px"><div class="row wrap" style="gap:8px">${col('shirt', 'Camisa')}${col('trim', 'Detalhes')}${col('trim2', 'Terceira cor')}${col('sleeve', 'Mangas')}${col('shorts', 'Calção')}${col('socks', 'Meias')}</div>${swatches}
+      <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Padrão da camisa (usa a cor dos detalhes e a terceira cor)</div><div class="seg wrapseg">${KIT_PATS.map((n, i) => `<button class="${v.pat === i ? 'on' : ''}" data-a="kitPat" data-v="${i}">${n}</button>`).join('')}</div></div>
+      ${presets}
       <div class="col" style="gap:8px">${logos}</div>
       <p class="muted" style="font-size:12px;margin:0">O uniforme aparece no jogo 2D, nas telas do clube e na camisa do patrocinador. Se o adversário usar cor parecida, o jogo continua escolhendo o uniforme dele pelo padrão.</p></div></div>`,
     '<button class="btn" data-a="kitReset">Restaurar padrão</button><button class="btn" data-a="closeModal">Cancelar</button><button class="btn gold" data-a="kitSave">Salvar uniforme</button>');
@@ -17838,7 +17887,10 @@ act('openKit', () => {
 });
 act('kitRole', (el) => { UI.kit.role = el.dataset.v; refreshModal(); });
 act('kitPat', (el) => { UI.kit.v[UI.kit.role].pat = +el.dataset.v; refreshModal(); });
-act('kitCol', (el) => { UI.kit.v[UI.kit.role][el.dataset.k] = el.value; refreshModal(); });
+act('kitCol', (el) => { UI.kit.cf = el.dataset.k; UI.kit.v[UI.kit.role][el.dataset.k] = el.value; refreshModal(); });
+act('kitSw', (el) => { UI.kit.v[UI.kit.role][UI.kit.cf || 'shirt'] = el.dataset.c; refreshModal(); });
+act('kitPre', (el) => { const v = UI.kit.v[UI.kit.role]; Object.assign(v, KIT_PRESETS[+el.dataset.i][1]); v.sleeve = null; refreshModal(); });
+document.addEventListener('focusin', (e) => { const el = e.target; if (el && el.matches && el.matches('input[type=color][data-a="kitCol"]') && UI.kit && UI.kit.cf !== el.dataset.k) { UI.kit.cf = el.dataset.k; } });
 act('kitReset', () => { const t = S.teams[UI.kit.team]; UI.kit.v[UI.kit.role] = Object.assign({}, KIT_LOGO_DEF, kitBase(t, UI.kit.role)); refreshModal(); });
 // logo placement: sliders, model picker and dragging on the preview
 function kitPrev() { const n = document.getElementById('kit-prev'); if (!n || !UI.kit) return; const t = S.teams[UI.kit.team]; n.innerHTML = kitSvg(UI.kit.v[UI.kit.role], 250, null, Object.assign({ drag: true }, kitLogoOpts(t) || { sp: null, sup: -1 })); }
