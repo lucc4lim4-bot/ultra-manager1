@@ -550,6 +550,10 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 .pot-up { color: var(--win); font-size: 11px; margin-left: 3px; } .pot-dn { color: var(--loss); font-size: 11px; margin-left: 3px; }
 
+.sp-tags { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; z-index: 2; }
+.sp-tags span { font: 800 9px/1 var(--font, sans-serif); background: #0b1f26; color: #ffd54a; border: 1px solid #ffd54a; border-radius: 4px; padding: 2px 3px; }
+.sp-tags span.cap { background: #ffd54a; color: #111; }
+
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>

@@ -1051,7 +1051,7 @@ function prepareSide(teamId, m) {
     if (S.pl && teamId === S.user.team) plShapeSide(m, lu, FORMATIONS[formation], players);
     xi = lu.xi; bench = lu.bench;
   }
-  return { id: teamId, form: formation, slots: FORMATIONS[formation].map((s) => s[0]), xi: xi.slice(), bench: bench.slice(), mentality: t.ment || 0, style: isUser ? (t.sty || 'bal') : aiStyle(t) };
+  return { id: teamId, form: formation, slots: FORMATIONS[formation].map((s) => s[0]), xi: xi.slice(), bench: bench.slice(), mentality: t.ment || 0, style: isUser ? (t.sty || 'bal') : aiStyle(t), ti: isUser ? t.ti || null : null, pi: isUser ? t.pi || null : null, sp: isUser ? t.sp || null : null };
 }
 
 function sideRatings(side, day) {
@@ -1327,7 +1327,7 @@ function decidePens(st) {
   return penaltyShootout(st);
 }
 function penaltyShootout(st) {
-  const takers = st.sides.map((s) => s.on.filter(Boolean).map((pid) => S.players[pid]).sort(by((p) => (p.a ? p.a[1] : p.o), -1)));
+  const takers = st.sides.map((s) => s.on.filter(Boolean).map((pid) => S.players[pid]).sort(by((p) => (p.a ? p.a[1] : p.o) + (s.sp && s.sp.pk === p.id ? 1000 : 0), -1))); // the designated penalty taker goes first
   const gks = st.sides.map((s) => S.players[gkOf(s)]);
   const sc = [0, 0];
   const seq = [];
@@ -6402,20 +6402,61 @@ function aiStyle(t) {
   const r = h % 10;
   return r < 4 ? 'bal' : r === 4 ? 'press' : r === 5 ? 'counter' : r === 6 ? 'poss' : r === 7 ? 'wings' : r === 8 ? 'long' : 'bal';
 }
-const sideStyle = (side) => STYLES[side.style] || STYLES.bal;
+// ---- team instructions (like FIFA's): -2..2 each, 0 = default
+const TEAM_INSTR = {
+  depth: { n: 'Linha defensiva', o: ['Muito baixa', 'Baixa', 'Média', 'Alta', 'Muito alta'] },
+  width: { n: 'Largura', o: ['Muito fechada', 'Fechada', 'Normal', 'Aberta', 'Muito aberta'] },
+  box: { n: 'Jogadores na área', o: ['Poucos', 'Menos', 'Normal', 'Mais', 'Muitos'] },
+  press: { n: 'Pressão', o: ['Recua tudo', 'Recua', 'Equilibrada', 'Pressiona após perder', 'Pressão constante'] },
+  build: { n: 'Construção', o: ['Bem lenta', 'Lenta', 'Equilibrada', 'Rápida', 'Ligação direta'] },
+};
+// ---- individual instructions by position (key -> label); '' = default
+const ROLE_SETS = {
+  GK: [['', 'Padrão'], ['sweeper', 'Goleiro-líbero'], ['line', 'Fica na linha']],
+  CB: [['', 'Padrão'], ['stay', 'Fica atrás'], ['ball', 'Sai jogando'], ['aggr', 'Marcação agressiva']],
+  FB: [['', 'Padrão'], ['attack', 'Apoia o ataque'], ['stay', 'Fica atrás'], ['inside', 'Fecha por dentro']],
+  DM: [['', 'Padrão'], ['stay', 'Fica atrás no ataque'], ['attack', 'Chega na área'], ['free', 'Livre para criar']],
+  AM: [['', 'Padrão'], ['free', 'Livre para criar'], ['attack', 'Chega na área'], ['drop', 'Volta para marcar']],
+  W: [['', 'Padrão'], ['inside', 'Corta para dentro'], ['wide', 'Fica aberto'], ['runs', 'Busca profundidade'], ['drop', 'Volta para marcar']],
+  ST: [['', 'Padrão'], ['runs', 'Busca profundidade'], ['target', 'Pivô'], ['false9', 'Falso 9'], ['drop', 'Volta para marcar']],
+};
+const roleSetOf = (pos) => ({ GK: 'GK', CB: 'CB', RB: 'FB', LB: 'FB', CDM: 'DM', CM: 'DM', CAM: 'AM', RW: 'W', LW: 'W', RM: 'W', LM: 'W', ST: 'ST' }[pos] || 'DM');
+const ROLE_FX = { attack: [0.006, 0.004, 0], stay: [-0.003, -0.006, 0], ball: [0, 0, 0.7], aggr: [0, -0.004, 0], sweeper: [0, -0.003, 0.3], line: [0, 0, 0],
+  inside: [0.001, 0, 0.5], wide: [0.003, 0, 0], drop: [-0.003, -0.005, 0], runs: [0.006, 0.002, -0.3], target: [0.004, 0, 0], false9: [0.002, 0, 1], free: [0.005, 0.002, 0] };
+// effects of the instructions in the simulation: own / opponent scoring chances and possession points
+function instrFx(side) {
+  const ti = side.ti || {}, out = { own: 0, opp: 0, poss: 0 };
+  const d = ti.depth || 0, w = ti.width || 0, bx = ti.box || 0, pr = ti.press || 0, bu = ti.build || 0;
+  out.own += 0.012 * d + 0.006 * Math.max(0, w) + 0.014 * bx + 0.01 * pr + (bu > 0 ? 0.012 * bu : 0);
+  out.opp += 0.012 * d + 0.01 * bx - 0.014 * pr + (bu < 0 ? -0.008 * -bu : 0.004 * bu);
+  out.poss += 1 * d + 0.5 * w + 0.8 * pr - 1.5 * bu;
+  const on = side.on || side.xi || [];
+  for (const pid of on) { const fx = ROLE_FX[side.pi && side.pi[pid]]; if (fx) { out.own += fx[0]; out.opp += fx[1]; out.poss += fx[2]; } }
+  if (side.sp && side.sp.cap && on.includes(side.sp.cap)) { out.own += 0.01; out.opp -= 0.01; } // the captain on the pitch
+  out.own = clamp(out.own, -0.12, 0.14); out.opp = clamp(out.opp, -0.12, 0.14); out.poss = clamp(out.poss, -8, 8);
+  return out;
+}
+const sideStyle = (side) => {
+  const b = STYLES[side.style] || STYLES.bal;
+  if (!side.ti && !side.pi && !side.sp) return b;
+  const e = instrFx(side);
+  return { n: b.n, d: b.d, own: b.own + e.own, opp: b.opp + e.opp, poss: b.poss + e.poss };
+};
+// designated set-piece taker of a side, when he is on the pitch (kind: pk, fk, ck)
+function sideTaker(side, kind) { const pid = side && side.sp && side.sp[kind]; return pid && (side.on || side.xi || []).includes(pid) ? pid : 0; }
 
 // ---- presets (up to 8): formation + mentality + style (+ the lineup it was saved with)
 function tacticPresets() { return S.tactics || (S.tactics = []); }
 function saveTacticPreset(name) {
   const t = S.teams[S.user.team], list = tacticPresets();
   if (list.length >= 8) return { ok: false, msg: 'Máximo de 8 táticas prontas. Apague uma antes.' };
-  list.push({ id: (S.tacticSeq = (S.tacticSeq || 0) + 1), name: (name || '').trim().slice(0, 24) || `Tática ${list.length + 1}`, form: t.form || '4-3-3', ment: t.ment || 0, sty: t.sty || 'bal', xi: (t.xi || []).slice(), bench: (t.bench || []).slice() });
+  list.push({ id: (S.tacticSeq = (S.tacticSeq || 0) + 1), name: (name || '').trim().slice(0, 24) || `Tática ${list.length + 1}`, form: t.form || '4-3-3', ment: t.ment || 0, sty: t.sty || 'bal', xi: (t.xi || []).slice(), bench: (t.bench || []).slice(), ti: Object.assign({}, t.ti || {}), pi: Object.assign({}, t.pi || {}), sp: Object.assign({}, t.sp || {}) });
   return { ok: true };
 }
 function updateTacticPreset(id) {
   const t = S.teams[S.user.team], p = tacticPresets().find((x) => x.id === id);
   if (!p) return false;
-  Object.assign(p, { form: t.form || '4-3-3', ment: t.ment || 0, sty: t.sty || 'bal', xi: (t.xi || []).slice(), bench: (t.bench || []).slice() });
+  Object.assign(p, { form: t.form || '4-3-3', ment: t.ment || 0, sty: t.sty || 'bal', xi: (t.xi || []).slice(), bench: (t.bench || []).slice(), ti: Object.assign({}, t.ti || {}), pi: Object.assign({}, t.pi || {}), sp: Object.assign({}, t.sp || {}) });
   return true;
 }
 function deleteTacticPreset(id) { S.tactics = tacticPresets().filter((x) => x.id !== id); }
@@ -6424,6 +6465,7 @@ function applyTacticPreset(id) {
   const t = S.teams[S.user.team], p = tacticPresets().find((x) => x.id === id);
   if (!p) return null;
   t.form = p.form; t.ment = p.ment; t.sty = p.sty;
+  if (p.ti) t.ti = Object.assign({}, p.ti); if (p.pi) t.pi = Object.assign({}, p.pi); if (p.sp) t.sp = Object.assign({}, p.sp);
   const sq = new Set(squadOf(t.id).map((q) => q.id));
   const ok = p.xi && p.xi.length === 11 && p.xi.every((pid) => pid && sq.has(pid) && !isInjured(S.players[pid]) && !isSuspended(S.players[pid]));
   if (ok) { t.xi = p.xi.slice(); t.bench = (p.bench || []).filter((pid) => sq.has(pid) && !p.xi.includes(pid)); }
@@ -7849,7 +7891,8 @@ function viewLineup() {
   const sel = UI.sel;
   const slotHtml = slots.map((s, i) => {
     const p = S.players[t.xi[i]];
-    return `<div style="position:absolute;left:${s[1]}%;top:${100 - s[2]}%">${slotCard(p, s[0], i, sel && sel.k === 'xi' && sel.i === i).replace('class="pslot', 'style="position:relative;transform:translate(-50%,-50%)" class="pslot')}</div>`;
+    const sp = t.sp || {}, tags = p ? [sp.cap === p.id ? 'C' : '', sp.pk === p.id ? 'PK' : '', sp.fk === p.id ? 'FK' : '', sp.ck === p.id ? 'ESC' : ''].filter(Boolean) : [];
+    return `<div style="position:absolute;left:${s[1]}%;top:${100 - s[2]}%">${slotCard(p, s[0], i, sel && sel.k === 'xi' && sel.i === i).replace('class="pslot', 'style="position:relative;transform:translate(-50%,-50%)" class="pslot')}${tags.length ? `<div class="sp-tags">${tags.map((x) => `<span class="${x === 'C' ? 'cap' : ''}">${x}</span>`).join('')}</div>` : ''}</div>`;
   }).join('');
   const xiSet = new Set(t.xi);
   const benchSet = new Set(t.bench);
@@ -7868,6 +7911,7 @@ function viewLineup() {
         <button class="btn sm" data-a="autoXI">Escalação automática</button>
       </div>
       ${tacticsPanel(t)}
+      ${instrPanel(t)}
       <div class="pitch">${pitchLines()}${slotHtml}</div>
       <p class="muted center" style="font-size:13px;margin:0">Toque em um jogador e depois em outro para trocar de lugar. Arraste no computador.</p>
     </div>
@@ -8082,6 +8126,33 @@ act('tpSave', () => {
 act('tpUse', (el) => { const r = applyTacticPreset(+el.dataset.id); UI.tacOpen = true; if (r) toast(`"${r.name}" ativada${r.lineupKept ? '' : ' (escalação refeita: faltava alguém)'}.`); render(); });
 act('tpUpd', (el) => { UI.tacOpen = true; if (updateTacticPreset(+el.dataset.id)) toast('Tática atualizada com a configuração atual.'); render(); });
 act('tpDel', (el) => { UI.tacOpen = true; deleteTacticPreset(+el.dataset.id); render(); });
+
+// ---- instructions (FIFA style): team instructions, captain, set-piece takers and what each starter does
+function instrPanel(t) {
+  const open = UI.instrOpen;
+  const ti = t.ti || {}, sp = t.sp || {}, pi = t.pi || {};
+  const xi = t.xi.map((id) => S.players[id]).filter(Boolean);
+  const head = `<div class="row" style="cursor:pointer" data-a="instrToggle"><h3 class="grow" style="margin:0">Instruções <span class="sub">capitão, cobradores e funções de cada jogador</span></h3><span class="dim">${open ? '▲' : '▼'}</span></div>`;
+  if (!open) return `<div class="panel" style="padding:10px 14px">${head}</div>`;
+  const opt = (sel, list) => list.map(([v, l]) => `<option value="${v}" ${String(sel || '') === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  const who = (k, lbl) => `<div class="field" style="min-width:150px"><label>${lbl}</label><select class="input" data-a="setTaker" data-k="${k}">${opt(sp[k] || '', [['', 'Automático']].concat(xi.filter((p) => k === 'cap' || p.p !== 'GK').map((p) => [p.id, `${p.s || p.n} (${p.o})`])))}</select></div>`;
+  const teamRows = Object.keys(TEAM_INSTR).map((k) => `<div class="field"><label>${TEAM_INSTR[k].n}</label><div class="seg wrapseg">${TEAM_INSTR[k].o.map((l, i) => `<button class="${(ti[k] || 0) === i - 2 ? 'on' : ''}" data-a="setTI" data-k="${k}" data-v="${i - 2}">${l}</button>`).join('')}</div></div>`).join('');
+  const slots = FORMATIONS[t.form];
+  const roleRows = t.xi.map((id, i) => {
+    const p = S.players[id]; if (!p) return '';
+    const pos = slots[i][0], set = ROLE_SETS[roleSetOf(pos)];
+    return `<div class="row" style="gap:8px;padding:4px 0;border-bottom:1px solid var(--line)">${posBadge(pos)}<span class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}</span><select class="input" style="max-width:190px" data-a="setRole" data-id="${p.id}">${opt(pi[p.id] || '', set)}</select></div>`;
+  }).join('');
+  return `<div class="panel">${head}
+    <div class="row wrap" style="gap:10px;margin-top:10px">${who('cap', 'Capitão')}${who('pk', 'Pênaltis')}${who('fk', 'Faltas')}${who('ck', 'Escanteios')}</div>
+    <div class="muted up" style="font-size:11px;margin:12px 0 6px">Instruções do time</div><div class="col" style="gap:6px">${teamRows}</div>
+    <div class="muted up" style="font-size:11px;margin:12px 0 6px">Função de cada titular</div>${roleRows}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Valem na simulação e no jogo 2D/3D (posicionamento, infiltrações, pressão e cobradores). O capitão em campo dá um pequeno impulso ao time. Salve tudo junto em "Táticas prontas".</p></div>`;
+}
+act('instrToggle', () => { UI.instrOpen = !UI.instrOpen; render(); });
+act('setTI', (el) => { const t = S.teams[S.user.team]; t.ti = Object.assign({}, t.ti || {}, { [el.dataset.k]: +el.dataset.v }); render(); });
+act('setTaker', (el) => { const t = S.teams[S.user.team]; t.sp = Object.assign({}, t.sp || {}, { [el.dataset.k]: +el.value || 0 }); render(); });
+act('setRole', (el) => { const t = S.teams[S.user.team]; t.pi = Object.assign({}, t.pi || {}); if (el.value) t.pi[el.dataset.id] = el.value; else delete t.pi[el.dataset.id]; render(); });
 
 /* ===================== player modal & negotiations ===================== */
 function playerAvatar(p, size = 84) {
@@ -9594,7 +9665,8 @@ function playTitleScene(cv, team, tr) {
   const img = new Image();
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(trophySVG(tr.key, 200).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
   const c1 = team.c1 || '#c8102e', c2 = team.c2 || '#ffffff';
-  const sq = (typeof squadOf === 'function' ? squadOf(team.id) : []).slice().sort((a, b) => b.o - a.o).slice(0, 11);
+  const capId = team.sp && team.sp.cap; // the chosen captain lifts the cup
+  const sq = (typeof squadOf === 'function' ? squadOf(team.id) : []).slice().sort((a, b) => (b.id === capId) - (a.id === capId) || b.o - a.o).slice(0, 11);
   const skins = ['#f1c9a0', '#e0ac7e', '#c68a5b', '#8d5a3a', '#5e3b24'], hairs = ['#1c1410', '#3a2414', '#6b4a2b', '#c9a24a', '#111'];
   const fig = Array.from({ length: 11 }, (_, i) => {
     const pl = sq[i], h = pl ? hashStr(pl.n + '|' + pl.id) : i * 7919;
@@ -10576,7 +10648,7 @@ function drawShirtLogos(ctx, kit, side, tx, ty, s) {
   const spt = G_SP.tag && G_SP.tag[side], lg = G_SP.logo && G_SP.logo[side];
   if (spt) drawLogoModel(ctx, K.spM, lg || { sh: 1, c1: '#444', c2: '#fff' }, G_SP.br[side], spt, bx + K.spX * bw, by + K.spY * bh, s * 0.1 * K.spS, kit.shirt);
   const sb = G_SP.sup && G_SP.sup[side];
-  if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, lgWithImg('su', sb, sp), sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
+  if (sb != null && sb >= 0) { const sp = SP_SUPS[sb]; drawLogoModel(ctx, K.suM, typeof lgWithImg === 'function' ? lgWithImg('su', sb, sp) : sp, sp.ic, sp.n.toUpperCase(), bx + K.suX * bw, by + K.suY * bh, s * 0.062 * K.suS, kit.shirt); }
 }
 const G_SP = { tag: null, logo: null, br: null, sup: null };
 const Game2D = (() => {
@@ -10597,6 +10669,11 @@ const Game2D = (() => {
   const nrm = (x, y) => { const l = Math.hypot(x, y); return l > 1e-9 ? { x: x / l, y: y / l } : { x: 0, y: 0 }; };
   const grand = () => { let u = 0; while (!u) u = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); };
   const sideOf = (team) => (team === 0 ? G.userSide : 1 - G.userSide);
+  const sideInstr = (team) => { const sd = G.st.sides[sideOf(team)]; return sd || {}; };
+  function designatedTaker(team, kind) {
+    const sd = sideInstr(team), pid = sd.sp && sd.sp[kind];
+    return pid ? G.players.find((p) => !p.out && p.team === team && p.pid === pid && !p.gk) || null : null;
+  }
   const teamIdOf = (team) => G.st.sides[sideOf(team)].id;
   const nameOf = (p) => (p ? p.label : '');
   function keeperOf(team) { return G.players.find((p) => p.team === team && p.gk && !p.out) || null; }
@@ -10789,7 +10866,7 @@ const Game2D = (() => {
     }
     G.spTag = [sponsTag(st.sides[0].id), sponsTag(st.sides[1].id)];
     G.spBr = [0, 1].map((k) => sponsBrandOf(st.sides[k].id));
-    G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : lgWithImg('sp', b, SP_BRANDS[b][4]); });
+    G.spLogo = [0, 1].map((k) => { const b = sponsBrandOf(st.sides[k].id); return b < 0 ? null : (typeof lgWithImg === 'function' ? lgWithImg('sp', b, SP_BRANDS[b][4]) : SP_BRANDS[b][4]); });
     G.spSup = [0, 1].map((k) => supplierOf(st.sides[k].id));
     G_SP.tag = G.spTag; G_SP.logo = G.spLogo; G_SP.br = G.spBr; G_SP.sup = G.spSup;
     buildPlayers();
@@ -10842,6 +10919,8 @@ const Game2D = (() => {
     x = clamp(x, 0.2, PW - 0.2); y = clamp(y, 0.2, PL - 0.2);
     if (kind === 'corner') { x = x < PW / 2 ? 0.3 : PW - 0.3; y = y < PL / 2 ? 0.3 : PL - 0.3; } // inside the corner arc
     let taker = kind === 'goalkick' ? keeperOf(team) : null;
+    // the designated corner / free-kick taker (Elenco → Escalação → Instruções), when he is on the pitch
+    if (!taker && (kind === 'corner' || kind === 'free')) { const tp = designatedTaker(team, kind === 'corner' ? 'ck' : 'fk'); if (tp) taker = tp; }
     if (!taker) taker = nearestTo(team, x, y, true);
     if (!taker) { resetKickoff(team); return; }
     const fwd = team === 0 ? -1 : 1;
@@ -11063,7 +11142,7 @@ const Game2D = (() => {
   function startPenalty(team) {
     const up = team === 0;
     const gy = up ? 0 : PL, fwd = up ? -1 : 1;
-    let taker = G.players.filter((p) => !p.out && p.team === team && !p.gk).sort((a, c) => c.sho - a.sho)[0];
+    let taker = designatedTaker(team, 'pk') || G.players.filter((p) => !p.out && p.team === team && !p.gk).sort((a, c) => c.sho - a.sho)[0];
     if (G.solo && team === 0) { const me = soloSprite(); if (me && taker && me.sho >= taker.sho - 8) taker = me; } // player career: he takes it when he is among the best kickers
     const gk = keeperOf(1 - team);
     if (!taker) { setPiece(team, PW / 2, gy - fwd * 11, 'free'); return; }
@@ -12456,6 +12535,7 @@ const Game2D = (() => {
       else if (own.team === team) n = 0;
       else n = team === 0 && !G.auto ? 1 : (team === 1 ? G.D.press : 2);
       if (n && styleOf(team) === 'press' && n < 4) n++;
+      { const pr = (sideInstr(team).ti || {}).press || 0; if (n && pr >= 1 && n < 4) n++; if (n > 1 && pr <= -1) n--; } // team instruction: pressure
       if (n && (team === 1 || G.auto)) { const bias = tacticBias(team); if (bias > 0.5) n++; if (G.cpress && G.cpress.team === team && G.time < G.cpress.t && Math.hypot(own ? own.x - b.x : 0, 0) < 1e9 && n < 4) n++; if (bias < -0.4 && n > 1) n--; }
       if (!n) { G.chasers[team] = []; continue; }
       G.chasers[team] = G.players.filter((p) => !p.out && p.team === team && !p.gk && !(team === 0 && !G.auto && p === G.ctrl))
@@ -12525,12 +12605,23 @@ const Game2D = (() => {
     let back, front;
     const tb = tacticBias(p.team);
     const wide = styleOf(p.team) === 'wings' && attacking ? 1.1 : 1;
-    if (attacking) { back = clamp(bd - 0.4 + tb * 0.08, 0.14, 0.56); front = clamp(bd + 0.3 + tb * 0.06, 0.5, 0.92); }
-    else { back = clamp(bd - 0.32 + tb * 0.1, 0.06, 0.46); front = clamp(bd + 0.06 + tb * 0.12, 0.3, 0.7); }
+    const sd = sideInstr(p.team), ti = sd.ti || {}, role = sd.pi && sd.pi[p.pid];
+    const dl = (ti.depth || 0) * 0.03, bx = (ti.box || 0) * 0.025, wd = 1 + (ti.width || 0) * 0.06;
+    if (attacking) { back = clamp(bd - 0.4 + tb * 0.08 + dl, 0.12, 0.6); front = clamp(bd + 0.3 + tb * 0.06 + bx, 0.5, 0.94); }
+    else { back = clamp(bd - 0.32 + tb * 0.1 + dl, 0.04, 0.5); front = clamp(bd + 0.06 + tb * 0.12 + dl * 0.6, 0.28, 0.74); }
     const t = clamp((p.fy - 0.18) / 0.64, 0, 1);
-    const depth = back + t * (front - back);
-    const across = p.team === 0 ? p.fx : 1 - p.fx;
-    const x = PW / 2 + (across * PW - PW / 2) * (attacking ? 1.02 * wide : 0.74) + (b.x - PW / 2) * (attacking ? 0.18 : 0.34);
+    let depth = back + t * (front - back);
+    // individual instructions
+    if (role) {
+      if (attacking && (role === 'attack' || role === 'runs' || role === 'free')) depth += 0.06;
+      if (attacking && role === 'stay') depth -= 0.07;
+      if (attacking && role === 'false9') depth -= 0.08;
+      if (!attacking && (role === 'drop' || role === 'stay')) depth -= 0.06;
+      if (role === 'sweeper' && p.gk) depth += 0.04;
+    }
+    const across0 = p.team === 0 ? p.fx : 1 - p.fx;
+    const across = role === 'inside' ? 0.5 + (across0 - 0.5) * 0.7 : role === 'wide' ? 0.5 + (across0 - 0.5) * 1.12 : across0;
+    const x = PW / 2 + (across * PW - PW / 2) * (attacking ? 1.02 * wide * wd : 0.74 * Math.min(1.08, wd)) + (b.x - PW / 2) * (attacking ? 0.18 : 0.34);
     const y = p.team === 0 ? PL * (1 - depth) : PL * depth;
     return { x: clamp(x, 1.5, PW - 1.5), y: clamp(y, 1.5, PL - 1.5) };
   }
@@ -12575,7 +12666,10 @@ const Game2D = (() => {
     let run = 0.72;
     if (mine && own && own !== p) {
       if (p.runT > 0) { p.runT -= 0.1; tgt.y += fwd * 9; tgt.x += (PW / 2 - tgt.x) * 0.25; run = 1; }
-      else if ((grp === 'ATT' || (grp === 'MID' && Math.random() < 0.35)) && Math.random() < (styleOf(p.team) === 'counter' ? 0.07 : 0.035) && !G.restartHold) p.runT = 1.2 + Math.random();
+      else {
+        const rl = sideInstr(p.team).pi && sideInstr(p.team).pi[p.pid], runner = rl === 'runs' || rl === 'attack';
+        if ((grp === 'ATT' || runner || (grp === 'MID' && Math.random() < 0.35)) && Math.random() < (styleOf(p.team) === 'counter' ? 0.07 : 0.035) * (runner ? 2.2 : rl === 'stay' || rl === 'false9' ? 0.3 : 1) && !G.restartHold) p.runT = 1.2 + Math.random();
+      }
       let mate = null, md = 99;
       for (const q of G.players) if (q !== p && !q.out && q.team === p.team) { const d = Math.hypot(q.x - tgt.x, q.y - tgt.y); if (d < md) { md = d; mate = q; } }
       if (mate && md < 5) { const n = nrm((tgt.x - mate.x) || 0.3, tgt.y - mate.y); tgt.x += n.x * (5 - md); tgt.y += n.y * (5 - md); }
