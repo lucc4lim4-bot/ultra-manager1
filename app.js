@@ -236,6 +236,7 @@ function weeklyWage(pl) { return pl.w || 0; }
 function teamName(id) { const t = S.teams[id]; return t ? t.n : 'Sem clube'; }
 // Portuguese articles for club and country names: "o Flamengo", "a Juventus", "a Argentina", "os Estados Unidos", "Portugal"
 const FEM_CLUBS = new Set(['juventus', 'inter', 'roma', 'lazio', 'atalanta', 'fiorentina', 'udinese', 'cremonese', 'sampdoria', 'salernitana', 'realsociedad', 'chapecoense', 'pontepreta', 'portuguesa', 'ferroviaria']);
+const PL_CLUBS = new Set(['tigres', 'pumas']); // plural club names: "os Tigres UANL"
 const NAT_PLURAL = { 'Estados Unidos': 'os', 'Emirados Árabes': 'os', 'Ilhas Faroé': 'as', Filipinas: 'as', Bermudas: 'as' };
 const NAT_NO_ART = new Set(['Portugal', 'Israel', 'Angola', 'Cuba', 'Andorra', 'Malta', 'San Marino', 'Gibraltar', 'Liechtenstein', 'Mônaco', 'Cabo Verde', 'Honduras', 'El Salvador',
   'Trinidad e Tobago', 'Moçambique', 'Madagascar', 'Omã', 'Fiji', 'Aruba', 'Curaçao', 'Montserrat', 'Barbados', 'Granada', 'Guam', 'Hong Kong', 'Taipé Chinesa', 'Antígua e Barbuda',
@@ -245,7 +246,7 @@ const NAT_MASC = new Set(['Canadá', 'Panamá', 'Gana', 'Quênia']);
 function teamArticle(x) {
   const t = typeof x === 'object' ? x : S.teams[x];
   if (!t) return 'o';
-  if (!t.isNat) return FEM_CLUBS.has(t.key) ? 'a' : 'o';
+  if (!t.isNat) return FEM_CLUBS.has(t.key) ? 'a' : PL_CLUBS.has(t.key) ? 'os' : 'o';
   const n = t.n;
   if (NAT_PLURAL[n]) return NAT_PLURAL[n];
   if (NAT_NO_ART.has(n)) return '';
@@ -702,6 +703,7 @@ function matchNeedsDecider(m) {
   const tie = c.ties[m.tie];
   if (!tie) return false;
   const lastId = tie.m[tie.m.length - 1];
+  if (c.mx) return !!tie.fin && lastId === m.id; // Liga MX: only the final goes to extra time and penalties
   return lastId === m.id;
 }
 function tieAggregateBefore(m) { // goals of first leg from perspective of m.h
@@ -805,9 +807,10 @@ function recordResult(m) {
   if (c.state) { stateRecord(c, m); return; } // state championships (17_states.js)
   if (c.kind === 'league' || (c.kind === 'swiss' && m.r < c.leaguePhaseRounds)) applyToTable(c.table, m);
   if (c.kind === 'groups' && m.g !== undefined && m.r < c.groupRounds) applyToTable(c.groups[m.g].table, m);
-  if (m.tie) cupAfterMatch(c, m);
+  if (m.tie && !c.mx) cupAfterMatch(c, m);
   if (c.kind === 'league') {
-    if (c.rounds.every((rd) => rd.m.every((id) => S.matches[id].done))) {
+    if (c.mx) mxAfterMatch(c, m); // Liga MX: play-in and Liguilla (27_mexico.js)
+    else if (c.rounds.every((rd) => rd.m.every((id) => S.matches[id].done))) {
       const tab = sortTable(c.table, c.teams);
       finishComp(c, tab[0].id, tab[1] && tab[1].id);
     }
@@ -977,7 +980,8 @@ function finishComp(c, champion, runnerUp) {
   const ts = topScorers(c.id, 1)[0];
   const entry = { key: c.key, name: c.name, season: c.season, year: c.year, ch: champion, ru: runnerUp || 0,
     chN: teamName(champion), ruN: runnerUp ? teamName(runnerUp) : '', ts: ts ? [ts.name, ts.goals, teamShort(ts.team)] : null };
-  if (c.kind === 'league') entry.table = sortTable(c.table, c.teams).slice(0, 6).map((r) => [r.id, r.pts]);
+  if (c.kind === 'league' && !c.mx) entry.table = sortTable(c.table, c.teams).slice(0, 6).map((r) => [r.id, r.pts]);
+  if (c.mx && c.mx.seed) entry.reg = c.mx.seed[0] || 0; // leader of the regular season
   S.hist.push(entry);
   (S.titles[champion] = S.titles[champion] || []).push({ key: c.key, name: c.name, season: c.season });
   onCompFinished(c, entry);
@@ -1834,7 +1838,8 @@ function createSASeason(y, initial) {
   const label = seasonLabel(y, 'SA');
   for (const lg of S.normal.filter((l) => l.cal === 'SA')) {
     const single = lg.teams.length > 24;
-    makeLeague({ key: lg.id, name: lg.name, short: lg.id, zone: 'SA', season: label, year: y, teams: lg.teams.slice(), single,
+    if (lg.mx) mxMakeTournament(lg, y, 'C'); // Liga MX: Clausura now, the Apertura when it ends (27_mexico.js)
+    else makeLeague({ key: lg.id, name: lg.name, short: lg.id, zone: 'SA', season: label, year: y, teams: lg.teams.slice(), single,
       down: lg.down, country: lg.country, lgId: lg.id, rr: lg.rr });
     if (lg.id === 'BRA') ensureBraPyramid();
     if (lg.tiers) {
@@ -1993,6 +1998,7 @@ function youthStrength(c, tid) {
 // ------------------------------------------------------------------ rollovers
 function archiveZone(zone) {
   // remove finished comps of a zone (EU+UEFA or SA), keep history entries
+  if (zone === 'SA') mxArchiveDone();
   const keep = [];
   for (const cid of S.active) {
     const c = S.comps[cid];
@@ -4741,6 +4747,7 @@ function conmebolRows(places, exclude) {
 
 // table zones of a league of the normal mode, from the places above
 function continentalZone(c, pos) {
+  if (c.mx) return pos <= MX_DIRECT ? 'zone-lig' : pos <= MX_PLAYIN ? 'zone-play' : ''; // Liga MX: Liguilla / Play-In
   const ctry = c.lgId || c.key;
   const slot = UEFA_SLOTS[ctry] && UEFA_SLOTS[ctry][pos - 1];
   if (slot) return { U: 'zone-ucl', Q: 'zone-uclq', E: 'zone-uel', C: 'zone-uecl' }[slot];
@@ -4755,6 +4762,7 @@ function continentalZone(c, pos) {
 const ZONE_LEGEND = {
   'zone-ucl': ['#4c7dff', 'Champions League'], 'zone-uclq': ['#9db8ff', 'Pré-Champions'], 'zone-uel': ['#ff9a3c', 'Europa League'],
   'zone-uecl': ['#2fbf71', 'Conference League'], 'zone-lib': ['var(--gold)', 'Libertadores'], 'zone-plib': ['#e0b85a', 'Pré-Libertadores'], 'zone-sula': ['#1e88e5', 'Sul-Americana'],
+  'zone-lig': ['#2fbf71', 'Liguilla (direto)'], 'zone-play': ['#e0b85a', 'Play-In'],
 };
 
 /* ===================== Brazilian state championships (estaduais) and the Copinha ===================== */
@@ -7044,6 +7052,183 @@ function fifaReport(w) {
   S.fifa = null;
 }
 
+/* ===================== Liga MX: Clausura and Apertura, play-in and Liguilla =====================
+   Two tournaments per calendar year, 18 clubs each: 17 round-robin matchdays, then the top 6 go straight to the Liguilla
+   and 7th to 10th play the Play-In (7x8 and 9x10 in one game at the better seed's home; the loser of 7x8 hosts the winner
+   of 9x10 for the 8th place). Liguilla: quarter-finals and semi-finals in two legs (a level aggregate goes to the better
+   placed club, no extra time), final in two legs (extra time and penalties if level). No relegation.
+   The Clausura (Jan-May) is created with the South American season; the Apertura (Jul-Dec) is created when the Clausura ends,
+   so there is only one Liga MX table in the active competitions at a time (the finished one waits in S.mxDone until the
+   next rollover). */
+const MX_PLAYIN = 10, MX_DIRECT = 6;
+const mxLeague = () => (S.normal || []).find((l) => l.mx);
+const isMxComp = (c) => !!(c && c.mx);
+const fifaClear = (d) => { let w, n = 0; while ((w = fifaWindowOn(d)) && n++ < 6) d = w.to + 1; return d; };
+
+// matchday dates: Saturdays (and Wednesdays when there are not enough), clear of the FIFA windows
+function mxDates(y, kind, n) {
+  const wc = isWCYear(y);
+  const start = kind === 'C' ? onOrAfter(dayOf(y, 1, 9), 6) : onOrAfter(dayOf(y, 7, wc ? 25 : 11), 6);
+  let end = kind === 'C' ? dayOf(y, 4, 26) : dayOf(y, wc ? 11 : 10, wc ? 8 : 31);
+  const free = (d) => !fifaWindowOn(d);
+  for (let tries = 0; tries < 8; tries++, end += 7) {
+    const sats = [];
+    for (let d = start; d <= end; d += 7) if (free(d)) sats.push(d);
+    const weds = [];
+    for (let d = onOrAfter(start + 3, 3); d <= end - 3; d += 7) if (free(d)) weds.push(d);
+    const need = n - sats.length;
+    if (need > weds.length) continue;
+    let dates = sats.slice();
+    if (need > 0) { const step = weds.length / need; for (let k = 0; k < need; k++) dates.push(weds[Math.min(weds.length - 1, Math.floor(k * step + step / 2))]); }
+    dates = uniq(dates).sort((a, b) => a - b);
+    if (dates.length >= n) return dates.slice(0, n);
+  }
+  const out = []; for (let i = 0; i < n; i++) out.push(start + i * 5); // never reached with a normal calendar
+  return out;
+}
+
+function mxMakeTournament(lg, y, kind) {
+  const label = (kind === 'C' ? 'Clausura ' : 'Apertura ') + y;
+  const n = lg.teams.length - (lg.teams.length % 2 ? 0 : 1);
+  const c = makeLeague({ key: lg.id, name: lg.name, short: lg.id, zone: 'SA', season: label, year: y, teams: lg.teams.slice(), single: true, down: 0,
+    country: lg.country, lgId: lg.id, dates: mxDates(y, kind, n) });
+  c.mx = { kind, y, stage: 'reg', nReg: c.rounds.length, seed: [], rank: {}, lastDay: 0 };
+  return c;
+}
+
+// one tie of the play-in / Liguilla: a is the better seed
+function mxTie(c, rdIdx, a, b, legs, day1, day2, fin) {
+  const tieId = nextId('tie');
+  const tie = { id: tieId, r: rdIdx, a, b, m: [], w: 0 };
+  if (fin) tie.fin = 1;
+  c.ties[tieId] = tie;
+  c.rounds[rdIdx].ties.push(tieId);
+  if (legs === 2) {
+    const m1 = addMatch(c, rdIdx, day1, b, a, { tie: tieId, leg: 1, idx: c.rounds[rdIdx].ties.length, fixed: true });
+    const m2 = addMatch(c, rdIdx, day2, a, b, { tie: tieId, leg: 2, idx: c.rounds[rdIdx].ties.length, fixed: true });
+    tie.m = [m1.id, m2.id];
+  } else {
+    const m1 = addMatch(c, rdIdx, day1, a, b, { tie: tieId, idx: c.rounds[rdIdx].ties.length, fixed: true });
+    tie.m = [m1.id];
+  }
+  return tie;
+}
+function mxNewRound(c, name, day) {
+  c.rounds.push({ name, d: day, m: [], ties: [] });
+  return c.rounds.length - 1;
+}
+const mxLast = (c, rdIdx) => Math.max(...c.rounds[rdIdx].m.map((id) => S.matches[id].d));
+const mxSeedSort = (c, ids) => ids.slice().sort((x, y) => (c.mx.rank[x] || 99) - (c.mx.rank[y] || 99));
+
+function mxAfterMatch(c, m) {
+  const X = c.mx;
+  if (X.stage === 'reg') {
+    if (c.rounds.slice(0, X.nReg).every((rd) => rd.m.every((id) => S.matches[id].done))) mxRegularDone(c);
+    return;
+  }
+  const tie = m.tie && c.ties[m.tie];
+  if (!tie) return;
+  const w = tieWinner(c, tie);
+  if (w) tie.w = w;
+  const rd = c.rounds[tie.r];
+  if (rd.ties.every((tid) => c.ties[tid].w)) mxNextStage(c);
+}
+
+function mxNote(c, cat, title, body, ids) { if (!S.presim) addNews(title, body, 'liga', ids || [], { cat }); }
+function mxInbox(id, subj, body) { if (!S.presim && id && isUserTeam(id) && !S.coach.unemployed) addInbox('board', 'Diretoria', subj, body); }
+
+function mxRegularDone(c) {
+  const X = c.mx;
+  const tab = sortTable(c.table, c.teams);
+  X.seed = tab.map((r) => r.id);
+  X.seed.forEach((id, i) => (X.rank[id] = i + 1));
+  X.stage = 'play1';
+  const lead = X.seed[0];
+  mxNote(c, 'Tabela', `${teamName(lead)} é o líder da fase regular ${cA(c.name, 'do')} (${c.season})`, `${TA(lead)} termina a fase regular na ponta, com ${tab[0].pts} pontos. Classificados direto para a Liguilla: ${X.seed.slice(0, MX_DIRECT).map(teamName).join(', ')}. Disputam o Play-In: ${X.seed.slice(MX_DIRECT, MX_PLAYIN).map(teamName).join(', ')}.`, X.seed.slice(0, 3));
+  X.seed.forEach((id, i) => {
+    if (i < MX_DIRECT) mxInbox(id, 'Classificado direto para a Liguilla!', `${TA(id)} terminou a fase regular do ${c.season} em ${i + 1}º lugar e vai direto para as quartas de final da Liguilla.`);
+    else if (i < MX_PLAYIN) mxInbox(id, 'Vai para o Play-In', `${TA(id)} terminou em ${i + 1}º e disputa o Play-In. ${i % 2 === 0 ? 'Joga em casa' : 'Joga fora de casa'}, em jogo único; o empate favorece o time melhor colocado.`);
+    else mxInbox(id, 'Fora da Liguilla', `${TA(id)} terminou a fase regular em ${i + 1}º lugar e não disputa a Liguilla.`);
+  });
+  const day = fifaClear(onOrAfter(mxLast(c, X.nReg - 1) + 1, 2));
+  const r = mxNewRound(c, 'Play-In (1ª fase)', day);
+  mxTie(c, r, X.seed[6], X.seed[7], 1, day);
+  mxTie(c, r, X.seed[8], X.seed[9], 1, day + 1);
+}
+
+function mxNextStage(c) {
+  const X = c.mx;
+  const prev = c.rounds[c.rounds.length - 1];
+  const win = (tid) => c.ties[tid].w;
+  const lose = (tid) => { const t = c.ties[tid]; return t.w === t.a ? t.b : t.a; };
+  const last = mxLast(c, c.rounds.length - 1);
+  if (X.stage === 'play1') {
+    // the winner of 7x8 is the 7th seed of the Liguilla; the loser of 7x8 hosts the winner of 9x10
+    const [t78, t910] = prev.ties;
+    X.q7 = win(t78); X.pi = [lose(t78), win(t910)];
+    X.rank[X.q7] = 7;
+    X.stage = 'play2';
+    const day = fifaClear(onOrAfter(last + 1, 5));
+    const r = mxNewRound(c, 'Play-In (final)', day);
+    mxTie(c, r, X.pi[0], X.pi[1], 1, day);
+    return;
+  }
+  if (X.stage === 'play2') {
+    const w8 = win(prev.ties[0]);
+    X.rank[w8] = 8;
+    const q = X.seed.slice(0, MX_DIRECT).concat([X.q7, w8]);
+    X.stage = 'qf';
+    const d1 = fifaClear(onOrAfter(last + 1, 3)), d2 = fifaClear(onOrAfter(d1 + 1, 0));
+    const r = mxNewRound(c, 'Quartas de final', d1);
+    for (let i = 0; i < 4; i++) mxTie(c, r, q[i], q[7 - i], 2, d1, d2);
+    return;
+  }
+  if (X.stage === 'qf' || X.stage === 'sf') {
+    const ws = mxSeedSort(c, prev.ties.map(win));
+    const final = X.stage === 'sf';
+    if (final && ws.length === 2) {
+      X.stage = 'final';
+      const d1 = fifaClear(onOrAfter(last + 1, 4)), d2 = fifaClear(onOrAfter(d1 + 1, 0));
+      const r = mxNewRound(c, 'Final', d1);
+      mxTie(c, r, ws[0], ws[1], 2, d1, d2, true);
+      return;
+    }
+    X.stage = 'sf';
+    const d1 = fifaClear(onOrAfter(last + 1, 3)), d2 = fifaClear(onOrAfter(d1 + 1, 0));
+    const r = mxNewRound(c, 'Semifinal', d1);
+    mxTie(c, r, ws[0], ws[3], 2, d1, d2);
+    mxTie(c, r, ws[1], ws[2], 2, d1, d2);
+    return;
+  }
+  if (X.stage === 'final') {
+    X.stage = 'done';
+    const t = c.ties[prev.ties[0]];
+    mxFinish(c, t.w, t.w === t.a ? t.b : t.a);
+  }
+}
+
+function mxFinish(c, champ, runner) {
+  const X = c.mx;
+  X.champ = champ;
+  finishComp(c, champ, runner);
+  if (X.kind !== 'C') return;
+  // the Apertura of the same year starts in July: replace the Clausura in the active list (its matches stay until the rollover)
+  const lg = mxLeague();
+  S.active = S.active.filter((id) => id !== c.id);
+  (S.mxDone = S.mxDone || []).push(c.id);
+  if (lg && !S.comps[c.id].mxNext) { S.comps[c.id].mxNext = 1; mxMakeTournament(lg, c.year, 'A'); }
+}
+// the tournaments that already finished leave with the next South American rollover
+function mxArchiveDone() {
+  if (S.mxDone && S.mxDone.length) { S.active.unshift(...S.mxDone.filter((id) => S.comps[id])); S.mxDone = []; }
+}
+// text for the table view
+function mxPhaseText(c) {
+  const X = c.mx;
+  if (!X) return '';
+  return { reg: `Fase regular · 1º–${MX_DIRECT}º: Liguilla direto · ${MX_DIRECT + 1}º–${MX_PLAYIN}º: Play-In`, play1: 'Play-In', play2: 'Play-In', qf: 'Liguilla · quartas de final', sf: 'Liguilla · semifinais', final: 'Liguilla · final', done: 'Encerrado' }[X.stage] || '';
+}
+
 /* ===================== UI core ===================== */
 const UI = {
   screen: 'start', tab: 'central', sub: {}, sel: null, newsIdx: 0, filters: {}, wiz: null, busy: false,
@@ -7707,11 +7892,11 @@ function anyClubEntries() {
   return rows;
 }
 // normal mode: the leagues grouped by region (main leagues, other European leagues, South America)
-const ANY_REGIONS = [['main', 'Principais'], ['eu', 'Europa'], ['sa', 'América do Sul']];
+const ANY_REGIONS = [['main', 'Principais'], ['eu', 'Europa'], ['sa', 'América do Sul'], ['oth', 'América do Norte e Ásia']];
 function anyRegionOf(g) {
   const lg = S.normal && S.normal.find((l) => l.id === g || l.id + '2' === g);
   if (!lg) return '';
-  return MAIN_LEAGUES.has(lg.id) ? 'main' : lg.conf === 'CONMEBOL' ? 'sa' : 'eu';
+  return MAIN_LEAGUES.has(lg.id) ? 'main' : lg.conf === 'CONMEBOL' ? 'sa' : lg.conf === 'CONCACAF' || lg.conf === 'AFC' ? 'oth' : 'eu';
 }
 function anyGroupLabel(g) {
   if (g === 'all') return 'Todos';
@@ -9233,12 +9418,12 @@ function viewTables() {
   return `<div class="panel"><div class="row wrap" style="margin-bottom:10px">${compBadge(c, 30)}<h3 style="margin:0">${esc(c.name)} <span class="sub">${esc(c.season)}</span></h3><span class="grow"></span>
       ${est ? `<button class="btn sm" data-a="pickTable" data-id="${est.id}">${compBadge(est, 18)} ${esc(est.name)}</button>` : ''}
       ${UI.tableComp ? '<button class="btn sm" data-a="tableMine">Minha liga</button>' : ''}</div>
-    ${leagueTableHtml(c, tab)}${legendFor(c)}
+    ${leagueTableHtml(c, tab)}${legendFor(c)}${c.mx ? mxPanel(c) : ''}
     <div class="row" style="margin-top:12px"><span class="grow"></span><button class="btn primary sm" data-a="otherLeagues">Outras ligas</button></div></div>`;
 }
 act('tableMine', () => { UI.tableComp = null; render(); });
 // competitions grouped for lists and selects (normal mode has dozens of leagues)
-const COMP_REGIONS = ['Minhas competições', 'Copas continentais', 'Principais', 'Europa', 'América do Sul', 'Estaduais', 'Outras'];
+const COMP_REGIONS = ['Minhas competições', 'Copas continentais', 'Principais', 'Europa', 'América do Sul', 'América do Norte e Ásia', 'Estaduais', 'Outras'];
 function compRegion(c, mine) {
   if (mine && mine.includes(c.id)) return 'Minhas competições';
   if (c.state) return 'Estaduais';
@@ -9247,7 +9432,7 @@ function compRegion(c, mine) {
   const id = c.lgId || (c.key.startsWith('CUP') ? c.key.slice(3) : c.key);
   if (MAIN_LEAGUES.has(id)) return 'Principais';
   const lg = leagueById(id);
-  return lg ? (lg.conf === 'CONMEBOL' ? 'América do Sul' : 'Europa') : 'Outras';
+  return lg ? (lg.conf === 'CONMEBOL' ? 'América do Sul' : lg.conf === 'CONCACAF' || lg.conf === 'AFC' ? 'América do Norte e Ásia' : 'Europa') : 'Outras';
 }
 function compSelectOptions(comps, selId, mine) {
   if (S.mode !== 'normal') return comps.map((x) => `<option value="${x.id}" ${x.id === selId ? 'selected' : ''}>${esc(x.name)} ${esc(x.season)}${mine.includes(x.id) ? ' ★' : ''}</option>`).join('');
@@ -18226,6 +18411,16 @@ act('awTab', (el) => { UI.awTab = el.dataset.k; refreshModal(); });
 act('awY', (el) => { UI.awY = +el.dataset.v; refreshModal(); });
 act('awC', (el) => { UI.awC = el.value; refreshModal(); });
 act('awMine', (el) => { UI.awMine = el.checked; UI.awC = null; refreshModal(); });
+
+// ---- Liga MX: phase line and the Play-In / Liguilla bracket under the table
+function mxPanel(c) {
+  const X = c.mx;
+  if (!X) return '';
+  const ko = c.rounds.length > X.nReg;
+  return `<p class="muted" style="font-size:13px;margin:10px 0 0">${esc(mxPhaseText(c))}${X.stage === 'reg' ? '' : ''}</p>
+    ${ko ? `<h3 style="margin:16px 0 8px">Play-In e Liguilla</h3>${bracketHtml(c, X.nReg)}` : ''}
+    ${X.stage === 'reg' ? '<p class="muted" style="font-size:12px;margin:6px 0 0">Play-In: 7º x 8º e 9º x 10º em jogo único (empate favorece o melhor colocado); o perdedor de 7º x 8º recebe o vencedor de 9º x 10º pela 8ª vaga. Liguilla: quartas, semifinais e final em ida e volta; empate no agregado favorece o melhor colocado, exceto na final (prorrogação e pênaltis).</p>' : ''}`;
+}
 
 /* ===================== boot ===================== */
 window.addEventListener('error', (e) => { console.error(e.error || e.message); });
