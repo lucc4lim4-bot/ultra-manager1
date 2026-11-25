@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -568,6 +569,54 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 .zone-lig { box-shadow: inset 3px 0 0 #2fbf71; } .zone-play { box-shadow: inset 3px 0 0 #e0b85a; background-image: linear-gradient(90deg, rgba(224,184,90,0.08), transparent 40%); }
 
+/* ---- start screen: futuristic look (interactive canvas, glass buttons that light up under the pointer/finger) ---- */
+.start { position: relative; isolation: isolate; overflow: hidden; background: radial-gradient(120% 80% at 80% -10%, #1a2a5e 0%, rgba(10,14,30,0) 55%), radial-gradient(90% 70% at -10% 110%, #0f3f4a 0%, rgba(10,14,30,0) 60%), #05070d; }
+.start > :not(.start-fx):not(.start-aura) { position: relative; z-index: 1; }
+.start-fx { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.start-aura { position: absolute; inset: -20%; z-index: 0; pointer-events: none; background: conic-gradient(from 0deg at 50% 50%, rgba(111,125,255,0.10), rgba(46,230,255,0.06), rgba(255,92,180,0.06), rgba(111,125,255,0.10)); filter: blur(60px); animation: aura-spin 28s linear infinite; }
+@keyframes aura-spin { to { transform: rotate(360deg); } }
+.start .title-xl { background: linear-gradient(100deg, #ffffff 10%, #b9c3ff 45%, #6ee7ff 70%, #ffffff 95%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: title-sheen 7s ease-in-out infinite; }
+.start .title-xl .b { -webkit-text-stroke: 1.5px rgba(220,228,255,0.9); background: none; }
+@keyframes title-sheen { 0%, 100% { background-position: 0% 0; } 50% { background-position: 100% 0; } }
+.start .menu-btn { position: relative; overflow: hidden; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.1); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); transition: transform .25s cubic-bezier(.2,.8,.2,1), border-color .25s, box-shadow .3s, background .3s; }
+.start .menu-btn::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(140,170,255,0.35), rgba(110,231,255,0.12) 40%, transparent 70%); }
+.start .menu-btn::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(160px circle at var(--mx, 50%) var(--my, 50%), rgba(190,210,255,0.95), rgba(110,231,255,0.4) 45%, transparent 75%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.start .menu-btn > * { position: relative; z-index: 1; }
+.start .menu-btn:hover, .start .menu-btn.lit { transform: translateY(-1px) scale(1.012); border-color: rgba(170,190,255,0.35); box-shadow: 0 10px 40px -12px rgba(111,125,255,0.55), 0 0 0 1px rgba(255,255,255,0.04) inset; }
+.start .menu-btn:hover::before, .start .menu-btn.lit::before, .start .menu-btn:hover::after, .start .menu-btn.lit::after { opacity: 1; }
+.start .menu-btn.primary { background: linear-gradient(90deg, rgba(111,125,255,0.30), rgba(111,125,255,0.06)); border-color: rgba(154,164,255,0.45); }
+.start .menu-btn .ic { background: rgba(255,255,255,0.07); box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset; }
+.start .chip { background: rgba(255,255,255,0.06); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+@media (prefers-reduced-motion: reduce) { .start-aura, .start .title-xl { animation: none; } }
+.start .title-xl { font-size: clamp(52px, 8vw, 108px); padding-right: 0.08em; }
+
+/* ---- on-screen controls, FIFA Mobile style (option in the pause menu): floating stick + glossy arc of buttons ---- */
+.g2d .joyzone { display: none; }
+.g2d .pad .fmL { display: none; }
+.g2d.ctl-fm .joyzone { display: block; position: absolute; left: 0; top: 18%; width: 50%; bottom: 0; pointer-events: auto; touch-action: none; z-index: 0; }
+.g2d.ctl-fm .joy, .g2d.ctl-fm .pad { z-index: 1; }
+.g2d.ctl-fm .joy { width: 150px; height: 150px; background: radial-gradient(circle, rgba(255,255,255,0.10), rgba(255,255,255,0.03) 70%); border: 2px solid rgba(255,255,255,0.22); opacity: 0.55; transition: opacity .15s; }
+.g2d.ctl-fm .joy.float { opacity: 1; }
+.g2d.ctl-fm .joy i { width: 64px; height: 64px; margin: -32px 0 0 -32px; background: radial-gradient(circle at 35% 30%, #ffffff, #c9d3e6 60%, #8d99b3); box-shadow: 0 4px 14px rgba(0,0,0,0.45); }
+.g2d.ctl-fm .pad { font-size: 0; display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.55); box-shadow: 0 6px 18px rgba(0,0,0,0.45), inset 0 2px 0 rgba(255,255,255,0.35); background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.32), rgba(255,255,255,0.06) 60%), rgba(20,30,50,0.55); }
+.g2d.ctl-fm .pad .fmL { display: block; font-size: 13px; font-weight: 800; letter-spacing: 0.02em; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+.g2d.ctl-fm .pad .fmL i { font-style: normal; }
+.g2d.ctl-fm .pad .fmL .d, .g2d.ctl-fm.def .pad .fmL .a { display: none; }
+.g2d.ctl-fm.def .pad .fmL .d { display: inline; }
+.g2d.ctl-fm .pad.shoot { width: 112px; height: 112px; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.45), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #ff5a5a, #c4162a); }
+.g2d.ctl-fm .pad.shoot .fmL { font-size: 18px; }
+.g2d.ctl-fm .pad.pass { width: 84px; height: 84px; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.45), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #4aa8ff, #1f5fd1); }
+.g2d.ctl-fm .pad[data-k="lob"] { background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.45), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #36d6c3, #128a80); }
+.g2d.ctl-fm .pad.swap { width: 64px; height: 64px; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.4), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #4ee07c, #1c9a48); }
+.g2d.ctl-fm .pad.sk { width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.4), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #ffc94d, #d48a12); }
+.g2d.ctl-fm .pad.run { display: grid; background: radial-gradient(circle at 50% 28%, rgba(255,255,255,0.4), rgba(255,255,255,0.05) 58%), linear-gradient(160deg, #7fd8ff, #2a8fd0); }
+.g2d.ctl-fm .pad.super, .g2d.ctl-fm .pad.call { width: 56px; height: 56px; }
+.g2d.ctl-fm .pad.super .fmL, .g2d.ctl-fm .pad.call .fmL { font-size: 11px; }
+.g2d.ctl-fm.def .pad[data-k="lob"], .g2d.ctl-fm.def .pad[data-k="feint"], .g2d.ctl-fm.def .pad[data-k="spin"], .g2d.ctl-fm.def .pad.super { opacity: 0.4; }
+.g2d.ctl-fm .pad.on { filter: brightness(1.35); box-shadow: 0 0 0 4px rgba(255,255,255,0.35), 0 0 22px rgba(255,255,255,0.45); }
+@media (hover: hover) and (pointer: fine) { .g2d.ctl-fm .joyzone { display: none; } }
+.g2d.ctl-fm .pad small { display: none; }
+
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>
@@ -576,3 +625,5 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 </body>
 </html>
+
+</body></html>
