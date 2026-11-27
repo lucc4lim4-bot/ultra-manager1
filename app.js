@@ -7656,6 +7656,7 @@ const UI_THEMES = [
 ];
 const UIPREF = (() => { try { return JSON.parse(localStorage.getItem('um-ui') || '{}') || {}; } catch (e) { return {}; } })();
 function saveUIPref() { try { localStorage.setItem('um-ui', JSON.stringify(UIPREF)); } catch (e) { /* storage unavailable */ } }
+const uiOn = (k) => UIPREF[k] !== false; // toggles that default to on
 function applyUIPref() {
   const h = document.documentElement;
   const th = UI_THEMES.some(([k]) => k === UIPREF.theme) ? UIPREF.theme : 'classic';
@@ -7663,37 +7664,172 @@ function applyUIPref() {
   h.dataset.uisize = UIPREF.size || 'm';
   h.dataset.uimotion = UIPREF.motion || 'full';
   h.dataset.uidense = UIPREF.dense ? '1' : '0';
+  h.dataset.uinav = UIPREF.nav || 'auto';
   const mc = document.querySelector('meta[name="theme-color"]') || (() => { const m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); return m; })();
   mc.content = (UI_THEMES.find(([k]) => k === th) || UI_THEMES[0])[3][0];
 }
 applyUIPref();
-function viewUISettings() {
-  const th = UIPREF.theme || 'classic', seg = (k, opts, cur) => `<div class="seg">${opts.map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" data-a="uiSet" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
-  return modalShell('Configurações', `
-    <div class="col" style="gap:18px">
-      <div><div class="muted up" style="font-size:11px;margin-bottom:8px">Interface</div>
-        <div class="ui-themes">${UI_THEMES.map(([k, n, d, c]) => `<button class="ui-theme ${th === k ? 'on' : ''}" data-a="uiSet" data-k="theme" data-v="${k}">
-          <span class="ui-sw" style="--c0:${c[0]};--c1:${c[1]};--c2:${c[2]}"><i></i><i></i><i></i></span>
-          <span class="ui-tn">${n}</span><small>${d}</small></button>`).join('')}</div></div>
-      <div class="row wrap" style="gap:18px">
-        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Tamanho</div>${seg('size', [['s', 'Pequeno'], ['m', 'Normal'], ['l', 'Grande']], UIPREF.size || 'm')}</div>
-        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Animações</div>${seg('motion', [['full', 'Completas'], ['low', 'Reduzidas']], UIPREF.motion || 'full')}</div>
-        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Espaçamento</div>${seg('dense', [['0', 'Confortável'], ['1', 'Compacto']], UIPREF.dense ? '1' : '0')}</div>
-      </div>
-      <p class="muted" style="font-size:13px;margin:0">Fica salvo neste aparelho e vale para todas as carreiras.</p>
-    </div>`, `<button class="btn" data-a="uiReset">Restaurar padrão</button><button class="btn primary" data-a="closeModal">Pronto</button>`);
+
+// ---------- settings: one window, five sections
+const SET_TABS = [['look', '🎨', 'Aparência'], ['match', '⚽', 'Partida'], ['career', '📋', 'Carreira'], ['keys', '⌨', 'Atalhos'], ['data', '💾', 'Dados']];
+function setRow(title, desc, ctl) { return `<div class="set-row"><div class="set-t"><b>${title}</b>${desc ? `<small>${desc}</small>` : ''}</div><div class="set-c">${ctl}</div></div>`; }
+// store: 'u' = UIPREF, 'g' = G2PREF (match); type: 's' string, 'n' number, 'b' boolean
+function setSeg(store, k, type, opts, cur) {
+  return `<div class="seg">${opts.map(([v, l]) => `<button class="${String(cur) === String(v) ? 'on' : ''}" data-a="uiSet" data-s="${store}" data-k="${k}" data-ty="${type}" data-v="${v}">${l}</button>`).join('')}</div>`;
 }
-act('openUISettings', () => openModal(() => viewUISettings(), { size: 'wide' }));
+function setSwitch(store, k, on) { return `<button class="sw ${on ? 'on' : ''}" role="switch" aria-checked="${on}" data-a="uiSet" data-s="${store}" data-k="${k}" data-ty="b" data-v="${on ? 0 : 1}"><i></i></button>`; }
+function viewUISettings() {
+  const tab = UI.setTab || 'look';
+  if (typeof g2Defaults === 'function') g2Defaults();
+  const G = G2PREF;
+  let body = '';
+  if (tab === 'look') {
+    const th = UIPREF.theme || 'classic';
+    body = `<div class="set-h">Interface</div>
+      <div class="ui-themes">${UI_THEMES.map(([k, n, d, c]) => `<button class="ui-theme ${th === k ? 'on' : ''}" data-a="uiSet" data-s="u" data-k="theme" data-ty="s" data-v="${k}">
+        <span class="ui-sw" style="--c0:${c[0]};--c1:${c[1]};--c2:${c[2]}"><i></i><i></i><i></i></span>
+        <span class="ui-tn">${n}</span><small>${d}</small></button>`).join('')}</div>
+      <div class="set-h">Tela</div>
+      ${setRow('Tamanho da interface', 'Aumenta ou diminui textos e botões', setSeg('u', 'size', 's', [['s', 'Pequeno'], ['m', 'Normal'], ['l', 'Grande']], UIPREF.size || 'm'))}
+      ${setRow('Espaçamento', 'Compacto mostra mais coisas por tela', setSeg('u', 'dense', 'b', [['0', 'Confortável'], ['1', 'Compacto']], UIPREF.dense ? 1 : 0))}
+      ${setRow('Menu das seções', 'No celular, a barra inferior fica ao alcance do polegar', setSeg('u', 'nav', 's', [['auto', 'Automático'], ['top', 'Sempre em cima'], ['bottom', 'Sempre embaixo']], UIPREF.nav || 'auto'))}
+      ${setRow('Animações', 'Reduzidas deixa tudo instantâneo', setSeg('u', 'motion', 's', [['full', 'Completas'], ['low', 'Reduzidas']], UIPREF.motion || 'full'))}
+      ${setRow('Fundo animado da tela inicial', 'Rede de luzes com ondas em cadeia', setSwitch('u', 'fx', uiOn('fx')))}`;
+  } else if (tab === 'match') {
+    body = `<div class="set-h">Jogo no gramado</div>
+      ${setRow('Visual da partida', '3D usa mais o aparelho; 2D é mais leve', setSeg('g', 'v3d', 'b', [['0', '2D'], ['1', '3D']], G.v3d ? 1 : 0))}
+      ${setRow('Duração', 'Minutos reais por partida', setSeg('g', 'len', 'n', [[4, '4 min'], [6, '6 min'], [10, '10 min']], G.len))}
+      ${setRow('Dificuldade', '', setSeg('g', 'diff', 's', G2_DIFFS, G.diff))}
+      ${setRow('Câmera', '', setSeg('g', 'cam', 's', G2_CAMS, G.cam))}
+      <div class="set-h">Controles na tela</div>
+      ${setRow('Estilo', 'FIFA Mobile: joystick onde o polegar tocar e botões em arco', setSeg('g', 'ctl', 's', [['classic', 'Clássico'], ['fm', 'Estilo FIFA Mobile']], G.ctl === 'fm' ? 'fm' : 'classic'))}
+      ${setRow('Tamanho dos botões', '', setSeg('g', 'btn', 'n', G2_BTN, G.btn || 1))}
+      ${setRow('Corrida', 'Automática: o jogador acelera quando o joystick vai até o fim', setSeg('g', 'autoRun', 'b', [['1', 'Automática'], ['0', 'Manual']], G.autoRun !== false ? 1 : 0))}
+      ${setRow('Posição dos botões', 'Arraste os botões durante a partida: Pausa → Mover botões da tela', '<span class="muted" style="font-size:13px">na partida</span>')}
+      <div class="set-h">Som e replays</div>
+      ${setRow('Sons da partida', 'Torcida, apito e chutes', setSwitch('g', 'sound', G.sound !== false))}
+      ${setRow('Replays dos gols', 'Mostra o replay depois de cada gol', setSwitch('g', 'replay', G.replay !== false))}`;
+  } else if (tab === 'career') {
+    body = `<div class="set-h">Central</div>
+      ${setRow('Mini tabela', 'Sua posição no campeonato, com os vizinhos de tabela', setSwitch('u', 'miniTable', uiOn('miniTable')))}
+      ${setRow('Próximos jogos', 'Os 4 próximos compromissos do time', setSwitch('u', 'upNext', uiOn('upNext')))}
+      ${setRow('Resultados da rodada', 'Os jogos da última rodada do campeonato', setSwitch('u', 'lastRound', uiOn('lastRound')))}
+      ${setRow('Notícias', 'O carrossel de notícias ao lado', setSwitch('u', 'newsBox', uiOn('newsBox')))}
+`;
+  } else if (tab === 'keys') {
+    body = `<div class="set-h">Teclado</div>
+      ${setRow('Atalhos de teclado', 'Funcionam fora da partida, quando nenhuma janela está aberta', setSwitch('u', 'keys', uiOn('keys')))}
+      <div class="keys-list">${[['Espaço', 'Avançar um dia (ou ir para a partida)'], ['P', 'Até o próximo jogo'], ['1 – 9', 'Trocar de seção (Central, Notificações, Elenco…)'], ['/ ou Ctrl K', 'Busca rápida de jogadores e clubes'], [',', 'Abrir as configurações'], ['Esc', 'Fechar a janela aberta']].map(([k, d]) => `<div class="kl"><kbd>${k}</kbd><span>${d}</span></div>`).join('')}</div>`;
+  } else {
+    const inCareer = typeof S !== 'undefined' && S && UI.screen === 'career';
+    body = `<div class="set-h">Carreira atual</div>
+      ${inCareer ? `${setRow('Salvar agora', 'A carreira também é salva automaticamente', '<button class="btn" data-a="manualSave">💾 Salvar</button>')}
+      ${setRow('Exportar save', 'Baixa um arquivo para guardar ou levar a outro aparelho', '<button class="btn" data-a="exportSave">⤒ Exportar</button>')}` : '<p class="muted" style="margin:6px 0 12px">Abra uma carreira para salvar ou exportar.</p>'}
+      <div class="set-h">Configurações</div>
+      ${setRow('Restaurar o padrão', 'Volta aparência, partida e atalhos para o original (não mexe nas carreiras)', '<button class="btn danger" data-a="uiReset">Restaurar</button>')}
+      <p class="muted" style="font-size:13px;margin:14px 0 0">As configurações ficam salvas neste aparelho e valem para todas as carreiras.</p>`;
+  }
+  return modalShell('Configurações', `<div class="set-wrap">
+      <nav class="set-nav">${SET_TABS.map(([k, ic, l]) => `<button class="${tab === k ? 'on' : ''}" data-a="setTab" data-t="${k}"><span>${ic}</span>${l}</button>`).join('')}</nav>
+      <div class="set-body">${body}</div></div>`, `<button class="btn primary" data-a="closeModal">Pronto</button>`);
+}
+act('openUISettings', () => { if (!UI.setTab) UI.setTab = 'look'; openModal(() => viewUISettings(), { size: 'wide' }); });
+act('setTab', (el) => { UI.setTab = el.dataset.t; refreshModal(); });
 act('uiSet', (el) => {
-  const k = el.dataset.k, v = el.dataset.v;
-  UIPREF[k] = k === 'dense' ? v === '1' : v;
-  saveUIPref(); applyUIPref(); refreshModal();
+  const st = el.dataset.s === 'g' ? G2PREF : UIPREF, k = el.dataset.k, ty = el.dataset.ty, v = el.dataset.v;
+  st[k] = ty === 'b' ? v === '1' : ty === 'n' ? +v : v;
+  if (st === G2PREF) saveG2Pref(); else { saveUIPref(); applyUIPref(); }
+  refreshModal();
+  if (UI.screen === 'career' && st === UIPREF && ['miniTable', 'upNext', 'lastRound', 'newsBox', 'nav'].includes(k)) render();
 });
-act('uiReset', () => { for (const k of Object.keys(UIPREF)) delete UIPREF[k]; saveUIPref(); applyUIPref(); refreshModal(); });
+act('uiReset', () => {
+  for (const k of Object.keys(UIPREF)) delete UIPREF[k];
+  for (const k of ['cam', 'btn', 'ctl', 'autoRun', 'sound', 'replay', 'diff', 'len']) delete G2PREF[k];
+  saveUIPref(); saveG2Pref(); applyUIPref(); refreshModal(); if (UI.screen === 'career') render();
+  toast('Configurações restauradas.');
+});
+
+// ---------- quick search (players and clubs)
+function gsResults(q) {
+  q = strip(q.trim());
+  if (q.length < 2) return '<div class="muted gs-hint">Digite pelo menos 2 letras do nome de um jogador ou clube.</div>';
+  const teams = [], pls = [];
+  for (const id in S.teams) { const t = S.teams[id]; if (t && t.n && strip(t.n).includes(q)) teams.push(t); }
+  for (const id in S.players) { const p = S.players[id]; if (p && p.n && strip(p.n).includes(q)) pls.push(p); }
+  teams.sort((x, y) => (strip(x.n).startsWith(q) ? 0 : 1) - (strip(y.n).startsWith(q) ? 0 : 1) || x.n.localeCompare(y.n));
+  pls.sort((x, y) => y.o - x.o);
+  const tH = teams.slice(0, 8).map((t) => `<button class="gs-it" data-a="openTeam" data-id="${t.id}">${crest(t, 28)}<span class="grow"><b>${esc(t.n)}</b><small>${t.isNat ? 'Seleção' : 'Clube'}</small></span><span class="dim">›</span></button>`).join('');
+  const pH = pls.slice(0, 30).map((p) => `<button class="gs-it" data-a="openPlayer" data-id="${p.id}">${posBadge(p.p)}${ovrBadge(p.o)}<span class="grow"><b>${esc(p.n)}</b><small>${p.age} anos · ${S.teams[p.t] ? esc(S.teams[p.t].n) : 'Sem clube'}</small></span>${p.t && S.teams[p.t] ? crest(p.t, 22) : ''}</button>`).join('');
+  if (!tH && !pH) return '<div class="muted gs-hint">Nada encontrado.</div>';
+  return `${tH ? `<div class="gs-sec">Clubes e seleções</div>${tH}` : ''}${pH ? `<div class="gs-sec">Jogadores${pls.length > 30 ? ` · ${pls.length} encontrados, mostrando os 30 melhores` : ''}</div>${pH}` : ''}`;
+}
+act('openSearch', () => {
+  if (!S) return;
+  openModal(() => modalShell('Busca rápida', `<input id="gs-q" class="input gs-q" placeholder="Nome do jogador ou do clube…" autocomplete="off" value="${esc(UI.gsq || '')}" data-a="gsQ" data-live="1">
+    <div id="gs-res" class="gs-res">${gsResults(UI.gsq || '')}</div>`), {});
+  setTimeout(() => { const i = document.getElementById('gs-q'); if (i) { i.focus(); i.select(); } }, 30);
+});
+act('gsQ', (el) => { UI.gsq = el.value; const r = document.getElementById('gs-res'); if (r) r.innerHTML = gsResults(el.value); });
+
+// ---------- Central: big match card, mini table, upcoming fixtures
+function hubHero(nm, sub, advance, today, days) {
+  const date = `<div class="hh-date"><div class="hero-date">${fmtDate(S.date, 'hero')}</div><div class="hero-sub">${sub}${S.zoeira ? ' · <span style="color:#b6ff5a">modo zoeira</span>' : ''}</div></div>`;
+  if (!nm) return `<section class="hub-hero none">${date}<div class="hh-empty">${userIsNat() ? 'A seleção aguarda a próxima data FIFA.' : 'Nenhum jogo marcado. Aproveite para reforçar o elenco.'}</div><div class="advance-row">${advance}</div></section>`;
+  const c = S.comps[nm.c], rd = c && c.rounds[nm.r], th = S.teams[nm.h] || {}, ta = S.teams[nm.a] || {};
+  const side = (id, t) => `<div class="hh-team">${crest(id, 108)}<div class="hh-nm">${esc(teamName(id))}</div>${formRow(id)}</div>`;
+  const badge = today ? '<span class="hh-live">HOJE</span>' : `<span class="hh-cd"><b>${days}</b>${days === 1 ? 'dia' : 'dias'}</span>`;
+  return `<section class="hub-hero" style="--hc1:${th.c1 || '#33444c'};--hc2:${ta.c1 || '#33444c'}">
+    <div class="hh-top">${date}<div class="comp-line">${compBadge(c, 28)}<span>${esc(c ? c.name : '')}${rd ? ` · ${esc(rd.name)}` : ''}</span></div></div>
+    <div class="hh-match">${side(nm.h, th)}<div class="hh-mid">${badge}<div class="hh-when">${fmtDate(nm.d, 'dm')}<br>${nm.t}</div><div class="hh-ha">${nm.h === S.user.team ? 'Em casa' : 'Fora de casa'}</div></div>${side(nm.a, ta)}</div>
+    <div class="advance-row">${advance}</div>
+  </section>`;
+}
+function hubMiniTable() {
+  if (!uiOn('miniTable') || S.pl) return '';
+  const lc = userLeagueComp();
+  if (!lc) return '';
+  const uid = S.user.team, tab = sortTable(lc.table, lc.teams), i = tab.findIndex((r) => r.id === uid);
+  if (i < 0) return '';
+  const a = Math.max(0, Math.min(i - 2, tab.length - 5)), rows = tab.slice(a, a + 5);
+  return `<div class="panel hub-mini"><h3>${compBadge(lc, 22)} ${esc(lc.name)}<span class="sub">Classificação</span></h3>
+    <table class="mini-t"><thead><tr><th></th><th class="l">Clube</th><th>J</th><th>SG</th><th>Pts</th></tr></thead><tbody>
+    ${rows.map((r, k) => `<tr class="${r.id === uid ? 'me' : ''}"><td class="ps">${a + k + 1}</td><td class="l"><span class="row" style="gap:8px">${crest(r.id, 20)}${esc(teamName(r.id))}</span></td><td>${r.p}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+    </tbody></table>
+    <div class="row" style="margin-top:8px"><button class="link" data-a="gotoTable">Ver tabela completa ›</button></div></div>`;
+}
+function hubUpNext() {
+  if (!uiOn('upNext')) return '';
+  const uid = S.user.team;
+  const list = teamMatches(uid).filter((m) => !m.done && m.d >= S.date).slice(0, 4);
+  if (!list.length) return '';
+  return `<div class="panel hub-next"><h3>Próximos jogos</h3><div class="col" style="gap:2px">${list.map((m) => {
+    const opp = m.h === uid ? m.a : m.h, c = S.comps[m.c];
+    return `<button class="up-it" data-a="openTeam" data-id="${opp}"><span class="up-d">${fmtDate(m.d, 'short').slice(0, 5)}</span>${compBadge(c, 20)}${crest(opp, 24)}<span class="grow">${esc(teamName(opp))}</span><span class="up-ha ${m.h === uid ? 'h' : 'a'}">${m.h === uid ? 'C' : 'F'}</span></button>`;
+  }).join('')}</div><div class="row" style="margin-top:8px"><button class="link" data-a="gotoCal">Ver calendário ›</button></div></div>`;
+}
+act('gotoTable', () => { UI.tab = 'office'; UI.sub.office = 'table'; render(); window.scrollTo(0, 0); });
+act('gotoCal', () => { UI.tab = 'office'; UI.sub.office = 'calendar'; render(); window.scrollTo(0, 0); });
+
+// ---------- keyboard shortcuts (outside the match)
+document.addEventListener('keydown', (e) => {
+  if (!uiOn('keys') || e.altKey || e.metaKey) return;
+  const tg = e.target, typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable);
+  if (typing || UI.screen !== 'career' || document.querySelector('.g2d')) return;
+  const ctrlK = e.ctrlKey && (e.key === 'k' || e.key === 'K');
+  if (e.ctrlKey && !ctrlK) return;
+  if (MODALS.length) return;
+  const click = (sel) => { const b = document.querySelector(sel); if (b && !b.disabled) { e.preventDefault(); b.click(); return true; } return false; };
+  if (e.key === '/' || ctrlK) { e.preventDefault(); ACT.openSearch(); return; }
+  if (e.key === ',') { e.preventDefault(); ACT.openUISettings(); return; }
+  if (e.key === ' ') { click('.hub-hero [data-a="advance"][data-m="day"], .hub-hero [data-a="goMatch"], .hub-hero [data-a="openSeasonEnd"]'); return; }
+  if (e.key === 'p' || e.key === 'P') { click('.hub-hero [data-a="advance"][data-m="match"]'); return; }
+  if (/^[1-9]$/.test(e.key)) { const t = navTabs()[+e.key - 1]; if (t) { e.preventDefault(); UI.tab = t[0]; render(); window.scrollTo(0, 0); } }
+});
+
 // buttons: a ripple where the finger or the mouse presses
 document.addEventListener('pointerdown', (e) => {
   if (document.documentElement.dataset.uimotion === 'low') return;
-  const b = e.target.closest && e.target.closest('.btn, .menu-btn, .icon-btn, .seg button, .nav button, .ui-theme');
+  const b = e.target.closest && e.target.closest('.btn, .menu-btn, .icon-btn, .seg button, .nav button, .ui-theme, .set-nav button, .gs-it, .up-it');
   if (!b || b.disabled) return;
   const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2.2, s = document.createElement('span');
   s.className = 'rpl'; s.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
@@ -7701,12 +7837,13 @@ document.addEventListener('pointerdown', (e) => {
   b.classList.add('has-rpl'); b.appendChild(s);
   setTimeout(() => s.remove(), 650);
 }, { passive: true });
+const NAV_ICONS = { central: '⌂', inbox: '✉', squad: '👥', transfers: '⇄', academy: '🎓', office: '🏢', jogador: '🧑', agente: '🤝', tabela: '📊' };
 let UI_LASTVIEW = '';
 
 // ------------------------------------------------------------------ start
 function viewStart() {
   const has = SAVES.length > 0;
-  setTimeout(() => StartFX.mount(), 0);
+  if (uiOn('fx')) setTimeout(() => StartFX.mount(), 0);
   return `<div class="start"><canvas class="start-fx" aria-hidden="true"></canvas><div class="start-aura" aria-hidden="true"></div>
     <div class="start-top"><div class="row"><div class="logo-mark">UM</div><span class="disp" style="font-size:20px;font-weight:700">ULTRA MANAGER</span></div>
       <div class="row">${coinPill()}<span class="chip">${WALLET.owned.length} ${WALLET.owned.length === 1 ? 'time' : 'times'}</span></div></div>
@@ -8291,7 +8428,7 @@ function viewCareer() {
   const conf = Math.round(S.board.conf);
   const segs = 10, on = Math.round(conf / 10);
   const cls = conf < 30 ? 'low' : conf < 55 ? 'mid' : '';
-  const nav = navTabs().map(([k, l]) => `<button class="${UI.tab === k ? 'on' : ''}" data-a="tab" data-t="${k}">${l}${k === 'inbox' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('');
+  const nav = navTabs().map(([k, l]) => `<button class="${UI.tab === k ? 'on' : ''}" data-a="tab" data-t="${k}"><span class="ni" aria-hidden="true">${NAV_ICONS[k] || '•'}</span><span class="nl">${l}</span>${k === 'inbox' && un ? `<span class="badge">${un}</span>` : ''}</button>`).join('');
   let content = '';
   if (UI.tab === 'central') content = viewCentral();
   else if (UI.tab === 'inbox') content = viewInbox();
@@ -8310,7 +8447,8 @@ function viewCareer() {
       <div class="club-chip" ${S.coach.unemployed ? '' : `data-a="openTeam" data-id="${t.id}" role="button" tabindex="0" title="Ver o clube" style="cursor:pointer"`}>${S.coach.unemployed ? `<span class="chip">Sem clube</span>` : `${crest(t, 34)}<div><div class="nm">${esc(t.n)}</div><div class="conf-bar ${cls}" title="Confiança da diretoria: ${conf}%">${Array.from({ length: segs }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div></div>`}</div>
       ${S.dual && !S.coach.unemployed ? `<button class="btn sm dual-sw" data-a="dualSw" title="Alternar entre o clube e a seleção">${crest(S.teams[S.user.team === S.dual.club ? S.dual.nat : S.dual.club], 20)} ${S.user.team === S.dual.club ? 'Ir para a seleção' : 'Ir para o clube'}</button>` : ''}
       ${coinPill()}
-      <button class="icon-btn" data-a="openUISettings" aria-label="Configurações" title="Configurações">⚙</button>
+      <button class="icon-btn" data-a="openSearch" aria-label="Busca rápida" title="Busca rápida ( / )">🔍</button>
+      <button class="icon-btn" data-a="openUISettings" aria-label="Configurações" title="Configurações ( , )">⚙</button>
       <button class="icon-btn" data-a="openMenu" aria-label="Menu">☰</button>
     </div></header>
     <main class="page">${content}</main>`;
@@ -8393,16 +8531,16 @@ function viewCentral() {
   const susp = teamPlayersFor(uid).filter((p) => isSuspended(p));
   if (susp.length) tasks.push(['▮', `${susp.length} ${susp.length === 1 ? 'suspenso' : 'suspensos'}: ${susp.slice(0, 3).map((p) => esc(p.s || p.n)).join(', ')}`, 'squad']);
   const taskHtml = (S.pl ? plTasks() : tasks).map(([ic, txt, tab]) => `<button class="task" data-a="tab" data-t="${tab}"><span class="ic">${ic}</span><span class="grow">${txt}</span><span class="dim">›</span></button>`).join('');
-  return `<div class="hub">
-    <section>
-      <div class="hero-date">${fmtDate(S.date, 'hero')}</div>
-      <div class="hero-sub">${sub}${S.zoeira ? ' · <span style="color:#b6ff5a">modo zoeira</span>' : ''}</div>
-      ${fixture}
-      <div class="advance-row">${advance}</div>
-      <div class="task-list">${taskHtml}</div>
-      ${S.pl ? viewPlTiles() : viewTeamData()}
-    </section>
-    <aside class="col" style="gap:16px">${viewNewsCarousel()}${viewRecentResults()}${S.pl ? '' : viewLoanedOut(true)}</aside>
+  return `<div class="hub2">
+    ${hubHero(nm, sub, advance, today, days)}
+    <div class="hub2-grid">
+      <section class="col" style="gap:16px">
+        ${taskHtml ? `<div class="panel hub-tasks"><h3>Pendências</h3><div class="task-list">${taskHtml}</div></div>` : ''}
+        ${S.pl ? viewPlTiles() : viewTeamData()}
+        <div class="hub2-pair">${hubMiniTable()}${hubUpNext()}</div>
+      </section>
+      <aside class="col" style="gap:16px">${uiOn('newsBox') ? viewNewsCarousel() : ''}${uiOn('lastRound') ? viewRecentResults() : ''}${S.pl ? '' : viewLoanedOut(true)}</aside>
+    </div>
   </div>`;
 }
 function viewTeamData() {
