@@ -7256,6 +7256,8 @@ function render() {
     html = `<div class="page"><div class="panel"><h3>Algo deu errado ao desenhar esta tela</h3><p class="muted">${esc(e.message)}</p><button class="btn" data-a="goHub">Voltar à Central</button></div></div>`;
   }
   app.innerHTML = html;
+  const vk = UI.screen + '|' + (UI.tab || '');
+  if (vk !== UI_LASTVIEW) { UI_LASTVIEW = vk; const f = app.firstElementChild; if (f) { const pg = f.querySelector && f.querySelector('main') || f; pg.classList.add('view-in'); setTimeout(() => pg.classList.remove('view-in'), 600); } }
   afterRender();
 }
 const AFTER = [];
@@ -7287,8 +7289,9 @@ document.addEventListener('submit', (e) => { e.preventDefault(); handle(e); });
 
 // ---------- modals & toasts
 const MODALS = [];
+let MODAL_POP = false;
 function openModal(html, opts = {}) {
-  MODALS.push({ html, opts });
+  MODALS.push({ html, opts }); MODAL_POP = true;
   drawModals();
 }
 function replaceModal(html, opts = {}) { if (MODALS.length) MODALS.pop(); openModal(html, opts); }
@@ -7298,6 +7301,7 @@ function drawModals() {
   const root = $('#modals');
   root.innerHTML = MODALS.map((m, i) => `<div class="modal-bg" data-mi="${i}" ${i < MODALS.length - 1 ? 'style="display:none"' : ''}>
     <div class="modal ${m.opts.size || ''}" role="dialog" aria-modal="true">${typeof m.html === 'function' ? m.html() : m.html}</div></div>`).join('');
+  if (MODAL_POP) { MODAL_POP = false; const ms = root.querySelectorAll('.modal-bg'); const top = ms[ms.length - 1]; if (top) top.classList.add('pop'); }
   afterRender();
 }
 function refreshModal() { drawModals(); }
@@ -7640,6 +7644,65 @@ function setLoading(msg, p) {
   const bar = $('.boot i'); if (bar) bar.style.width = Math.round((p || 0) * 100) + '%';
 }
 
+// ------------------------------------------------------------------ interface (themes) and UI preferences
+// Kept on this device. The theme is a data-ui attribute on <html>; every theme only overrides CSS (index.html).
+const UI_THEMES = [
+  ['classic', 'Clássica', 'A interface original do Ultra Manager', ['#0a1f27', '#6f7dff', '#eef6f7']],
+  ['neon', 'Neon', 'Futurista: preto profundo, ciano e magenta com brilho', ['#05030d', '#00e5ff', '#ff3dbb']],
+  ['light', 'Clara', 'Branca e limpa, no estilo dos sites da Apple', ['#f5f5f7', '#0071e3', '#1d1d1f']],
+  ['cards', 'Cartas', 'Estilo FIFA Mobile: azul-violeta, dourado e botões em relevo', ['#141a4a', '#ffcf3f', '#7b5cff']],
+  ['pitch', 'Gramado', 'Verde de campo, faixas do gramado e detalhes em amarelo', ['#0c2a14', '#ffe14d', '#3fbf5f']],
+  ['retro', 'Retrô', 'Tela de computador antigo, letras verdes e cantos retos', ['#050a05', '#7dff6a', '#d6ffcc']],
+];
+const UIPREF = (() => { try { return JSON.parse(localStorage.getItem('um-ui') || '{}') || {}; } catch (e) { return {}; } })();
+function saveUIPref() { try { localStorage.setItem('um-ui', JSON.stringify(UIPREF)); } catch (e) { /* storage unavailable */ } }
+function applyUIPref() {
+  const h = document.documentElement;
+  const th = UI_THEMES.some(([k]) => k === UIPREF.theme) ? UIPREF.theme : 'classic';
+  h.dataset.ui = th;
+  h.dataset.uisize = UIPREF.size || 'm';
+  h.dataset.uimotion = UIPREF.motion || 'full';
+  h.dataset.uidense = UIPREF.dense ? '1' : '0';
+  const mc = document.querySelector('meta[name="theme-color"]') || (() => { const m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); return m; })();
+  mc.content = (UI_THEMES.find(([k]) => k === th) || UI_THEMES[0])[3][0];
+}
+applyUIPref();
+function viewUISettings() {
+  const th = UIPREF.theme || 'classic', seg = (k, opts, cur) => `<div class="seg">${opts.map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" data-a="uiSet" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
+  return modalShell('Configurações', `
+    <div class="col" style="gap:18px">
+      <div><div class="muted up" style="font-size:11px;margin-bottom:8px">Interface</div>
+        <div class="ui-themes">${UI_THEMES.map(([k, n, d, c]) => `<button class="ui-theme ${th === k ? 'on' : ''}" data-a="uiSet" data-k="theme" data-v="${k}">
+          <span class="ui-sw" style="--c0:${c[0]};--c1:${c[1]};--c2:${c[2]}"><i></i><i></i><i></i></span>
+          <span class="ui-tn">${n}</span><small>${d}</small></button>`).join('')}</div></div>
+      <div class="row wrap" style="gap:18px">
+        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Tamanho</div>${seg('size', [['s', 'Pequeno'], ['m', 'Normal'], ['l', 'Grande']], UIPREF.size || 'm')}</div>
+        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Animações</div>${seg('motion', [['full', 'Completas'], ['low', 'Reduzidas']], UIPREF.motion || 'full')}</div>
+        <div><div class="muted up" style="font-size:11px;margin-bottom:6px">Espaçamento</div>${seg('dense', [['0', 'Confortável'], ['1', 'Compacto']], UIPREF.dense ? '1' : '0')}</div>
+      </div>
+      <p class="muted" style="font-size:13px;margin:0">Fica salvo neste aparelho e vale para todas as carreiras.</p>
+    </div>`, `<button class="btn" data-a="uiReset">Restaurar padrão</button><button class="btn primary" data-a="closeModal">Pronto</button>`);
+}
+act('openUISettings', () => openModal(() => viewUISettings(), { size: 'wide' }));
+act('uiSet', (el) => {
+  const k = el.dataset.k, v = el.dataset.v;
+  UIPREF[k] = k === 'dense' ? v === '1' : v;
+  saveUIPref(); applyUIPref(); refreshModal();
+});
+act('uiReset', () => { for (const k of Object.keys(UIPREF)) delete UIPREF[k]; saveUIPref(); applyUIPref(); refreshModal(); });
+// buttons: a ripple where the finger or the mouse presses
+document.addEventListener('pointerdown', (e) => {
+  if (document.documentElement.dataset.uimotion === 'low') return;
+  const b = e.target.closest && e.target.closest('.btn, .menu-btn, .icon-btn, .seg button, .nav button, .ui-theme');
+  if (!b || b.disabled) return;
+  const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2.2, s = document.createElement('span');
+  s.className = 'rpl'; s.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
+  if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+  b.classList.add('has-rpl'); b.appendChild(s);
+  setTimeout(() => s.remove(), 650);
+}, { passive: true });
+let UI_LASTVIEW = '';
+
 // ------------------------------------------------------------------ start
 function viewStart() {
   const has = SAVES.length > 0;
@@ -7663,6 +7726,7 @@ function viewStart() {
         <button class="menu-btn" data-a="openStore"><span class="ic">🛒</span><span>Comprar times<small>${INFINITE_COINS ? 'FutCoins infinitas: escolha qualquer clube' : 'Use FutCoins ganhos em títulos'}</small></span></button>
         <button class="menu-btn" data-a="openCrests"><span class="ic">🛡</span><span>Escudos dos times<small>Troque por imagens suas, uma a uma ou em lote</small></span></button>
         <label class="menu-btn" style="cursor:pointer"><span class="ic">⤓</span><span>Importar save<small>Arquivo .json exportado antes</small></span><input type="file" accept=".umsave,.json,.gz,application/json" data-a="importSave" class="hide"></label>
+        <button class="menu-btn" data-a="openUISettings"><span class="ic">⚙</span><span>Configurações<small>Interface (6 estilos), tamanho e animações</small></span></button>
         <button class="menu-btn" data-a="howTo"><span class="ic">?</span><span>Como jogar<small>Controles da partida e dicas</small></span></button>
       </div>
     </div>
@@ -8246,6 +8310,7 @@ function viewCareer() {
       <div class="club-chip" ${S.coach.unemployed ? '' : `data-a="openTeam" data-id="${t.id}" role="button" tabindex="0" title="Ver o clube" style="cursor:pointer"`}>${S.coach.unemployed ? `<span class="chip">Sem clube</span>` : `${crest(t, 34)}<div><div class="nm">${esc(t.n)}</div><div class="conf-bar ${cls}" title="Confiança da diretoria: ${conf}%">${Array.from({ length: segs }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div></div>`}</div>
       ${S.dual && !S.coach.unemployed ? `<button class="btn sm dual-sw" data-a="dualSw" title="Alternar entre o clube e a seleção">${crest(S.teams[S.user.team === S.dual.club ? S.dual.nat : S.dual.club], 20)} ${S.user.team === S.dual.club ? 'Ir para a seleção' : 'Ir para o clube'}</button>` : ''}
       ${coinPill()}
+      <button class="icon-btn" data-a="openUISettings" aria-label="Configurações" title="Configurações">⚙</button>
       <button class="icon-btn" data-a="openMenu" aria-label="Menu">☰</button>
     </div></header>
     <main class="page">${content}</main>`;
@@ -8263,6 +8328,7 @@ act('openMenu', () => {
     <button class="menu-btn" data-a="openKit"><span class="ic">👕</span><span>Uniforme<small>Cores e padrões da camisa, calção e meias (casa e fora)</small></span></button>
     <button class="menu-btn" data-a="openCrestsInGame"><span class="ic">🛡</span><span>Escudos dos times<small>Use imagens suas, uma a uma ou em lote</small></span></button>
     <button class="menu-btn" data-a="openStoreInGame"><span class="ic">🛒</span><span>Loja de times<small>${INFINITE_COINS ? 'FutCoins infinitas' : WALLET.coins + ' FutCoins disponíveis'}</small></span></button>
+    <button class="menu-btn" data-a="openUISettings"><span class="ic">⚙</span><span>Configurações<small>Interface, tamanho e animações</small></span></button>
     <button class="menu-btn" data-a="howTo"><span class="ic">?</span><span>Como jogar</span></button>
     <button class="menu-btn" data-a="adminOpen"><span class="ic">🔐</span><span>Admin<small>Injetar dinheiro no clube (pede código)</small></span></button>
     <button class="menu-btn" data-a="exitToStart"><span class="ic">⏏</span><span>Sair para o menu<small>Salva antes de sair</small></span></button>
