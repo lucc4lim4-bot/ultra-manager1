@@ -7665,6 +7665,7 @@ function applyUIPref() {
   h.dataset.uimotion = UIPREF.motion || 'full';
   h.dataset.uidense = UIPREF.dense ? '1' : '0';
   h.dataset.uinav = UIPREF.nav || 'auto';
+  h.dataset.uifont = UIPREF.font || 'modern';
   const mc = document.querySelector('meta[name="theme-color"]') || (() => { const m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); return m; })();
   mc.content = (UI_THEMES.find(([k]) => k === th) || UI_THEMES[0])[3][0];
 }
@@ -7691,6 +7692,7 @@ function viewUISettings() {
         <span class="ui-tn">${n}</span><small>${d}</small></button>`).join('')}</div>
       <div class="set-h">Tela</div>
       ${setRow('Tamanho da interface', 'Aumenta ou diminui textos e botões', setSeg('u', 'size', 's', [['s', 'Pequeno'], ['m', 'Normal'], ['l', 'Grande']], UIPREF.size || 'm'))}
+      ${setRow('Fonte', 'Moderna é a mais fácil de ler', setSeg('u', 'font', 's', [['modern', 'Moderna'], ['sport', 'Esportiva'], ['system', 'Do aparelho']], UIPREF.font || 'modern'))}
       ${setRow('Espaçamento', 'Compacto mostra mais coisas por tela', setSeg('u', 'dense', 'b', [['0', 'Confortável'], ['1', 'Compacto']], UIPREF.dense ? 1 : 0))}
       ${setRow('Menu das seções', 'No celular, a barra inferior fica ao alcance do polegar', setSeg('u', 'nav', 's', [['auto', 'Automático'], ['top', 'Sempre em cima'], ['bottom', 'Sempre embaixo']], UIPREF.nav || 'auto'))}
       ${setRow('Animações', 'Reduzidas deixa tudo instantâneo', setSeg('u', 'motion', 's', [['full', 'Completas'], ['low', 'Reduzidas']], UIPREF.motion || 'full'))}
@@ -7710,7 +7712,9 @@ function viewUISettings() {
       ${setRow('Sons da partida', 'Torcida, apito e chutes', setSwitch('g', 'sound', G.sound !== false))}
       ${setRow('Replays dos gols', 'Mostra o replay depois de cada gol', setSwitch('g', 'replay', G.replay !== false))}`;
   } else if (tab === 'career') {
-    body = `<div class="set-h">Central</div>
+    body = `<div class="set-h">Escalação</div>
+      ${setRow('Jogadores no campo', 'Bonecos: o jogador com a nota ao lado e o nome embaixo · Cartas: estilo FIFA', setSeg('u', 'luStyle', 's', [['fig', 'Bonecos'], ['card', 'Cartas'], ['list', 'Lista no banco']], luStyle()))}
+      <div class="set-h">Central</div>
       ${setRow('Mini tabela', 'Sua posição no campeonato, com os vizinhos de tabela', setSwitch('u', 'miniTable', uiOn('miniTable')))}
       ${setRow('Próximos jogos', 'Os 4 próximos compromissos do time', setSwitch('u', 'upNext', uiOn('upNext')))}
       ${setRow('Resultados da rodada', 'Os jogos da última rodada do campeonato', setSwitch('u', 'lastRound', uiOn('lastRound')))}
@@ -7740,7 +7744,7 @@ act('uiSet', (el) => {
   st[k] = ty === 'b' ? v === '1' : ty === 'n' ? +v : v;
   if (st === G2PREF) saveG2Pref(); else { saveUIPref(); applyUIPref(); }
   refreshModal();
-  if (UI.screen === 'career' && st === UIPREF && ['miniTable', 'upNext', 'lastRound', 'newsBox', 'nav'].includes(k)) render();
+  if (UI.screen === 'career' && st === UIPREF && ['miniTable', 'upNext', 'lastRound', 'newsBox', 'nav', 'luStyle'].includes(k)) render();
 });
 act('uiReset', () => {
   for (const k of Object.keys(UIPREF)) delete UIPREF[k];
@@ -8880,7 +8884,7 @@ function portraitSvg(p, o = {}) {
     `<path d="M33 40 C33 26 67 26 67 40 C66 33 62 30 50 30 C38 30 34 33 33 40Z" fill="${hr}" opacity="0.92"/>`,
     `<path d="M30 46 C26 12 74 12 70 46 L69 58 C67 44 67 34 60 30 C53 33 45 33 40 30 C33 34 33 44 31 58Z" fill="${hr}"/>`,
     `<g fill="${hr}">${[[50, 19, 15], [37, 25, 10], [63, 25, 10], [31, 35, 7], [69, 35, 7], [43, 18, 10], [57, 18, 10]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}"/>`).join('')}</g><path d="M33 40 C33 30 67 30 67 40 C64 33 36 33 33 40Z" fill="${hr}"/>`,
-    `<path d="M33 38 C33 25 67 25 67 38 C65 32 60 30 50 30 C40 30 35 32 33 38Z" fill="${hr}" opacity="0.85"/><path d="M33 38 C32.5 41 33 44 33.6 46 M67 38 C67.5 41 67 44 66.4 46" stroke="${hr}" stroke-width="1.4" opacity="0.6"/>`,
+    `<path d="M33 38 C33 25 67 25 67 38 C65 32 60 30 50 30 C40 30 35 32 33 38Z" fill="${hr}" opacity="0.85"/><path d="M33 38 C32.5 41 33 44 33.6 46 M67 38 C67.5 41 67 44 66.4 46" stroke="${hr}" stroke-width="1.4" opacity="0.6" fill="none"/>`,
     `<path d="M32 40 C30 20 70 20 68 40 C66 34 60 30 50 32 C44 33 38 31 35 29 C33 32 32 36 32 40Z" fill="${hr}"/><path d="M36 29 C42 24 56 22 66 30" stroke="${hrL}" stroke-width="2" fill="none"/>`,
   ][L.hs] || '';
   const beard = L.beard === 2 ? `<path d="M34 46 C35 ${66 + jw} 65 ${66 + jw} 66 46 C63 56 58 ${59 + jw} 50 ${59 + jw} C42 ${59 + jw} 37 56 34 46Z" fill="${hr}" opacity="0.92"/><path d="M44 56 Q50 54 56 56 Q50 58 44 56Z" fill="${hr}"/>`
@@ -8906,8 +8910,16 @@ function portraitSvg(p, o = {}) {
 }
 // card tier from the overall, as in the card games: bronze, silver, gold, special
 const cardTier = (o) => (o >= 85 ? 'sp' : o >= 75 ? 'au' : o >= 65 ? 'ag' : 'cu');
+// look of the players in the lineup: 'fig' = the little player with the rating beside and the name below, 'card' = FIFA-style card, 'list' = rows
+const luStyle = () => (UIPREF.luStyle === 'card' || UIPREF.luStyle === 'list' ? UIPREF.luStyle : UIPREF.luList === true ? 'list' : 'fig');
 function fifaCard(p, o = {}) {
   const pos = o.pos || p.p, ovr = o.ovr != null ? o.ovr : p.o, t = S.teams[p.t];
+  if (o.fig || (o.fig !== false && luStyle() !== 'card')) return `<div class="pf ${cardTier(ovr)} ${o.size || ''}">
+    <div class="pf-pt">${portraitSvg(p, { tag: 'f' + (o.size || ''), crop: true })}</div>
+    <div class="pf-o"><b>${ovr}</b><span>${POS_PT[pos] || pos}</span></div>
+    <div class="pf-nm">${esc(p.s || p.n)}</div>
+    ${o.stats ? `<div class="pf-st">${(p.a || []).map((v, i) => `<span><b>${v}</b>${(p.p === 'GK' ? ['MER', 'MAN', 'CHU', 'REF', 'VEL', 'POS'] : ['RIT', 'FIN', 'PAS', 'DRI', 'DEF', 'FÍS'])[i]}</span>`).join('')}</div>` : ''}
+  </div>`;
   const nat = S.nations && S.nations[p.nat];
   return `<div class="fc ${cardTier(ovr)} ${o.size || ''}">
     <div class="fc-l"><b>${ovr}</b><span>${POS_PT[pos] || pos}</span>${t && !t.isNat ? `<i class="fc-cr">${crest(t, 14)}</i>` : ''}${nat ? `<i class="fc-nat" title="${esc(nat.n)}">${esc(p.nat)}</i>` : ''}</div>
@@ -8941,6 +8953,7 @@ function pitchLines() {
     <path d="M27 17 A8 8 0 0 0 41 17"/><path d="M27 83 A8 8 0 0 1 41 83"/></g><circle cx="34" cy="50" r="0.6" fill="#fff"/></svg>`;
 }
 function slotCard(p, pos, i, sel) {
+  if (!p && luStyle() !== 'card') return `<div class="pslot fcs empty ${sel ? 'sel' : ''}" data-a="slotClick" data-k="xi" data-i="${i}"><div class="pf sm none"><div class="pf-pt"><span class="fc-plus">+</span></div><div class="pf-o"><b>–</b><span>${POS_PT[pos]}</span></div><div class="pf-nm">Vazio</div></div></div>`;
   if (!p) return `<div class="pslot fcs empty ${sel ? 'sel' : ''}" data-a="slotClick" data-k="xi" data-i="${i}"><div class="fc sm none"><div class="fc-l"><b>–</b><span>${POS_PT[pos]}</span></div><div class="fc-pt"><span class="fc-plus">+</span></div><div class="fc-nm">Vazio</div></div></div>`;
   const fit = Math.round(fitnessNow(p));
   const col = fit >= 85 ? 'var(--win)' : fit >= 70 ? '#c9d84a' : fit >= 55 ? 'var(--warn)' : 'var(--loss)';
@@ -8962,11 +8975,11 @@ function viewLineup() {
   const xiSet = new Set(t.xi);
   const benchSet = new Set(t.bench);
   const reserves = players.filter((p) => !xiSet.has(p.id) && !benchSet.has(p.id)).sort(by((p) => p.o, -1));
-  const asCards = UIPREF.luList !== true;
+  const asCards = luStyle() !== 'list';
   const row = (p, k, i) => asCards ? `<div class="bp bc ${sel && sel.k === k && sel.i === i ? 'sel' : ''}" data-a="slotClick" data-k="${k}" data-i="${i}" data-pid="${p.id}">${fifaCard(p, { size: 'xs' })}<span class="bc-f">${statusFlags(p)}${formTag(p)}</span>${fitBar(p)}</div>`
     : `<div class="bp ${sel && sel.k === k && sel.i === i ? 'sel' : ''}" data-a="slotClick" data-k="${k}" data-i="${i}" data-pid="${p.id}">
       ${posBadge(p.p)} ${ovrBadge(p.o)}${formTag(p)}<span class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}${statusFlags(p)}</span>${fitBar(p)}</div>`;
-  const lr = lineRatings(t), viewTg = `<div class="seg sm-seg"><button class="${asCards ? 'on' : ''}" data-a="luView" data-v="0">Cartas</button><button class="${asCards ? '' : 'on'}" data-a="luView" data-v="1">Lista</button></div>`;
+  const lr = lineRatings(t), viewTg = `<div class="seg sm-seg">${[['fig', 'Bonecos'], ['card', 'Cartas'], ['list', 'Lista']].map(([v, l]) => `<button class="${luStyle() === v ? 'on' : ''}" data-a="luView" data-v="${v}">${l}</button>`).join('')}</div>`;
   const avgXI = avg(t.xi.map((id) => S.players[id]).filter(Boolean), (p) => p.o);
   return `<div class="lineup-wrap">
     <div class="col">
@@ -9023,7 +9036,7 @@ act('pPhoto', (el) => {
   inp.click();
 });
 act('pPhotoDel', (el) => { const p = S.players[+el.dataset.id]; if (!p) return; delete PHOTOS[photoKey(p)]; savePhotos(); refreshModal(); render(); });
-act('luView', (el) => { UIPREF.luList = el.dataset.v === '1'; saveUIPref(); render(); });
+act('luView', (el) => { UIPREF.luStyle = el.dataset.v; delete UIPREF.luList; saveUIPref(); render(); });
 act('setMent', (el) => { S.teams[S.user.team].ment = +el.dataset.v; render(); });
 act('autoXI', () => {
   const t = S.teams[S.user.team];
@@ -9306,7 +9319,7 @@ function openPlayerModal(pid) {
     const career = p.car || [0, 0, 0];
     return modalShell(esc(p.n), `
       <div class="row wrap" style="gap:18px;align-items:flex-start">
-        <div class="col" style="gap:8px;align-items:center">${S.pl && S.pl.look && p.id === S.pl.pid ? playerAvatar(p, 104) : fifaCard(p, { size: 'lg', stats: true })}
+        <div class="col" style="gap:8px;align-items:center">${S.pl && S.pl.look && p.id === S.pl.pid ? playerAvatar(p, 104) : fifaCard(p, { size: 'lg', stats: true, fig: luStyle() !== 'card' })}
           <div class="row" style="gap:6px;justify-content:center"><button class="btn sm" data-a="pPhoto" data-id="${p.id}">📷 ${PHOTOS[photoKey(p)] ? 'Trocar foto' : 'Pôr foto'}</button>${PHOTOS[photoKey(p)] ? `<button class="btn sm" data-a="pPhotoDel" data-id="${p.id}" aria-label="Remover foto">✕</button>` : ''}</div></div>
         <div class="grow" style="min-width:220px">
           <div class="row wrap">${ovrBadge(p.o)}${formTag(p, true)} ${posBadge(p.p)} ${p.alt ? `<span class="muted" style="font-size:13px">também ${p.alt.split(',').map((x) => POS_PT[x] || x).join(', ')}</span>` : ''}</div>
