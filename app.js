@@ -6267,7 +6267,7 @@ const SP_LOGO_MODELS = [
   { k: 3, n: 'Nome em faixa' }, { k: 4, n: 'Emblema ao lado do nome' }, { k: 5, n: 'Emblema monocromático' },
 ];
 // where a mark sits by default (fractions of the shirt body: 0..1) and how big it is (0.5..1.8)
-const KIT_LOGO_DEF = { spX: 0.5, spY: 0.5, spS: 1, spM: 0, suX: 0.77, suY: 0.18, suS: 1, suM: 1, s1X: 0.25, s1Y: 0.86, s1S: 0.42, s1M: 2, s2X: 0.75, s2Y: 0.86, s2S: 0.42, s2M: 2, crX: 0.25, crY: 0.2, crS: 1, crOn: 1 };
+const KIT_LOGO_DEF = { spX: 0.5, spY: 0.47, spS: 1, spM: 0, suX: 0.27, suY: 0.2, suS: 1, suM: 1, s1X: 0.25, s1Y: 0.86, s1S: 0.42, s1M: 2, s2X: 0.75, s2Y: 0.86, s2S: 0.42, s2M: 2, crX: 0.73, crY: 0.21, crS: 1, crOn: 1 };
 function supGenOffers(t) {
   const fin = clamp(t.fin == null ? 2 : t.fin, 0, 6), saBig = (t.c === 'BRA' || t.c === 'ARG') && fin >= 2;
   const maxPr = fin >= 4 || saBig ? 3 : fin >= 2 ? 2 : 1; // the big brands want the Brazilian market
@@ -6313,6 +6313,93 @@ function fanOrgsOf(teamId) {
   if (FAN_ORGS[t.key]) return FAN_ORGS[t.key];
   return [`${FAN_GENERIC[teamId % FAN_GENERIC.length]} ${t.s || t.n}`];
 }
+// ---------- the stands: real supporters' groups abroad (Brazilian ones live in FAN_ORGS) and each club's rallying cry
+const TIFO_ORGS = {
+  'boca juniors': 'La 12', 'river plate': 'Los Borrachos del Tablón', 'racing club': 'La Guardia Imperial', 'independiente': 'La Barra del Rojo', 'san lorenzo': 'La Gloriosa Butteler',
+  'estudiantes': 'Los Leales', "newell's old boys": 'La Hinchada Más Popular', 'rosario central': 'Los Guerreros', 'velez sarsfield': 'La Pandilla', 'talleres': 'La Fiel',
+  'penarol': 'Barra Amsterdam', 'nacional': 'La Banda del Parque', 'colo-colo': 'Garra Blanca', 'universidad de chile': 'Los de Abajo', 'universidad catolica': 'Los Cruzados',
+  'olimpia': 'La Barra 79', 'cerro porteno': 'La Plaza', 'alianza lima': 'Comando Sur', 'universitario': 'Trinchera Norte', 'sporting cristal': 'Extremo Celeste',
+  'atletico nacional': 'Los del Sur', 'millonarios': 'Comandos Azules', 'america de cali': 'Barón Rojo Sur', 'independiente santa fe': 'La Guardia Albi-Roja Sur',
+  'ldu quito': 'Muerte Blanca', 'barcelona sc': 'Sur Oscura', 'emelec': 'Boca del Pozo', 'bolivar': 'La Vieja Escuela', 'the strongest': 'La Gurkha',
+  'america': 'La Monumental', 'chivas': 'La Irreverente', 'monterrey': 'La Adicción', 'tigres uanl': 'Libres y Lokos', 'cruz azul': 'La Sangre Azul', 'pumas unam': 'La Rebel', 'atlas': 'La Barra 51', 'toluca': 'Perra Brava',
+  'real madrid': 'Grada Fans', 'barcelona': "Grada d'Animació", 'real betis': 'Gol Sur', 'sevilla': 'Biris Norte', 'valencia': 'Curva Nord', 'athletic bilbao': 'Herri Norte', 'celta de vigo': 'Siareir@s Celestes', 'osasuna': 'Indar Gorri',
+  'milan': 'Curva Sud Milano', 'inter de milao': 'Curva Nord Milano', 'juventus': 'Curva Sud', 'roma': 'Curva Sud Roma', 'napoli': 'Curva B', 'fiorentina': 'Curva Fiesole', 'atalanta': 'Curva Nord Bergamo', 'torino': 'Curva Maratona', 'genoa': 'Gradinata Nord', 'bologna': 'Curva Andrea Costa',
+  'borussia dortmund': 'The Unity', 'bayern de munique': 'Schickeria', 'schalke 04': 'Ultras Gelsenkirchen', 'eintracht frankfurt': 'Ultras Frankfurt', 'union berlin': 'Wuhlesyndikat', 'koln': 'Wilde Horde', 'werder bremen': 'Infamous Youth', 'hamburgo': 'Poptown', 'stuttgart': 'Commando Cannstatt', "borussia m'gladbach": 'Sottocultura',
+  'psg': 'Collectif Ultras Paris', 'olympique de marseille': "Commando Ultra' 84", 'lyon': 'Bad Gones', 'lens': 'Red Tigers', 'nice': 'Populaire Sud', 'rennes': 'Roazhon Celtic Kop', 'lille': 'Dogues Virage Est', 'monaco': 'Ultras Monaco 1994',
+  'benfica': 'No Name Boys', 'porto': 'Super Dragões', 'sporting': 'Juventude Leonina', 'braga': 'Red Boys', 'vitoria de guimaraes': 'White Angels',
+  'ajax': 'F-Side', 'feyenoord': 'Het Legioen', 'psv': 'Boys PSV', 'celtic': 'Green Brigade', 'rangers': 'Union Bears',
+  'galatasaray': 'ultrAslan', 'fenerbahce': 'Genç Fenerbahçeliler', 'besiktas': 'Çarşı', 'trabzonspor': 'Vira Trabzon',
+  'olympiacos': 'Gate 7', 'panathinaikos': 'Gate 13', 'paok': 'Gate 4', 'aek atenas': 'Original 21', 'estrela vermelha': 'Delije', 'partizan belgrado': 'Grobari', 'dinamo zagreb': 'Bad Blue Boys', 'hajduk split': 'Torcida Split',
+  'legia varsovia': 'Żyleta', 'club brugge': 'Blue Army', 'anderlecht': 'Mauves Army', 'standard liege': 'Ultras Inferno', 'rapid viena': 'Ultras Rapid', 'sparta praga': 'Ultras Sparta', 'slavia praga': 'Tribuna Sever',
+  'liverpool': 'Spion Kop', 'manchester united': 'Stretford End', 'arsenal': 'North Bank', 'tottenham': 'Park Lane', 'newcastle': 'Gallowgate End', 'chelsea': 'Shed End', 'manchester city': '1894 Group', 'everton': 'Gwladys Street', 'aston villa': 'Holte End', 'leeds united': 'Kop Leeds',
+  'al hilal': 'Blue Wave', 'al nassr': 'Yellow Tifo', 'al-ittihad': 'Tigers Fans', 'inter miami': 'La Familia', 'la galaxy': 'LA Riot Squad', 'seattle sounders': 'Emerald City Supporters', 'portland timbers': 'Timbers Army', 'atlanta united': 'Footie Mob',
+};
+const CLUB_MOTTO = {
+  flamengo: 'UMA VEZ FLAMENGO, SEMPRE FLAMENGO', corinthians: 'AQUI É CORINTHIANS', palmeiras: 'AVANTI PALESTRA', 'sao paulo': 'O CLUBE DA FÉ', santos: 'SANTOS É SANTOS',
+  'vasco da gama': 'O GIGANTE DA COLINA', fluminense: 'NENSE ATÉ MORRER', botafogo: 'GLORIOSO', gremio: 'ATÉ A PÉ NÓS IREMOS', internacional: 'CLUBE DO POVO',
+  cruzeiro: 'CABULOSO', 'atletico mineiro': 'GALO FORTE VINGADOR', bahia: 'BORA BAHÊA', vitoria: 'LEÃO DA BARRA', 'athletico-pr': 'FURACÃO', coritiba: 'COXA ATÉ MORRER',
+  chapecoense: 'VAMOS, CHAPE!', remo: 'FILHO DO REMO', mirassol: 'LEÃO CAIPIRA', 'red bull bragantino': 'MASSA BRUTA', sport: 'CAZÁ, CAZÁ', fortaleza: 'LEÃO DO PICI', ceara: 'VOZÃO',
+  'real madrid': '¡HALA MADRID!', barcelona: 'MÉS QUE UN CLUB', 'atletico de madrid': 'NUNCA DEJES DE CREER', 'real betis': 'VIVA EL BETIS MANQUE PIERDA', sevilla: 'DICEN QUE NUNCA SE RINDE', valencia: 'AMUNT VALÈNCIA', 'athletic bilbao': 'ATHLETIC GU GARA',
+  liverpool: "YOU'LL NEVER WALK ALONE", 'manchester united': 'GLORY GLORY MAN UNITED', arsenal: 'VICTORIA CONCORDIA CRESCIT', tottenham: 'TO DARE IS TO DO', everton: 'NIL SATIS NISI OPTIMUM', 'manchester city': 'SUPERBIA IN PROELIO', chelsea: 'KEEP THE BLUE FLAG FLYING HIGH', newcastle: 'HOWAY THE LADS', 'aston villa': 'PREPARED', 'leeds united': 'MARCHING ON TOGETHER',
+  'bayern de munique': 'MIA SAN MIA', 'borussia dortmund': 'ECHTE LIEBE', 'schalke 04': 'NULL VIER', 'eintracht frankfurt': 'IM HERZEN VON EUROPA', 'union berlin': 'EISERN UNION', 'koln': 'SPÜRBAR ANDERS', hamburgo: 'NUR DER HSV',
+  juventus: 'FINO ALLA FINE', milan: 'SEMPRE MILAN', 'inter de milao': 'AMALA', roma: 'DAJE ROMA', napoli: 'FORZA NAPOLI SEMPRE', lazio: 'NOI SIAMO LA LAZIO', fiorentina: 'FORZA VIOLA', torino: 'TORO ALÉ', atalanta: 'LA DEA',
+  psg: "ICI C'EST PARIS", 'olympique de marseille': 'DROIT AU BUT', lyon: 'ALLEZ L’OL', lens: 'SANG ET OR', benfica: 'E PLURIBUS UNUM', porto: 'SOMOS PORTO', sporting: 'ESFORÇO, DEDICAÇÃO, DEVOÇÃO E GLÓRIA', braga: 'ARSENALISTAS',
+  ajax: 'WIJ ZIJN AJAX', feyenoord: 'GEEN WOORDEN MAAR DADEN', psv: 'EINDHOVEN', celtic: 'HAIL HAIL', rangers: 'READY', galatasaray: 'CİMBOM', fenerbahce: 'FENERBAHÇE ÜSTÜNDÜR', besiktas: 'ÇARŞI HER ŞEYE KARŞI',
+  'boca juniors': 'DALE BOCA', 'river plate': 'EL MÁS GRANDE', 'racing club': 'LA ACADEMIA', independiente: 'ROJO DE AVELLANEDA', 'san lorenzo': 'CICLÓN', penarol: 'MANYA CORAZÓN', nacional: 'BOLSO DE MI VIDA', 'colo-colo': 'EL ETERNO CAMPEÓN',
+  america: 'ÁMATE U ÓDIAME', chivas: 'ARRIBA LAS CHIVAS', 'atletico nacional': 'VERDOLAGA DE CORAZÓN', millonarios: 'EMBAJADORES',
+};
+const tifoNorm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function tifoOrgOf(id) { const t = S.teams[id]; if (!t || t.isNat) return null; const br = fanOrgsOf(id); return br[0] || TIFO_ORGS[tifoNorm(t.n)] || null; }
+function clubMotto(id) {
+  const t = S.teams[id]; if (!t) return '';
+  const m = CLUB_MOTTO[tifoNorm(t.n)]; if (m) return m;
+  const nm = String(t.s && t.s.length > 3 ? t.s : t.n).toUpperCase();
+  return [`VAMOS, ${nm}!`, `${nm} ATÉ MORRER`, `SEMPRE COM VOCÊ, ${nm}`, `${nm}, A NOSSA PAIXÃO`, `ORGULHO DE SER ${nm}`][hashStr(t.n) % 5];
+}
+// ---------- pre-match: a drawn picture of the stadium (made up from the club: its colours, a roof style, floodlights), with its name
+function stadiumArt(t, o = {}) {
+  const h = hashStr('std' + (t ? t.n : 'x')) >>> 0, night = !!o.night;
+  const kt = t && KIT_REAL.get(t), c1 = kt ? kt.home.shirt : (t && t.c1) || '#c0392b', c2 = kt ? kt.home.trim : (t && t.c2) || '#ffffff';
+  const main = lum(c1) > 0.8 ? c2 : c1, accent = cdistG(main, c2) > 70 ? c2 : (lum(main) > 0.5 ? '#1b2440' : '#ffffff');
+  const roof = h % 3, towers = (h >>> 3) % 2 === 0, tiers = 2 + ((h >>> 5) % 2), W = 1200, H = 520, cx = 600, cy = 330;
+  const sky = night ? ['#050a1c', '#0f2150', '#2a4c86'] : (h >>> 7) % 2 ? ['#3f7fd0', '#86b8ea', '#f5d6a8'] : ['#2f6fc2', '#7fb1e6', '#d8ecff'];
+  const id = 'sa' + (h % 100000);
+  let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice"><defs>
+    <linearGradient id="${id}s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky[0]}"/><stop offset=".6" stop-color="${sky[1]}"/><stop offset="1" stop-color="${sky[2]}"/></linearGradient>
+    <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shadeHex(main, 0.1)}"/><stop offset="1" stop-color="${shadeHex(main, -0.55)}"/></linearGradient>
+    <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f8a2c"/><stop offset="1" stop-color="#1d6a22"/></linearGradient>
+    <radialGradient id="${id}l"><stop offset="0" stop-color="#fffbe6"/><stop offset=".25" stop-color="rgba(255,248,214,.6)"/><stop offset="1" stop-color="rgba(255,248,214,0)"/></radialGradient>
+    <pattern id="${id}c" width="9" height="7" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="3" r="1.7" fill="${accent}" opacity=".7"/><circle cx="7" cy="4.5" r="1.6" fill="${main}" opacity=".9"/><circle cx="5" cy="1" r="1.2" fill="#e9c9a8" opacity=".55"/></pattern>
+    <clipPath id="${id}p"><ellipse cx="${cx}" cy="${cy + 40}" rx="330" ry="70"/></clipPath></defs>
+    <rect width="${W}" height="${H}" fill="url(#${id}s)"/>`;
+  if (night) for (let i = 0; i < 70; i++) { const x = (h * (i + 3) * 9301) % W, y = (h * (i + 7) * 49297) % 210; s += `<circle cx="${x}" cy="${y}" r="${(i % 3) * 0.5 + 0.6}" fill="#fff" opacity="${0.3 + (i % 5) * 0.12}"/>`; }
+  else s += `<g opacity=".8" fill="#fff"><ellipse cx="${200 + h % 300}" cy="90" rx="90" ry="22"/><ellipse cx="${260 + h % 300}" cy="78" rx="60" ry="20"/><ellipse cx="${880 - h % 200}" cy="120" rx="110" ry="20"/></g>`;
+  // city skyline
+  s += `<g fill="${night ? '#0a1430' : '#5d7fa8'}" opacity=".85">`;
+  for (let i = 0, x = 0; x < W; i++) { const w = 30 + ((h >>> (i % 20)) % 50), hh = 40 + ((h * (i + 1)) % 110); s += `<rect x="${x}" y="${300 - hh}" width="${w}" height="${hh + 40}"/>`; x += w + 4; }
+  s += `</g><rect x="0" y="330" width="${W}" height="${H - 330}" fill="${night ? '#0b1520' : '#3c5d3a'}"/>`;
+  // the bowl: outer wall, tiers of fans, the pitch
+  s += `<ellipse cx="${cx}" cy="${cy + 20}" rx="520" ry="150" fill="url(#${id}b)"/>`;
+  s += `<path d="M80 ${cy + 20} Q80 ${cy + 175} ${cx} ${cy + 175} Q1120 ${cy + 175} 1120 ${cy + 20}" fill="${shadeHex(main, -0.65)}"/>`;
+
+  for (let k = 0; k < tiers; k++) { const rx = 485 - k * 52, ry = 130 - k * 16; s += `<ellipse cx="${cx}" cy="${cy + 28 + k * 4}" rx="${rx}" ry="${ry}" fill="url(#${id}c)" stroke="${shadeHex(main, -0.3)}" stroke-width="6"/>`; }
+  s += `<ellipse cx="${cx}" cy="${cy + 40}" rx="330" ry="70" fill="url(#${id}g)"/>
+    <g clip-path="url(#${id}p)">${Array.from({ length: 12 }, (_, i) => `<rect x="${270 + i * 55}" y="${cy - 40}" width="27.5" height="160" fill="#ffffff" opacity=".05"/>`).join('')}
+    <g fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="2"><ellipse cx="${cx}" cy="${cy + 40}" rx="300" ry="58"/><line x1="${cx}" y1="${cy - 18}" x2="${cx}" y2="${cy + 98}"/><ellipse cx="${cx}" cy="${cy + 40}" rx="45" ry="12"/></g></g>`;
+  // roof
+  if (roof === 0) s += `<path d="M70 ${cy - 10} Q${cx} ${cy - 215} 1130 ${cy - 10} L1090 ${cy + 5} Q${cx} ${cy - 170} 110 ${cy + 5}Z" fill="${shadeHex(main, -0.2)}" opacity=".95"/><path d="M110 ${cy + 5} Q${cx} ${cy - 170} 1090 ${cy + 5}" fill="none" stroke="${accent}" stroke-width="5" opacity=".8"/>`;
+  else if (roof === 1) { s += `<ellipse cx="${cx}" cy="${cy - 40}" rx="540" ry="95" fill="none" stroke="${shadeHex(main, -0.15)}" stroke-width="34" opacity=".95"/>`; for (let k = 0; k < 14; k++) { const a = Math.PI + (k / 13) * Math.PI, x = cx + Math.cos(a) * 540, y = cy - 40 + Math.sin(a) * 95; if (k % 2) s += `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + 34}" stroke="${shadeHex(main, -0.4)}" stroke-width="6"/>`; } }
+  else s += `<path d="M90 ${cy} L140 ${cy - 120} L1060 ${cy - 120} L1110 ${cy}" fill="none" stroke="${shadeHex(main, -0.2)}" stroke-width="22"/><path d="M120 ${cy - 60} L1080 ${cy - 60}" stroke="${accent}" stroke-width="4" opacity=".7"/>`;
+  // floodlights
+  const lights = towers ? [[120, cy - 200], [1080, cy - 200], [330, cy - 230], [870, cy - 230]] : Array.from({ length: 9 }, (_, i) => [180 + i * 105, cy - 150 - Math.sin(i / 8 * Math.PI) * 60]);
+  for (const [x, y] of lights) { if (towers) s += `<line x1="${x}" y1="${y}" x2="${x}" y2="${cy + 20}" stroke="#2a313a" stroke-width="8"/><rect x="${x - 28}" y="${y - 16}" width="56" height="26" rx="4" fill="#d9dde3"/>`; s += `<circle cx="${x}" cy="${y}" r="${night ? 90 : 34}" fill="url(#${id}l)" opacity="${night ? 0.95 : 0.25}"/>`; }
+  // name over the facade
+  const nm = String(o.name || '').toUpperCase();
+  if (nm) s += `<g><rect x="${cx - 260}" y="${cy + 112}" width="520" height="48" rx="10" fill="rgba(0,0,0,.55)" stroke="${accent}" stroke-opacity=".6"/><text x="${cx}" y="${cy + 145}" text-anchor="middle" font-family="Barlow Condensed,Arial Narrow,sans-serif" font-weight="800" font-size="30" letter-spacing="3" fill="#fff" textLength="${Math.min(500, nm.length * 17)}" lengthAdjust="spacingAndGlyphs">${esc(nm)}</text></g>`;
+  return s + '</svg>';
+}
+function cdistG(a, b) { const A = hexToRgb(a), B = hexToRgb(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); }
+function shadeHex(hex, f) { const [r, g, b] = hexToRgb(hex); const k = (c) => Math.round(Math.max(0, Math.min(255, f >= 0 ? c + (255 - c) * f : c * (1 + f)))); return '#' + [k(r), k(g), k(b)].map((v) => v.toString(16).padStart(2, '0')).join(''); }
 function fanAvailable() { return !!(S.user && S.user.team && !S.coach.unemployed && !S.pl && S.mode !== 'national' && S.teams[S.user.team] && !S.teams[S.user.team].isNat); }
 function fanInit() {
   if (!S.fans) S.fans = { team: 0, mood: 55, org: 55, recent: [], lastEv: -99, lastCompl: -99, lastOrg: -99, ev: 0, hist: [] };
@@ -10982,10 +11069,16 @@ const G3D = (() => {
     const EX = D.EX, k = 24; // pixels per metre
     const w = Math.round((D.PW + EX * 2) * k), h = Math.round((D.PL + EX * 2) * k);
     return canvasTex(w, h, (g) => {
-      g.fillStyle = '#1c8a28'; g.fillRect(0, 0, w, h);
-      // mowing stripes across the length of the pitch
-      const sw = 5.5 * k;
-      for (let i = 0, y = EX * k - 40 * sw; y < h + sw; i++, y += sw) { g.fillStyle = i % 2 ? 'rgba(170,255,110,0.10)' : 'rgba(0,50,8,0.16)'; g.fillRect(0, y, w, sw); }
+      g.fillStyle = '#1f6f26'; g.fillRect(0, 0, w, h);
+      // mowing stripes across the length of the pitch, each with a soft sheen
+      const sw = 5.25 * k;
+      for (let i = 0, y = EX * k - 40 * sw; y < h + sw; i++, y += sw) {
+        const gr = g.createLinearGradient(0, y, 0, y + sw);
+        if (i % 2) { gr.addColorStop(0, 'rgba(160,235,110,0.10)'); gr.addColorStop(0.5, 'rgba(170,245,120,0.14)'); gr.addColorStop(1, 'rgba(160,235,110,0.09)'); }
+        else { gr.addColorStop(0, 'rgba(0,40,6,0.16)'); gr.addColorStop(0.5, 'rgba(0,30,4,0.22)'); gr.addColorStop(1, 'rgba(0,40,6,0.15)'); }
+        g.fillStyle = gr; g.fillRect(0, y, w, sw);
+      }
+      { const vg = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.15, w / 2, h / 2, Math.max(w, h) * 0.6); vg.addColorStop(0, 'rgba(255,255,230,0.05)'); vg.addColorStop(1, 'rgba(0,20,0,0.22)'); g.fillStyle = vg; g.fillRect(0, 0, w, h); }
       // grass noise
       let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       for (let i = 0; i < 90000; i++) { const x = rnd() * w, y = rnd() * h; g.fillStyle = rnd() > 0.5 ? 'rgba(20,70,20,0.10)' : 'rgba(150,210,110,0.08)'; g.fillRect(x, y, 2 + rnd() * 3, 1 + rnd() * 2); }
@@ -11027,11 +11120,19 @@ const G3D = (() => {
     }, { repeat: true });
   }
   function boardTex() {
-    return canvasTex(1024, 64, (g, w, h) => {
-      g.fillStyle = '#10243f'; g.fillRect(0, 0, w, h);
-      const names = D.SPONSORS, cols = ['#ffd34d', '#ffffff', '#6ee7b7', '#ff8a8a'];
-      g.font = '800 38px "Barlow Condensed","Arial Narrow",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      for (let i = 0; i < 4; i++) { g.fillStyle = cols[i % 4]; g.fillText(names[i % names.length], (i + 0.5) * w / 4, h / 2 + 2); }
+    return canvasTex(2048, 64, (g, w, h) => {
+      const names = D.SPONSORS, pal = [['#0b1d3d', '#ffffff', '#3aa0ff'], ['#9e0f18', '#ffffff', '#ffd34d'], ['#f2c230', '#111111', '#111111'], ['#0b5e34', '#ffffff', '#7cf29a'], ['#111111', '#ffd34d', '#ffd34d'], ['#ffffff', '#0b1d3d', '#e3262f'], ['#3a1466', '#ffffff', '#ff6bd5'], ['#05070c', '#6ee7ff', '#6ee7ff']];
+      const n = 8, cw = w / n;
+      for (let i = 0; i < n; i++) {
+        const c = pal[i % pal.length], x0 = i * cw, gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, c[0]); gr.addColorStop(1, 'rgba(0,0,0,0.35)');
+        g.fillStyle = c[0]; g.fillRect(x0, 0, cw, h); g.fillStyle = gr; g.globalAlpha = 0.5; g.fillRect(x0, 0, cw, h); g.globalAlpha = 1;
+        const name = names[(i * 3) % names.length]; g.font = '900 38px "Barlow Condensed","Arial Narrow",sans-serif';
+        const tw = Math.min(g.measureText(name).width, cw * 0.66), mk = 30, tot = mk + 12 + tw, mx = x0 + cw / 2 - tot / 2 + mk / 2;
+        g.fillStyle = c[2];
+        if (i % 3 === 0) { g.beginPath(); g.arc(mx, h / 2, mk / 2, 0, TAU); g.fill(); } else if (i % 3 === 1) { g.beginPath(); g.moveTo(mx - mk / 2, h / 2 + mk / 2); g.lineTo(mx, h / 2 - mk / 2); g.lineTo(mx + mk / 2, h / 2 + mk / 2); g.closePath(); g.fill(); } else g.fillRect(mx - mk / 2, h / 2 - mk / 2, mk, mk);
+        g.fillStyle = c[1]; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(name, mx + mk / 2 + 12, h / 2 + 2, cw * 0.66);
+      }
+      for (let x = 0; x < w; x += 3) { g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(x, 0, 1, h); }
     }, { repeat: true });
   }
   function netTex() {
@@ -11178,7 +11279,7 @@ const G3D = (() => {
     const out = new T.Mesh(new T.PlaneGeometry(700, 700), new T.MeshStandardMaterial({ color: 0x14361c, roughness: 1 }));
     out.rotation.x = -Math.PI / 2; out.position.set(PW / 2, -0.05, PL / 2); scene.add(out);
     // LED advertising boards (animated in frame())
-    boardT = boardTex(); boardT.repeat.set(10, 1);
+    boardT = boardTex(); boardT.repeat.set(2.5, 1);
     const bm = new T.MeshStandardMaterial({ map: boardT, roughness: 0.4, emissive: 0xffffff, emissiveMap: boardT, emissiveIntensity: 0.55 });
     const board = (x, z, w, d) => { const m = new T.Mesh(new T.BoxGeometry(w, 0.9, d), bm); m.position.set(x, 0.45, z); m.castShadow = true; scene.add(m); };
     board(PW / 2, -4.4, PW + 14, 0.25); board(PW / 2, PL + 4.4, PW + 14, 0.25);
@@ -11239,7 +11340,34 @@ const G3D = (() => {
     }
   }
   // crowd colours follow the teams on the pitch (home fans fill most of the bowl)
+  // banners on the front of the lower tier: the home club's cry behind its goal, names and groups around (2D has the same)
+  let tifoKey = '';
+  const cdist = (x, y) => { const A = hexToRgb(x), B = hexToRgb(y); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); };
+  function bannerTex(text, c1, c2) {
+    return canvasTex(1024, 64, (g, w, h) => {
+      g.fillStyle = c1; g.fillRect(0, 0, w, h); g.fillStyle = c2; g.fillRect(0, 0, w, 7); g.fillRect(0, h - 7, w, 7);
+      const ink = cdist(c1, c2) > 60 ? c2 : (lum(c1) > 0.55 ? '#111111' : '#ffffff');
+      let fs = 44; g.font = `900 ${fs}px "Barlow Condensed","Arial Narrow",sans-serif`; const tw = g.measureText(text).width; if (tw > w * 0.94) { fs *= w * 0.94 / tw; g.font = `900 ${fs}px "Barlow Condensed","Arial Narrow",sans-serif`; }
+      g.fillStyle = ink; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2);
+      fabricNoise(g, w, h, 0.05);
+    }, { aniso: 8 });
+  }
+  function hangBanners() {
+    const tid = G_SP.tid; if (!tid || !scene || typeof clubMotto !== 'function') return;
+    const key = tid.join('|'); if (key === tifoKey) return; tifoKey = key;
+    const H = S.teams[tid[0]], A = S.teams[tid[1]]; if (!H || !A) return;
+    const { PW, PL } = D, kc = (t) => { const k = KIT_REAL.get(t); return k ? [k.home.shirt, k.home.trim] : [t.c1, t.c2 || '#ffffff']; };
+    const [h1, h2] = kc(H), [a1, a2] = kc(A), oh = tifoOrgOf(H.id), oa = tifoOrgOf(A.id);
+    const hang = (text, c1, c2, x, z, w, ry) => { const m = new T.Mesh(new T.PlaneGeometry(w, w / 16), new T.MeshStandardMaterial({ map: bannerTex(text, c1, c2), roughness: 0.9, side: T.DoubleSide })); m.position.set(x, 0.62 + w / 32, z); m.rotation.y = ry; scene.add(m); };
+    hang(clubMotto(H.id), h1, h2, PW / 2, -8.85, 24, 0);
+    hang(String(oh || H.n).toUpperCase(), h2, h1, PW / 2 - 21, -8.85, 14, 0);
+    hang(String(H.n).toUpperCase(), h2, h1, PW / 2 + 21, -8.85, 14, 0);
+    hang((oa ? oa + ' · ' : '') + String(A.n).toUpperCase(), a1, a2, PW / 2, PL + 8.85, 20, Math.PI);
+    hang(clubMotto(H.id), h1, h2, -8.85, PL / 2 - 22, 18, Math.PI / 2);
+    hang(String(H.s || H.n).toUpperCase(), h1, h2, PW + 8.85, PL / 2 + 18, 16, -Math.PI / 2);
+  }
   function tintCrowd(ents) {
+    try { hangBanners(); } catch (e) { /* stands without banners */ }
     let home = null, away = null;
     for (const e of ents) { if (e.gk || !e.kit || e.num === '' || e.num == null) continue; const k = e.key && e.side; if (!home) home = e.kit; else if (e.kit.shirt !== home.shirt) { away = e.kit; break; } }
     if (!home) return;
@@ -12060,7 +12188,7 @@ const G3D = (() => {
   function dispose() {
     try { if (R) { R.dispose(); } } catch (e) { /* */ }
     if (cv3 && cv3.parentNode) cv3.parentNode.removeChild(cv3);
-    R = scene = cam = cv3 = null; rigs = new Map(); nets = []; screens = []; flags = []; crowdMats = []; crowdT = ledT = boardT = null; crowdKey = ''; texCache = new Map(); _blob = null; camS.init = false;
+    R = scene = cam = cv3 = null; rigs = new Map(); nets = []; screens = []; flags = []; crowdMats = []; crowdT = ledT = boardT = null; crowdKey = ''; tifoKey = ''; texCache = new Map(); _blob = null; camS.init = false;
     for (const k in geo) delete geo[k];
   }
   function resize(w, h) {
@@ -12490,6 +12618,15 @@ const Game2D = (() => {
       away = kit(alt, alt === aT.c2 ? aT.c1 : (lum(alt) > 0.5 ? '#1f2d6e' : '#ffffff'));
     }
     const cu = (t, role, base) => { const c = t && typeof kitCustom === 'function' ? kitCustom(t.id, role) : null; return Object.assign({}, base, c || {}, t ? { tid: t.id } : {}); };
+    const rh = KIT_REAL.get(hT), ra = KIT_REAL.get(aT);
+    if (rh || ra) {
+      const H = cu(hT, 'home', rh ? Object.assign({}, rh.home) : home);
+      let A = cu(aT, 'home', ra ? Object.assign({}, ra.home) : kit(aT.c1 || '#2a5bd7', aT.c2));
+      const clash = (x, y) => cdist(x.shirt, y.shirt) < 120 || (cdist(x.shirt, y.trim || y.shirt) < 60 && cdist(x.trim || x.shirt, y.shirt) < 60);
+      if (clash(H, A)) A = cu(aT, 'away', ra ? Object.assign({}, ra.away) : away);
+      if (clash(H, A)) A = Object.assign({}, A, { shirt: lum(H.shirt) > 0.55 ? '#1f2d6e' : '#f4f4f4', trim: lum(H.shirt) > 0.55 ? '#ffffff' : '#1f2d6e', pat: 0, sleeve: undefined });
+      return [H, A];
+    }
     return [cu(hT, 'home', home), cu(aT, 'away', away)];
   }
   function gkKitFor(team, kits) {
@@ -12697,9 +12834,9 @@ const Game2D = (() => {
     G.orgs = []; G.fanSup = 0; G.orgSay = '';
     if (!G.auto && !opts.train && G.m && S.teams[G.m.h] && S.teams[G.m.a]) {
       const mkOrg = (id, home) => {
-        const nm = fanOrgsOf(id)[0]; if (!nm) return null;
-        const t = S.teams[id], neutral = !!G.m.n;
-        return { id, name: nm, top: home, c1: t.c1, c2: t.c2 || '#ffffff', half: home && !neutral ? 13 : 8, mood: fanOrgMoodOf(id), cheer: 0, home, seed: hashStr(nm) };
+        const nm = tifoOrgOf(id); if (!nm) return null;
+        const t = S.teams[id], neutral = !!G.m.n, kt = KIT_REAL.get(t), c1 = kt ? kt.home.shirt : t.c1, c2 = kt ? (kt.home.trim || t.c2) : (t.c2 || '#ffffff');
+        return { id, name: nm, motto: clubMotto(id), top: home, c1, c2: cdist(c1, c2) > 60 ? c2 : (lum(c1) > 0.5 ? '#111111' : '#ffffff'), half: home && !neutral ? 13 : 8, mood: fanOrgMoodOf(id), cheer: 0, home, seed: hashStr(nm), tifo: home ? 0 : 99 };
       };
       G.orgs = [mkOrg(G.m.h, true), mkOrg(G.m.a, false)].filter(Boolean);
       const uid = S.user && S.user.team;
@@ -12716,7 +12853,7 @@ const Game2D = (() => {
     buildPlayers();
     resetKickoff(0);
     if (!G.auto) {
-      G.state = 'intro'; G.stateT = 3.5;
+      G.state = 'intro'; G.stateT = 5.5;
       evAdd(st, { min: 0, t: 'ko', s: -1, h: 1, txt: `Bola rolando! ${teamName(m.h)} x ${teamName(m.a)}.` });
     }
     return G;
@@ -15874,14 +16011,19 @@ const Game2D = (() => {
   function showIntro() {
     const m = G.m, w = G.weather, c = S.comps[m.c];
     const rd = c && c.rounds && c.rounds[m.r];
-    const host = S.teams[m.h];
+    const host = S.teams[m.h], std = m.n ? 'Campo neutro' : stadiumName(host) || 'Estádio ' + tA(host, 'do');
+    const kits = G.kits || [], ks = (k) => (typeof kitSvg === 'function' && k ? kitSvg(Object.assign({}, KIT_LOGO_DEF, k), 74) : '');
     const box = document.createElement('div');
-    box.className = 'g2-intro';
-    box.innerHTML = `<div class="card"><div class="g2-intro-comp">${esc(c ? c.name : '')}${rd ? ` · ${esc(rd.name)}` : ''}</div>
-      <div class="row" style="justify-content:center;gap:18px;margin:14px 0 10px">${crest(m.h, 66)}<span class="disp" style="font-size:30px;font-weight:800;opacity:0.7">x</span>${crest(m.a, 66)}</div>
-      <div class="disp" style="font-size:clamp(22px,5vw,30px);font-weight:800;line-height:1.1">${esc(teamName(m.h))} x ${esc(teamName(m.a))}</div>
-      <div class="muted" style="margin-top:8px">🏟 ${esc(m.n ? 'Campo neutro' : stadiumName(host) || 'Estádio ' + tA(host, 'do'))} · ${w.icon} ${esc(w.label)}, ${w.temp}°C</div>
-      <div class="muted" style="margin-top:4px;font-size:13px">Dificuldade ${esc((G2_DIFFS.find(([k]) => k === G.diff) || ['', 'Normal'])[1])} · toque para começar</div></div>`;
+    box.className = 'g2-intro pre';
+    box.innerHTML = `<div class="pre-art">${stadiumArt(m.n ? null : host, { night: !!w.night })}</div><div class="pre-shade"></div>
+      <div class="pre-top"><span class="pre-comp">${esc(c ? c.name : 'Amistoso')}${rd ? ` · ${esc(rd.name)}` : ''}</span><span class="pre-w">${w.icon} ${esc(w.label)}, ${w.temp}°C</span></div>
+      <div class="pre-mid">
+        <div class="pre-team">${crest(m.h, 84)}<b>${esc(teamName(m.h))}</b><div class="pre-kit">${ks(kits[0])}</div></div>
+        <div class="pre-vs"><span>VS</span></div>
+        <div class="pre-team">${crest(m.a, 84)}<b>${esc(teamName(m.a))}</b><div class="pre-kit">${ks(kits[1])}</div></div>
+      </div>
+      <div class="pre-std"><small>Estádio</small><b>${esc(std)}</b></div>
+      <div class="pre-foot">Dificuldade ${esc((G2_DIFFS.find(([k]) => k === G.diff) || ['', 'Normal'])[1])} · toque para começar</div>`;
     root.appendChild(box);
     hud.intro = box;
     box.addEventListener('pointerdown', () => { if (G && G.state === 'intro') G.stateT = 0; });
@@ -16146,7 +16288,7 @@ const Game2D = (() => {
   let T = null, SC = 10, TEX = null;
   const TS = 12; // stadium texture pixels per metre
   const EX = 22; // texture margin around the pitch, metres
-  const SPONSORS = ['ULTRA ESPORTE', 'ULTRA MANAGER', 'CAFÉ DA VÁRZEA', 'GUARANÁ GOLAÇO', 'PNEUS RODA VIVA', 'BANCO DO TORCEDOR', 'SUCO DO MEIO-CAMPO', 'TINTAS TRAVESSÃO'];
+  const SPONSORS = ['ULTRA ESPORTE', 'ULTRA MANAGER', 'CAFÉ DA VÁRZEA', 'GUARANÁ GOLAÇO', 'PNEUS RODA VIVA', 'BANCO DO TORCEDOR', 'SUCO DO MEIO-CAMPO', 'TINTAS TRAVESSÃO', 'VOLT ENERGIA', 'AEROLINHAS ÁGUIA', 'NEXA TELECOM', 'CHUTEIRA DE OURO', 'MERCADO DO GOL', 'PIXGOL'];
   function buildTexture() {
     const wM = PW + EX * 2, hM = PL + EX * 2;
     const c = document.createElement('canvas');
@@ -16160,44 +16302,82 @@ const Game2D = (() => {
     const crowdCols = [home.c1, home.c1, home.c2 || '#ffffff', home.c1, '#f1f1f1', '#2b2b2b', away.c1, '#e9c9a8', '#7a5a42', home.c2 || '#dddddd'];
     let seed = hashStr(String(G.m.id));
     const rnd2 = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-    const stand = (x0, y0, x1, y1) => {
-      g.fillStyle = night ? '#1d242b' : '#3a424a';
-      g.fillRect(x0, y0, x1 - x0, y1 - y0);
-      for (let y = y0 + 0.5; y < y1; y += 0.95) {
-        for (let x = x0 + 0.5; x < x1; x += 0.8) {
-          if (rnd2() < 0.1) continue;
-          g.fillStyle = crowdCols[Math.floor(rnd2() * crowdCols.length)];
-          g.beginPath(); g.arc(x + (rnd2() - 0.5) * 0.25, y + (rnd2() - 0.5) * 0.2, 0.3, 0, Math.PI * 2); g.fill();
+    const awayCols = [away.c1, away.c1, away.c2 || '#ffffff', away.c1, '#f1f1f1', '#2b2b2b'];
+    const skinsC = ['#f1d3b5', '#e9c9a8', '#c99a72', '#a87650', '#8a5a3a'];
+    const stand = (x0, y0, x1, y1, cols, vertical) => {
+      const seat = night ? '#1b2430' : '#34404d';
+      g.fillStyle = seat; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      // concrete steps, darker towards the back
+      const len = vertical ? x1 - x0 : y1 - y0;
+      for (let k = 0; k < len; k += 0.95) { g.fillStyle = `rgba(0,0,0,${(k % 1.9 < 0.95 ? 0.07 : 0.15)})`; if (vertical) g.fillRect(x0 + k, y0, 0.95, y1 - y0); else g.fillRect(x0, y0 + k, x1 - x0, 0.95); }
+      const aisle = (v) => (vertical ? (v - y0) % 14 < 0.9 : (v - x0) % 14 < 0.9);
+      for (let y = y0 + 0.45; y < y1; y += 0.95) {
+        for (let x = x0 + 0.4; x < x1; x += 0.78) {
+          if (aisle(vertical ? y : x)) continue;
+          if (rnd2() < 0.07) continue;
+          const xx = x + (rnd2() - 0.5) * 0.2, yy = y + (rnd2() - 0.5) * 0.15;
+          g.fillStyle = cols[Math.floor(rnd2() * cols.length)];
+          g.beginPath(); g.ellipse(xx, yy + 0.1, 0.33, 0.27, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = skinsC[Math.floor(rnd2() * skinsC.length)];
+          g.beginPath(); g.arc(xx, yy - 0.08, 0.17, 0, Math.PI * 2); g.fill();
         }
       }
-      g.fillStyle = 'rgba(0,0,0,0.25)';
-      for (let y = y0; y < y1; y += 1.9) g.fillRect(x0, y, x1 - x0, 0.12);
+      g.fillStyle = night ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)';
+      if (vertical) for (let y = y0; y < y1; y += 14) g.fillRect(x0, y, x1 - x0, 0.9); else for (let x = x0; x < x1; x += 14) g.fillRect(x, y0, 0.9, y1 - y0);
     };
-    stand(-EX, -EX, PW + EX, -7.5);
-    stand(-EX, PL + 7.5, PW + EX, PL + EX);
-    stand(-EX, -7.5, -7.5, PL + 7.5);
-    stand(PW + 7.5, -7.5, PW + EX, PL + 7.5);
+    stand(-EX, -EX, PW + EX, -7.5, crowdCols, false);
+    stand(-EX, PL + 7.5, PW + EX, PL + EX, G.m.n ? crowdCols : awayCols.concat(crowdCols.slice(0, 4)), false);
+    stand(-EX, -7.5, -7.5, PL + 7.5, crowdCols, true);
+    stand(PW + 7.5, -7.5, PW + EX, PL + 7.5, crowdCols, true);
+    // banners hung on the front of the stands: the club's cry, its name and its supporters' group
+    const faixa = (x, y, w, h, c1, c2, text, rot) => {
+      g.fillStyle = c1; g.fillRect(x, y, w, h); g.fillStyle = c2; g.fillRect(x, y, w, h * 0.14); g.fillRect(x, y + h * 0.86, w, h * 0.14);
+      g.save(); g.setTransform(1, 0, 0, 1, (x + w / 2 + EX) * TS, (y + h / 2 + EX) * TS); if (rot) g.rotate(rot);
+      g.fillStyle = cdist(c1, c2) > 60 ? c2 : (lum(c1) > 0.55 ? '#111111' : '#ffffff');
+      let fs = (rot ? w : h) * 0.62 * TS; g.font = `900 ${Math.round(fs)}px "Barlow Condensed","Arial Narrow",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const lim = (rot ? h : w) * TS * 0.92, tw = g.measureText(text).width; if (tw > lim) { fs *= lim / tw; g.font = `900 ${Math.round(fs)}px "Barlow Condensed","Arial Narrow",sans-serif`; }
+      g.fillText(text, 0, fs * 0.04); g.restore();
+    };
+    const hk = KIT_REAL.get(home), ak = KIT_REAL.get(away);
+    const hc1 = hk ? hk.home.shirt : home.c1, hc2 = hk ? hk.home.trim : (home.c2 || '#ffffff'), ac1 = ak ? ak.home.shirt : away.c1, ac2 = ak ? ak.home.trim : (away.c2 || '#ffffff');
+    const hOrg = typeof tifoOrgOf === 'function' ? tifoOrgOf(home.id) : null, aOrg = typeof tifoOrgOf === 'function' ? tifoOrgOf(away.id) : null;
+    faixa(PW / 2 - 17, -9.9, 34, 2.3, hc1, hc2, clubMotto(home.id));
+    faixa(-6, -9.9, 15, 2.3, hc2, hc1, (hOrg || home.n).toUpperCase());
+    faixa(PW - 9, -9.9, 15, 2.3, hc2, hc1, String(home.n).toUpperCase());
+    if (!G.m.n) faixa(PW / 2 - 14, PL + 7.6, 28, 2.3, ac1, ac2, (aOrg ? aOrg + ' · ' : '') + String(away.n).toUpperCase());
+    for (const [x, y] of [[-9.9, 14], [-9.9, PL - 34], [PW + 7.6, 26]]) faixa(x, y, 2.3, 20, hc1, hc2, y === 14 ? clubMotto(home.id) : String(home.s || home.n).toUpperCase(), -Math.PI / 2);
     // grass with mowing stripes, a light checker and a little wear
-    const g1 = snow ? '#a9c0a5' : wet ? '#4f8a2c' : '#5c9532', g2 = snow ? '#b5cbb1' : wet ? '#589532' : '#68a03a';
-    g.fillStyle = shade(g1, -0.12);
+    const g1 = snow ? '#a9c0a5' : wet ? '#3f8a2a' : '#3f9233', g2 = snow ? '#b5cbb1' : wet ? '#4a9832' : '#4ea53c';
+    g.fillStyle = shade(g1, -0.16);
     g.fillRect(-7.5, -7.5, PW + 15, PL + 15);
-    const stripe = PL / 18;
-    for (let i = 0; i < 18; i++) { g.fillStyle = i % 2 ? g2 : g1; g.fillRect(-3, i * stripe, PW + 6, stripe + 0.02); }
-    g.fillStyle = 'rgba(255,255,255,0.035)';
-    for (let i = 0; i < 9; i++) if (i % 2) g.fillRect(i * (PW / 9), -3, PW / 9, PL + 6);
-    for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(0,0,0,${0.03 + rnd2() * 0.04})`; g.fillRect(rnd2() * PW, rnd2() * PL, 0.3 + rnd2() * 1.2, 0.2); }
+    const stripe = PL / 20;
+    for (let i = 0; i < 20; i++) {
+      const gr = g.createLinearGradient(0, i * stripe, 0, (i + 1) * stripe), c = i % 2 ? g2 : g1;
+      gr.addColorStop(0, shade(c, 0.03)); gr.addColorStop(0.5, c); gr.addColorStop(1, shade(c, -0.03));
+      g.fillStyle = gr; g.fillRect(-3, i * stripe, PW + 6, stripe + 0.02);
+    }
+    g.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let i = 0; i < 10; i++) if (i % 2) g.fillRect(i * (PW / 10), -3, PW / 10, PL + 6);
+    for (let i = 0; i < 2600; i++) { g.fillStyle = rnd2() < 0.5 ? `rgba(0,40,0,${0.05 + rnd2() * 0.06})` : `rgba(200,255,160,${0.03 + rnd2() * 0.04})`; g.fillRect(rnd2() * (PW + 6) - 3, rnd2() * (PL + 6) - 3, 0.12 + rnd2() * 0.35, 0.08 + rnd2() * 0.1); }
+    { const gl = g.createRadialGradient(PW / 2, PL / 2, PL * 0.1, PW / 2, PL / 2, PL * 0.75); gl.addColorStop(0, night ? 'rgba(255,255,230,0.07)' : 'rgba(255,255,220,0.05)'); gl.addColorStop(1, 'rgba(0,0,0,0.16)'); g.fillStyle = gl; g.fillRect(-7.5, -7.5, PW + 15, PL + 15); }
     for (const gy of [0, PL]) { const gr = g.createRadialGradient(PW / 2, gy, 0.5, PW / 2, gy, 7); gr.addColorStop(0, 'rgba(120,90,50,0.28)'); gr.addColorStop(1, 'rgba(120,90,50,0)'); g.fillStyle = gr; g.fillRect(PW / 2 - 8, gy - 8, 16, 16); }
     // advertising boards (fictional sponsors)
     const board = (x, y, w, h, vertical, idx) => {
-      const cols = [['#0f2b5b', '#ffffff'], ['#b8141e', '#ffffff'], ['#f2c230', '#1b1b1b'], ['#0f7a43', '#ffffff'], ['#1b1b1b', '#ffd34d']][idx % 5];
-      g.fillStyle = cols[0]; g.fillRect(x, y, w, h);
+      const cols = [['#0b1d3d', '#ffffff', '#3aa0ff'], ['#9e0f18', '#ffffff', '#ffd34d'], ['#f2c230', '#111111', '#111111'], ['#0b5e34', '#ffffff', '#7cf29a'], ['#111111', '#ffd34d', '#ffd34d'], ['#ffffff', '#0b1d3d', '#e3262f'], ['#3a1466', '#ffffff', '#ff6bd5']][idx % 7];
+      const gr = vertical ? g.createLinearGradient(x, 0, x + w, 0) : g.createLinearGradient(0, y, 0, y + h);
+      gr.addColorStop(0, shade(cols[0], 0.12)); gr.addColorStop(1, shade(cols[0], -0.15));
+      g.fillStyle = gr; g.fillRect(x, y, w, h);
+      g.fillStyle = 'rgba(0,0,0,0.35)'; if (vertical) g.fillRect(x + w - 0.08, y, 0.08, h); else g.fillRect(x, y + h - 0.08, w, 0.08);
       g.save();
       g.setTransform(1, 0, 0, 1, (x + w / 2 + EX) * TS, (y + h / 2 + EX) * TS);
       if (vertical) g.rotate(-Math.PI / 2);
-      g.fillStyle = cols[1];
-      g.font = `800 ${Math.round(0.7 * TS)}px "Barlow Condensed", "Arial Narrow", sans-serif`;
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(SPONSORS[idx % SPONSORS.length], 0, 1);
+      const L = (vertical ? h : w) * TS, Hh = (vertical ? w : h) * TS, name = SPONSORS[idx % SPONSORS.length];
+      g.font = `900 ${Math.round(Hh * 0.62)}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      const tw = Math.min(g.measureText(name).width, L * 0.7), mk = Hh * 0.62, tot = mk + Hh * 0.3 + tw;
+      g.fillStyle = cols[2]; const mx = -tot / 2 + mk / 2;
+      switch (idx % 4) { case 0: g.beginPath(); g.arc(mx, 0, mk / 2, 0, Math.PI * 2); g.fill(); break; case 1: g.beginPath(); g.moveTo(mx - mk / 2, mk / 2); g.lineTo(mx, -mk / 2); g.lineTo(mx + mk / 2, mk / 2); g.closePath(); g.fill(); break; case 2: g.fillRect(mx - mk / 2, -mk / 2, mk, mk); break; default: g.beginPath(); g.moveTo(mx, -mk / 2); g.lineTo(mx + mk / 2, 0); g.lineTo(mx, mk / 2); g.lineTo(mx - mk / 2, 0); g.closePath(); g.fill(); }
+      g.fillStyle = cols[1]; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(name, -tot / 2 + mk + Hh * 0.3, Hh * 0.03, L * 0.7);
       g.restore();
     };
     let bi = hashStr(String(G.m.h)) % SPONSORS.length;
@@ -16206,6 +16386,7 @@ const Game2D = (() => {
     // dugouts on the left touchline
     for (const y of [PL / 2 - 12, PL / 2 + 5]) { g.fillStyle = '#20262c'; g.fillRect(-4.2, y, 2.6, 7); g.fillStyle = 'rgba(160,200,230,0.35)'; g.fillRect(-4.0, y + 0.2, 2.2, 6.6); }
     TEX = c;
+    if (window.__umc) window.__umc.tex = c;
   }
   function view() {
     const W = cv.width, H = cv.height;
@@ -16246,6 +16427,28 @@ const Game2D = (() => {
           ctx.beginPath(); ctx.arc(px, py, s * 0.37, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = '#e9c9a8'; ctx.beginPath(); ctx.arc(px, py - s * 0.15, s * 0.17, 0, Math.PI * 2); ctx.fill();
         }
+      }
+      // BANDEIRÃO: the giant flag passed over the heads, with the club's cry, at kick-off, after a goal and every so often
+      const tifoOn = !low && (G.state === 'intro' || G.time < 14 + (o.home ? 0 : -8) || cheer || (G.time % 80) < 9);
+      if (tifoOn) {
+        const r0 = 1.25, r1 = 1.3 + (rows - 1) * 1.0 + 0.6, wv = (u, v) => Math.sin(tm * 2.2 + u * 5 + v * 2 + o.seed) * 0.35;
+        const P = (u, v) => { const x = x0 - 0.4 + (x1 - x0 + 0.8) * u, y = yF + sg * (r0 + (r1 - r0) * v); return [PX(x, y), PY(x, y) - (1.1 + wv(u, v)) * s]; };
+        const n = 10;
+        for (let k = 0; k < n; k++) { // vertical bands in the club colours, each a little wave
+          const u0 = k / n, u1 = (k + 1) / n, a0 = P(u0, 0), a1 = P(u1, 0), b1 = P(u1, 1), b0 = P(u0, 1);
+          ctx.fillStyle = k % 2 ? o.c2 : o.c1; ctx.beginPath(); ctx.moveTo(a0[0], a0[1]); ctx.lineTo(a1[0], a1[1]); ctx.lineTo(b1[0], b1[1]); ctx.lineTo(b0[0], b0[1]); ctx.closePath(); ctx.fill();
+        }
+        const mid = P(0.5, 0.5), tl = P(0, 0), tr = P(1, 0), bl = P(0, 1);
+        const bw = Math.hypot(tr[0] - tl[0], tr[1] - tl[1]), bh = Math.hypot(bl[0] - tl[0], bl[1] - tl[1]);
+        ctx.save(); ctx.translate(mid[0], mid[1]); if (G.landscape) ctx.rotate(Math.PI / 2);
+        const lw2 = G.landscape ? bh : bw, lh2 = G.landscape ? bw : bh;
+        ctx.fillStyle = 'rgba(0,0,0,0.42)'; rr(-lw2 * 0.46, -lh2 * 0.3, lw2 * 0.92, lh2 * 0.6, lh2 * 0.08); ctx.fill();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ffffff';
+        let fs = Math.min(lh2 * 0.3, s * 1.3); ctx.font = `900 ${Math.round(fs)}px "Barlow Condensed","Arial Narrow",sans-serif`;
+        const mt = o.motto || o.name.toUpperCase(); const w0 = ctx.measureText(mt).width; if (w0 > lw2 * 0.86) { fs *= lw2 * 0.86 / w0; ctx.font = `900 ${Math.round(fs)}px "Barlow Condensed","Arial Narrow",sans-serif`; }
+        ctx.fillText(mt, 0, -lh2 * 0.07);
+        ctx.font = `700 ${Math.round(fs * 0.48)}px "Barlow Condensed","Arial Narrow",sans-serif`; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(o.name.toUpperCase(), 0, lh2 * 0.17);
+        ctx.restore();
       }
       // the banner along the front row
       const q = [[x0, yF], [x1, yF], [x1, yF + sg * 0.95], [x0, yF + sg * 0.95]].map(([x, y]) => [PX(x, y), PY(x, y)]);
@@ -16436,8 +16639,19 @@ const Game2D = (() => {
     // controlled player ring, pass preview and the target of a pass in flight
     if (!G.auto && G.ctrl && !G.ctrl.out && !G.pk && !replaying && !G.shootout) {
       const X = PX(G.ctrl.x, G.ctrl.y), Y = PY(G.ctrl.x, G.ctrl.y);
-      ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = Math.max(2, s * 0.12);
-      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.75, s * 0.36, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,225,77,0.13)'; ctx.strokeStyle = 'rgba(255,225,77,0.42)'; ctx.lineWidth = Math.max(1.2, s * 0.055);
+      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.05, s * 0.75, s * 0.36, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (D3) { // name over the head, FIFA-style (the 2D view draws it with the player)
+        const p = G.ctrl, s3 = G3D.scaleAt(p.x, p.y), tag = String(p.label || ''), fs = Math.max(11, Math.round(Math.min(20, s3 * 0.42)));
+        ctx.font = `700 ${fs}px "Barlow Condensed", "Barlow", "Arial Narrow", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(tag).width, ph = fs * 1.35, pw = tw + fs * 1.1, py = Y - s3 * 2.25 - ph / 2;
+        ctx.fillStyle = 'rgba(8,12,18,0.5)'; rr(X - pw / 2, py - ph / 2, pw, ph, ph / 2); ctx.fill();
+        const kk = (G.kits && G.kits[p.side]) || {}; ctx.fillStyle = kk.shirt && lum(kk.shirt) > 0.2 ? kk.shirt : (kk.trim || '#ffffff');
+        rr(X - pw / 2 + ph * 0.18, py - ph * 0.3, ph * 0.12, ph * 0.6, ph * 0.06); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.fillText(tag, X + ph * 0.06, py + fs * 0.04);
+        const ty = py - ph / 2 - 3 + Math.sin(G.time * 5) * 1.5; ctx.fillStyle = 'rgba(255,225,77,0.92)';
+        ctx.beginPath(); ctx.moveTo(X - fs * 0.38, ty - fs * 0.5); ctx.lineTo(X + fs * 0.38, ty - fs * 0.5); ctx.lineTo(X, ty); ctx.closePath(); ctx.fill();
+      }
       if (G.preview && !G.preview.out && b.owner === G.ctrl) {
         const q = G.preview, QX = PX(q.x, q.y), QY = PY(q.x, q.y);
         ctx.setLineDash([s * 0.25, s * 0.2]);
@@ -16873,9 +17087,10 @@ const Game2D = (() => {
     ctx.beginPath(); ctx.ellipse(X + s * 0.04, Y + s * 0.02, s * 0.3, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
     if (!G.auto && !rp && p === G.ctrl && !G.pk && !G.shootout && !lift) {
       const pulse = 0.5 + 0.5 * Math.sin(G.time * 6), fl = Math.max(0, G.swapFlash || 0);
-      ctx.strokeStyle = fl > 0 ? 'rgba(120,255,160,' + (0.6 + 0.4 * fl) + ')' : 'rgba(255,225,77,' + (0.55 + 0.25 * pulse) + ')';
-      ctx.lineWidth = Math.max(2, s * (0.1 + fl * 0.12));
-      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.62 + fl * 0.5), s * (0.27 + fl * 0.2), 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = fl > 0 ? 'rgba(120,255,160,' + (0.5 + 0.4 * fl) + ')' : 'rgba(255,225,77,' + (0.3 + 0.16 * pulse) + ')';
+      ctx.fillStyle = fl > 0 ? 'rgba(120,255,160,0.16)' : 'rgba(255,225,77,0.1)';
+      ctx.lineWidth = Math.max(1.2, s * (0.06 + fl * 0.1));
+      ctx.beginPath(); ctx.ellipse(X, Y + s * 0.04, s * (0.62 + fl * 0.5), s * (0.27 + fl * 0.2), 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
     if (G.tr && p === G.tr.target && G.tr.phase !== 'wait' && !rp) {
       const pu = 0.5 + 0.5 * Math.sin(G.time * 7);
@@ -17177,16 +17392,20 @@ const Game2D = (() => {
     ctx.globalAlpha = 1;
     // name tag over the controlled player, the ball carrier and the penalty duel
     if (!G.auto && !rp && (p === G.ctrl || p === G.ball.owner || (G.pk && (p === G.pk.taker || p === G.pk.gk)))) {
-      ctx.font = `700 ${Math.round(s * 0.5)}px "Barlow", "Arial", sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.lineWidth = Math.max(2, s * 0.12); ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-      const tag = p === G.ctrl && !G.pk && !G.shootout ? p.label + ' ' + '★'.repeat(p.stars || 1) : p.label;
-      ctx.strokeText(tag, X, hy - s * 0.62);
-      ctx.fillStyle = p.team === 0 ? '#ffe14d' : '#ffffff';
-      ctx.fillText(tag, X, hy - s * 0.62);
-      if (p === G.ctrl && !G.pk && !G.shootout) {
-        ctx.fillStyle = '#ffe14d';
-        ctx.beginPath(); ctx.moveTo(X - s * 0.2, hy - s * 1.25); ctx.lineTo(X + s * 0.2, hy - s * 1.25); ctx.lineTo(X, hy - s * 1.02); ctx.closePath(); ctx.fill();
+      // as in FIFA: just the name, on a soft dark pill (no stars); a small marker over the one you control
+      const me = p === G.ctrl && !G.pk && !G.shootout, tag = String(p.label || '');
+      const fs = Math.max(10, Math.round(s * 0.46));
+      ctx.font = `700 ${fs}px "Barlow Condensed", "Barlow", "Arial Narrow", sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(tag).width, ph = fs * 1.35, pw = tw + fs * 1.1, py = hy - s * 0.62 - ph / 2;
+      ctx.fillStyle = 'rgba(8,12,18,0.5)'; rr(X - pw / 2, py - ph / 2, pw, ph, ph / 2); ctx.fill();
+      { const kk = (G.kits && G.kits[p.side]) || {}; ctx.fillStyle = kk.shirt && lum(kk.shirt) > 0.2 ? kk.shirt : (kk.trim || '#ffffff'); }
+      rr(X - pw / 2 + ph * 0.18, py - ph * 0.3, ph * 0.12, ph * 0.6, ph * 0.06); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.fillText(tag, X + ph * 0.06, py + fs * 0.04);
+      if (me) {
+        const bob = Math.sin(G.time * 5) * s * 0.05, ty = py - ph / 2 - s * 0.12 + bob;
+        ctx.fillStyle = 'rgba(255,225,77,0.92)';
+        ctx.beginPath(); ctx.moveTo(X - s * 0.17, ty - s * 0.22); ctx.lineTo(X + s * 0.17, ty - s * 0.22); ctx.lineTo(X, ty); ctx.closePath(); ctx.fill();
       }
     }
   }
@@ -17589,7 +17808,15 @@ function frStart() {
   const st = startMatchState(m, { user: f.a });
   f.step = 'playing'; f.result = null;
   UI.screen = 'friendly'; render();
-  Game2D.start(m, st, { minutes: G2PREF.len, diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: G2PREF.replay }, () => frDone(m, st));
+  const go = () => Game2D.start(m, st, { minutes: G2PREF.len, diff: G2PREF.diff, cam: G2PREF.cam, sound: G2PREF.sound, replay: G2PREF.replay }, () => frDone(m, st));
+  // friendlies follow the 2D/3D choice of the settings too
+  if (window.UM_3D_FORCE) return go();
+  window.UM_3D = !!G2PREF.v3d;
+  if (!G2PREF.v3d || window.THREE) return go();
+  const sc = document.createElement('script');
+  sc.src = 'three.min.js'; sc.onload = go;
+  sc.onerror = () => { window.UM_3D = false; toast('Não foi possível carregar o 3D: jogando em 2D.'); go(); };
+  document.head.appendChild(sc);
 }
 function frDone(m, st) {
   if (!st.decided) { st.min = Math.max(st.min || 0, 90 + st.stoppage[1]); st.half = 2; }
@@ -19224,10 +19451,22 @@ function fanMsgActions(m) {
 act('fanAns', (el) => { const r = fanAnswer(+el.dataset.id, +el.dataset.i); if (r) toast(r.length > 120 ? r.slice(0, 117) + '…' : r); render(); });
 
 /* ===================== uniforme do seu clube: cores e padrões (casa e fora) ===================== */
-function kitCustom(teamId, role) { return S.kits && S.kits[teamId] && S.kits[teamId][role] || null; }
+const KIT_REAL_SRC = "Bournemouth|c8102e 111111 111111 111111 14|ffffff c8102e ffffff ffffff 0\nArsenal|db0007 ffffff ffffff db0007 0 - ffffff|0a1f44 d4af37 0a1f44 0a1f44 0\nAston Villa|7a003c 95bfe5 ffffff 7a003c 0 - 95bfe5|ffffff 7a003c 7a003c ffffff 0\nBrentford|e30613 ffffff 111111 e30613 1|ffd200 111111 111111 ffd200 0\nBrighton|ffffff 0057b8 0057b8 ffffff 14|111111 ffd200 111111 111111 0\nChelsea|034694 ffffff 034694 ffffff 0|f2ead3 034694 f2ead3 f2ead3 0\nCoventry City|59cbe8 ffffff 59cbe8 59cbe8 0|111111 59cbe8 111111 111111 0\nCrystal Palace|1b458f c4122e 1b458f 1b458f 14|ffffff c4122e ffffff ffffff 3\nEverton|003399 ffffff ffffff ffffff 0|111111 f2c94c 111111 111111 0\nFulham|ffffff 111111 111111 ffffff 0|c8102e 111111 c8102e c8102e 0\nHull City|f5a12d 111111 111111 f5a12d 1|ffffff 111111 ffffff ffffff 0\nIpswich Town|0044a9 ffffff ffffff 0044a9 0|c8102e ffffff c8102e c8102e 0\nLeeds United|ffffff 1d428a ffffff ffffff 0|1d428a ffcd00 1d428a 1d428a 0\nLiverpool|c8102e ffffff c8102e c8102e 0|111111 f6eb61 111111 111111 0\nManchester City|6cabdd ffffff ffffff 6cabdd 0|1c2c5b 6cabdd 1c2c5b 1c2c5b 0\nManchester United|da291c ffffff ffffff 111111 0|ffffff da291c ffffff ffffff 0\nNewcastle|ffffff 241f20 241f20 241f20 1|0a2240 ffffff 0a2240 0a2240 0\nNottingham Forest|dd0000 ffffff ffffff dd0000 0|f5f5f5 111111 f5f5f5 f5f5f5 0\nSunderland|ffffff eb172b 111111 eb172b 1|111111 eb172b 111111 111111 0\nTottenham|ffffff 132257 132257 ffffff 0|132257 ffffff 132257 132257 0\nAthletic Bilbao|ffffff ee2523 111111 111111 14|0a2240 ee2523 0a2240 0a2240 0\nAtlético de Madrid|ffffff cb3524 272e61 cb3524 14|272e61 cb3524 272e61 272e61 0\nOsasuna|d91a21 0a2d6e 0a2d6e 0a2d6e 0|ffffff d91a21 ffffff ffffff 0\nCelta de Vigo|8ac3ee ffffff ffffff 8ac3ee 0|111111 8ac3ee 111111 111111 0\nAlavés|ffffff 0761af 0761af ffffff 14|111111 0761af 111111 111111 0\nElche|ffffff 00843d ffffff ffffff 5|00843d ffffff 00843d 00843d 0\nBarcelona|004d98 a50044 004d98 004d98 14|111111 edbb00 111111 111111 0\nGetafe|005999 ffffff 005999 005999 0|e2001a ffffff e2001a e2001a 0\nLevante|004d98 a50044 004d98 004d98 14|ffffff a50044 ffffff ffffff 0\nMálaga|ffffff 4b9ad6 4b9ad6 ffffff 14|111111 4b9ad6 111111 111111 0\nRacing Santander|ffffff 00843d 111111 ffffff 0|00843d ffffff 00843d 00843d 0\nRayo Vallecano|ffffff e2001a ffffff ffffff 3|111111 e2001a 111111 111111 3\nDeportivo La Coruña|ffffff 1b4d9e 1b4d9e 1b4d9e 14|111111 1b4d9e 111111 111111 0\nEspanyol|ffffff 007fc8 007fc8 007fc8 14|f58025 111111 f58025 f58025 0\nReal Betis|ffffff 00954c 00954c 00954c 14|0a2240 00954c 0a2240 0a2240 0\nReal Madrid|ffffff febe10 ffffff ffffff 0|0a2240 febe10 0a2240 0a2240 0\nReal Sociedad|ffffff 0067b1 ffffff 0067b1 14|ffd200 0067b1 ffd200 ffd200 0\nSevilla|ffffff d61a1f ffffff ffffff 19|d61a1f ffffff d61a1f d61a1f 0\nValencia|ffffff 111111 111111 111111 0|f58025 111111 f58025 f58025 0\nVillarreal|ffe667 005187 ffe667 ffe667 0|005187 ffe667 005187 005187 0\nAugsburg|ffffff ba3733 ffffff ffffff 5|ba3733 00843d ba3733 ba3733 0\nBayer Leverkusen|e32221 111111 111111 111111 0|111111 e32221 111111 111111 0\nBayern de Munique|dc052d ffffff ffffff dc052d 0|ffffff dc052d ffffff ffffff 0\nBorussia Dortmund|fde100 111111 111111 fde100 0|111111 fde100 111111 111111 0\nBorussia M'gladbach|ffffff 00843d ffffff ffffff 0|111111 00843d 111111 111111 0\nEintracht Frankfurt|ffffff 111111 111111 ffffff 0|111111 e2001a 111111 111111 0\nElversberg|111111 ffffff 111111 111111 0|ffffff 111111 ffffff ffffff 0\nFreiburg|e2001a 111111 111111 e2001a 0|ffffff 111111 ffffff ffffff 0\nHamburgo|ffffff e2001a e2001a 0a2d6e 0|0a2d6e ffffff 0a2d6e 0a2d6e 0\nHoffenheim|1961b5 ffffff 1961b5 1961b5 0|ffffff 1961b5 ffffff ffffff 0\nKöln|ffffff e2001a ffffff ffffff 19|e2001a ffffff e2001a e2001a 0\nMainz 05|c3141e ffffff c3141e c3141e 0|ffffff c3141e ffffff ffffff 0\nPaderborn|0a3c8c 111111 0a3c8c 0a3c8c 0|ffffff 0a3c8c ffffff ffffff 0\nRB Leipzig|ffffff dd0741 ffffff ffffff 0|0c2043 dd0741 0c2043 0c2043 0\nSchalke 04|004d9d ffffff ffffff 004d9d 0|ffffff 004d9d ffffff ffffff 0\nStuttgart|ffffff e2001a ffffff ffffff 5|e2001a ffffff e2001a e2001a 0\nUnion Berlin|eb1923 ffffff ffffff eb1923 0|ffffff eb1923 ffffff ffffff 0\nWerder Bremen|1d9053 ffffff 1d9053 1d9053 0|ffffff 1d9053 ffffff ffffff 0\nAngers|ffffff 111111 111111 ffffff 6|111111 ffffff 111111 111111 0\nAuxerre|ffffff 0047ab ffffff ffffff 0|0047ab ffffff 0047ab 0047ab 0\nBrest|e2001a ffffff e2001a e2001a 0|ffffff e2001a ffffff ffffff 0\nLe Havre|0c2f5a 87ceeb 0c2f5a 0c2f5a 4|ffffff 0c2f5a ffffff ffffff 0\nLe Mans|e2001a ffd200 e2001a e2001a 0|ffffff e2001a ffffff ffffff 0\nLens|ffd100 e2001a 111111 e2001a 0 - e2001a|111111 ffd100 111111 111111 0\nLille|e01e13 0a2d6e 0a2d6e e01e13 0|ffffff e01e13 ffffff ffffff 0\nLorient|f58025 111111 111111 f58025 0|ffffff f58025 ffffff ffffff 0\nLyon|ffffff e2001a ffffff ffffff 5|0a2d6e e2001a 0a2d6e 0a2d6e 0\nOlympique de Marseille|ffffff 2faee0 ffffff ffffff 19|2faee0 ffffff 2faee0 2faee0 0\nMonaco|ffffff e51b22 ffffff ffffff 4|111111 e51b22 111111 111111 0\nNice|c8102e 111111 111111 c8102e 14|ffffff c8102e ffffff ffffff 0\nParis FC|1e2c50 87ceeb 1e2c50 1e2c50 0|ffffff 1e2c50 ffffff ffffff 0\nPSG|004170 da291c 004170 004170 9 ffffff|ffffff 004170 ffffff ffffff 0\nRennes|e13327 111111 111111 e13327 0|ffffff e13327 ffffff ffffff 0\nStrasbourg|009fe3 ffffff ffffff 009fe3 0|ffffff 009fe3 ffffff ffffff 0\nToulouse|6a2c91 ffffff 6a2c91 6a2c91 0|ffffff 6a2c91 ffffff ffffff 0\nTroyes|0060a9 ffffff 0060a9 0060a9 0|ffffff 0060a9 ffffff ffffff 0\nMilan|fb090b 111111 ffffff 111111 14|ffffff fb090b ffffff ffffff 0\nAtalanta|1e71b8 111111 111111 111111 14|ffffff 1e71b8 ffffff ffffff 0\nBologna|a21c26 1a2f48 ffffff 1a2f48 14|ffffff a21c26 ffffff ffffff 0\nCagliari|a50034 002350 002350 002350 4|ffffff a50034 ffffff ffffff 0\nComo|004b8d ffffff ffffff 004b8d 0|ffffff 004b8d ffffff ffffff 0\nFiorentina|482e92 ffffff 482e92 482e92 0|ffffff 482e92 ffffff ffffff 0\nFrosinone|ffdd00 0047ab 0047ab ffdd00 0|0047ab ffdd00 0047ab 0047ab 0\nGenoa|ad0b28 002350 002350 002350 4|ffffff ad0b28 ffffff ffffff 0\nInter de Milão|0068a8 111111 111111 111111 14|ffffff 0068a8 ffffff ffffff 0\nJuventus|ffffff 111111 ffffff ffffff 14|111111 f5d130 111111 111111 0\nLazio|87d8f7 ffffff ffffff 87d8f7 0|111111 87d8f7 111111 111111 0\nLecce|ffda00 e2001a 0047ab ffda00 14|ffffff e2001a ffffff ffffff 0\nMonza|e2001a ffffff ffffff e2001a 0|ffffff e2001a ffffff ffffff 0\nNapoli|12a0d7 ffffff ffffff 12a0d7 0|ffffff 12a0d7 ffffff ffffff 0\nParma|ffffff 111111 ffffff ffffff 9|ffd200 0047ab ffd200 ffd200 0\nRoma|8e1f2f f0bc42 8e1f2f 8e1f2f 0|ffffff 8e1f2f ffffff ffffff 0\nSassuolo|00a752 111111 111111 00a752 14|ffffff 00a752 ffffff ffffff 0\nTorino|8a1e03 ffffff ffffff 8a1e03 0|ffffff 8a1e03 ffffff ffffff 0\nUdinese|ffffff 111111 111111 ffffff 14|111111 ffffff 111111 111111 0\nVenezia|111111 f58025 111111 111111 17 00843d|ffffff f58025 ffffff ffffff 17 00843d\nAthletico-PR|e2001a 111111 111111 e2001a 14|ffffff e2001a ffffff ffffff 0\nAtlético Mineiro|ffffff 111111 111111 ffffff 14|ffffff 111111 ffffff ffffff 0\nBahia|ffffff 0047ab 0047ab ffffff 5|0047ab e2001a 0047ab 0047ab 8 ffffff\nBotafogo|111111 ffffff 111111 111111 1|ffffff 111111 ffffff ffffff 0\nChapecoense|00843d ffffff ffffff 00843d 0|ffffff 00843d ffffff ffffff 0\nCorinthians|ffffff 111111 111111 ffffff 0|111111 ffffff 111111 111111 0\nCoritiba|ffffff 00843d 111111 ffffff 2|00843d ffffff 00843d 00843d 0\nCruzeiro|0047ab ffffff ffffff ffffff 0|ffffff 0047ab ffffff ffffff 0\nFlamengo|c8102e 111111 ffffff c8102e 10|ffffff c8102e ffffff ffffff 5\nFluminense|ffffff 7b1e3b ffffff ffffff 8 00613c|ffffff 7b1e3b ffffff ffffff 0\nGrêmio|0d80bf 111111 111111 ffffff 8 ffffff|ffffff 0d80bf ffffff ffffff 0\nInternacional|e2001a ffffff ffffff e2001a 0|ffffff e2001a ffffff ffffff 0\nMirassol|ffd200 00843d 00843d ffd200 0|00843d ffd200 00843d 00843d 0\nPalmeiras|006437 ffffff ffffff 006437 0|ffffff 006437 ffffff ffffff 0\nRed Bull Bragantino|ffffff e2001a ffffff ffffff 0|e2001a ffffff e2001a e2001a 0\nRemo|0a2d6e ffffff ffffff 0a2d6e 0|ffffff 0a2d6e ffffff ffffff 0\nSantos|ffffff 111111 ffffff ffffff 0|ffffff 111111 111111 111111 1\nSão Paulo|ffffff e2001a ffffff ffffff 5|111111 e2001a 111111 111111 8 ffffff\nVasco da Gama|111111 ffffff 111111 111111 3|ffffff 111111 ffffff ffffff 3\nVitória|e2001a 111111 111111 e2001a 10|ffffff e2001a ffffff ffffff 0\nBoca Juniors|0a2d6e f2c200 0a2d6e 0a2d6e 5|ffffff 0a2d6e ffffff ffffff 5\nRiver Plate|ffffff e2001a 111111 ffffff 3|e2001a 111111 111111 e2001a 0\nRacing Club|ffffff 87ceeb 111111 ffffff 14|0a2d6e 87ceeb 0a2d6e 0a2d6e 0\nIndependiente|e2001a ffffff 0a2d6e 0a2d6e 0|ffffff e2001a ffffff ffffff 0\nSan Lorenzo|0a2d6e c8102e ffffff 0a2d6e 14|ffffff 0a2d6e ffffff ffffff 0\nEstudiantes|ffffff e2001a 111111 ffffff 14|e2001a ffffff e2001a e2001a 0\nVélez Sarsfield|ffffff 0047ab 0047ab ffffff 17|0047ab ffffff 0047ab 0047ab 0\nRosario Central|0047ab ffd200 0047ab 0047ab 14|ffffff 0047ab ffffff ffffff 0\nNewell's Old Boys|111111 e2001a 111111 111111 4|ffffff e2001a ffffff ffffff 0\nTalleres|0a2d6e ffffff 0a2d6e 0a2d6e 1|ffffff 0a2d6e ffffff ffffff 0\nLanús|7b1e2e ffffff 7b1e2e 7b1e2e 0|ffffff 7b1e2e ffffff ffffff 0\nArgentinos Juniors|e2001a ffffff ffffff e2001a 0|ffffff e2001a ffffff ffffff 0\nHuracán|ffffff e2001a ffffff ffffff 0|e2001a ffffff e2001a e2001a 0\nBelgrano|87ceeb 0a2d6e 0a2d6e 87ceeb 0|0a2d6e 87ceeb 0a2d6e 0a2d6e 0\nGimnasia La Plata|ffffff 0a2d6e ffffff ffffff 5|0a2d6e ffffff 0a2d6e 0a2d6e 0\nBenfica|e20e0e ffffff ffffff e20e0e 0|111111 e20e0e 111111 111111 0\nPorto|ffffff 00428c 00428c 00428c 1|f58025 111111 f58025 f58025 0\nSporting|ffffff 008057 111111 008057 10|111111 008057 111111 111111 0\nBraga|e2001a ffffff ffffff e2001a 0 - ffffff|ffffff e2001a ffffff ffffff 0\nVitória de Guimarães|ffffff 111111 111111 ffffff 0|111111 ffffff 111111 111111 0\nAjax|ffffff d2122e ffffff ffffff 9|0a2d6e d2122e 0a2d6e 0a2d6e 0\nPSV|ed1c24 ffffff 111111 ed1c24 1|111111 ed1c24 111111 111111 0\nFeyenoord|ffffff e2001a 111111 111111 4|111111 e2001a 111111 111111 0\nAZ Alkmaar|e2001a ffffff ffffff e2001a 0|111111 e2001a 111111 111111 0\nTwente|e2001a ffffff ffffff e2001a 0|ffffff e2001a ffffff ffffff 0\nAmérica|ffd200 0a2d6e 0a2d6e ffd200 0|0a2d6e ffd200 0a2d6e 0a2d6e 0\nChivas|ffffff e2001a 0a2d6e 0a2d6e 14|0a2d6e e2001a 0a2d6e 0a2d6e 0\nMonterrey|0a2d6e ffffff 0a2d6e 0a2d6e 1|ffffff 0a2d6e ffffff ffffff 0\nCruz Azul|0047ab ffffff 0047ab 0047ab 0|ffffff 0047ab ffffff ffffff 0\nPachuca|ffffff 0a2d6e 0a2d6e ffffff 4|0a2d6e ffffff 0a2d6e 0a2d6e 0\nTigres UANL|ffd200 0047ab ffd200 ffd200 0|0047ab ffd200 0047ab 0047ab 0\nPumas UNAM|0a2d6e c7a54c 0a2d6e 0a2d6e 0|ffffff 0a2d6e ffffff ffffff 0\nLeón|00843d ffffff 00843d 00843d 0|ffffff 00843d ffffff ffffff 0\nAtlas|e2001a 111111 111111 e2001a 4|ffffff e2001a ffffff ffffff 0\nSantos Laguna|00843d ffffff 00843d 00843d 1|ffffff 00843d ffffff ffffff 0\nToluca|e2001a ffffff e2001a e2001a 0|ffffff e2001a ffffff ffffff 0\nTijuana|e2001a 111111 111111 e2001a 14|ffffff e2001a ffffff ffffff 0\nCeltic|ffffff 018749 ffffff ffffff 10|111111 018749 111111 111111 0\nRangers|1b458f ffffff ffffff 111111 0|ffffff 1b458f ffffff ffffff 0\nGalatasaray|a90432 fdb912 ffffff a90432 4|ffffff a90432 ffffff ffffff 0\nFenerbahçe|0a2d6e ffed00 ffffff 0a2d6e 14|ffffff 0a2d6e ffffff ffffff 0\nBeşiktaş|ffffff 111111 ffffff ffffff 0|111111 ffffff 111111 111111 0\nTrabzonspor|7b1e2e 87ceeb 7b1e2e 7b1e2e 14|ffffff 7b1e2e ffffff ffffff 0\nPeñarol|ffd200 111111 111111 111111 14|ffffff 111111 ffffff ffffff 0\nNacional|ffffff 0047ab 0047ab ffffff 0|0047ab e2001a 0047ab 0047ab 0\nColo-Colo|ffffff 111111 111111 ffffff 0|111111 ffffff 111111 111111 0\nUniversidad de Chile|0047ab e2001a ffffff 0047ab 0|ffffff 0047ab ffffff ffffff 0\nInter Miami|f7b5cd 111111 f7b5cd f7b5cd 0|111111 f7b5cd 111111 111111 0\nAl Hilal|0047ab ffffff ffffff 0047ab 0|ffffff 0047ab ffffff ffffff 0\nAl Nassr|fcd116 0a2d6e 0a2d6e fcd116 0|0a2d6e fcd116 0a2d6e 0a2d6e 0\nAl-Ittihad|ffd200 111111 111111 ffd200 14|ffffff 111111 ffffff ffffff 0\nOlympiacos|e2001a ffffff ffffff e2001a 14|ffffff e2001a ffffff ffffff 0\nPanathinaikos|00843d ffffff 00843d 00843d 0|ffffff 00843d ffffff ffffff 0\nPAOK|111111 ffffff 111111 111111 14|ffffff 111111 ffffff ffffff 0\nClub Brugge|0067ce 111111 111111 0067ce 14|ffffff 0067ce ffffff ffffff 0\nAnderlecht|5c2d91 ffffff 5c2d91 5c2d91 0|ffffff 5c2d91 ffffff ffffff 0\nEstrela Vermelha|e2001a ffffff ffffff e2001a 14|ffffff e2001a ffffff ffffff 0\nPartizan Belgrado|111111 ffffff 111111 111111 14|ffffff 111111 ffffff ffffff 0\nShakhtar Donetsk|f58025 111111 111111 f58025 1|ffffff f58025 ffffff ffffff 0\nRB Salzburg|ffffff dd0741 ffffff ffffff 0|0c2043 dd0741 0c2043 0c2043 0\nAtlético Nacional|00843d ffffff ffffff 00843d 1|ffffff 00843d ffffff ffffff 0\nMillonarios|0047ab ffffff ffffff 0047ab 0|ffffff 0047ab ffffff ffffff 0\nCerro Porteño|0047ab c8102e 0047ab 0047ab 14|ffffff 0047ab ffffff ffffff 0\nOlimpia|ffffff 111111 111111 ffffff 5|111111 ffffff 111111 111111 0\nAlianza Lima|0a2d6e ffffff 0a2d6e 0a2d6e 6|ffffff 0a2d6e ffffff ffffff 0\nUniversitario|f5f5dc 7b1e2e f5f5dc f5f5dc 0|7b1e2e f5f5dc 7b1e2e 7b1e2e 0\nLDU Quito|ffffff 0a2d6e ffffff ffffff 0|0a2d6e e2001a 0a2d6e 0a2d6e 0\nThe Strongest|ffd200 111111 111111 ffd200 14|111111 ffd200 111111 111111 0\nBolívar|87ceeb 0a2d6e 0a2d6e 87ceeb 0|ffffff 87ceeb ffffff ffffff 0\nBarcelona SC|ffd200 111111 111111 ffd200 0|ffffff ffd200 ffffff ffffff 0\nDínamo Zagreb|0047ab ffffff 0047ab 0047ab 0|ffffff 0047ab ffffff ffffff 0";
+// real-world look of the main clubs' first and second shirts (colours and pattern; crest and marks are the game's own)
+const KIT_REAL = (() => {
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const m = new Map();
+  const one = (s) => { const f = s.trim().split(/\s+/), h = (x) => (x && x !== '-' ? '#' + x : undefined);
+    const k = { shirt: h(f[0]), trim: h(f[1]), shorts: h(f[2]), socks: h(f[3]), pat: +f[4] || 0 };
+    if (h(f[5])) k.trim2 = h(f[5]); if (h(f[6])) k.sleeve = h(f[6]); return k; };
+  for (const line of KIT_REAL_SRC.split('\n')) { const [n, hm, aw] = line.split('|'); m.set(norm(n), { home: one(hm), away: one(aw) }); }
+  return { get: (t) => (t ? m.get(norm(t.n)) || null : null) };
+})();
+function kitCustom(teamId, role) { const k = S.kits && S.kits[teamId] && S.kits[teamId][role] || null; if (k && k.crX === 0.25 && k.suX === 0.77) { k.crX = 0.73; k.suX = 0.27; } return k; } // old default: crest on the wrong side
 function kitHex(c) { try { const [r, g, b] = hexToRgb(c); return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); } catch (e) { return '#ffffff'; } }
 // default colours of a club's kit (what the match uses when nothing is customised)
 function kitBase(t, role) {
+  const rk = KIT_REAL.get(t); if (rk) return Object.assign({}, rk[role === 'away' ? 'away' : 'home']);
   const c1 = kitHex(t.c1 || '#c0392b'), c2 = kitHex(t.c2 || '#ffffff');
   const far = (a, b) => { const A = hexToRgb(a), B = hexToRgb(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]) > 90; };
   if (role === 'away') {

@@ -1134,6 +1134,31 @@ html[data-ui="light"] .pf-nm { background: rgba(20,20,24,0.85); }
 html[data-uimotion="off"] .psfx,html[data-uimotion="off"] .psfx-ic,html[data-uimotion="off"] .psfx::after{animation:none;transform:none;opacity:1}
 /* academy: innate PlayStyle tag */
 .ps-inn{font-size:10px;padding:1px 6px;border-radius:6px;background:rgba(52,211,153,.16);color:#34d399;margin-left:6px;font-weight:700;letter-spacing:.04em}
+
+/* ===================== V81: pre-match screen (drawn stadium), kits, crowd */
+.g2-intro.pre{display:block;padding:0;background:#05080f;overflow:hidden;transition:opacity .45s}
+.g2-intro.pre .pre-art{position:absolute;inset:0;animation:preZoom 6s ease-out forwards}
+.g2-intro.pre .pre-art svg{width:100%;height:100%;display:block}
+.g2-intro.pre .pre-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,8,16,.55) 0%,rgba(4,8,16,0) 30%,rgba(4,8,16,0) 52%,rgba(4,8,16,.82) 100%)}
+.pre-top{position:absolute;top:max(14px,env(safe-area-inset-top,0px));left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:0 22px;color:#fff;font-family:var(--f-display,inherit)}
+.pre-comp{font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:13px;color:#ffd34d;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px}
+.pre-w{font-size:13px;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px}
+.pre-mid{position:absolute;left:0;right:0;bottom:118px;display:flex;align-items:flex-end;justify-content:center;gap:clamp(14px,5vw,60px);color:#fff}
+.pre-team{display:flex;flex-direction:column;align-items:center;gap:6px;width:min(34vw,240px);text-align:center;animation:preIn .6s .25s both cubic-bezier(.2,1.2,.4,1)}
+.pre-team:last-child{animation-delay:.4s}
+.pre-team svg{filter:drop-shadow(0 6px 16px rgba(0,0,0,.6))}
+.pre-team b{font-family:var(--f-display,inherit);font-weight:800;font-size:clamp(17px,2.6vw,26px);line-height:1.05;text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.pre-kit{opacity:.95;margin-top:2px}
+.pre-vs{align-self:center;margin-bottom:60px}
+.pre-vs span{display:grid;place-items:center;width:54px;height:54px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3);font-family:var(--f-display,inherit);font-weight:900;font-size:20px;letter-spacing:.06em}
+.pre-std{position:absolute;left:0;right:0;bottom:44px;text-align:center;color:#fff;animation:preIn .6s .6s both}
+.pre-std small{display:block;text-transform:uppercase;letter-spacing:.3em;font-size:11px;opacity:.7}
+.pre-std b{font-family:var(--f-display,inherit);font-weight:900;font-size:clamp(22px,4vw,40px);letter-spacing:.04em;text-transform:uppercase;text-shadow:0 3px 14px rgba(0,0,0,.85)}
+.pre-foot{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:12px;color:rgba(255,255,255,.7)}
+@keyframes preZoom{from{transform:scale(1.12) translateY(10px)}to{transform:none}}
+@keyframes preIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@media (max-height:520px){.pre-mid{bottom:84px}.pre-kit{display:none}.pre-std{bottom:30px}.pre-std b{font-size:22px}}
+html[data-uimotion="off"] .g2-intro.pre .pre-art,html[data-uimotion="off"] .pre-team,html[data-uimotion="off"] .pre-std{animation:none}
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>
