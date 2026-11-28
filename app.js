@@ -8841,6 +8841,90 @@ act('rnAll', () => {
 });
 act('subtab', (el) => { UI.sub[el.dataset.g] = el.dataset.k; UI.sel = null; render(); });
 
+// ------------------------------------------------------------------ FIFA-style player cards (lineup, bench, player window)
+// portrait: head and shoulders in the club's shirt, drawn from the player's id (same look every time)
+const PC_SKINS = ['#f3d2b6', '#e9c09c', '#d6a179', '#b98256', '#8f5b37', '#653c22'];
+const PC_HAIRS = ['#16100c', '#2b1d14', '#4b3121', '#7a5230', '#c9a061', '#0d0d0d', '#8f8f8f'];
+const PC_DARK = new Set(['NGA', 'GHA', 'CIV', 'SEN', 'CMR', 'MLI', 'COD', 'BFA', 'GUI', 'GAB', 'ANG', 'ZAM', 'TOG', 'BEN', 'JAM', 'HAI', 'CUW', 'RSA', 'CPV', 'GAM', 'GNB', 'EQG', 'KEN', 'UGA', 'MOZ', 'ZIM', 'TRI', 'SUR', 'CGO', 'SLE', 'LBR', 'TAN', 'ETH', 'SUD', 'BDI', 'RWA', 'MTN', 'NIG', 'CTA', 'CHA']);
+const PC_MIXED = new Set(['BRA', 'COL', 'FRA', 'ENG', 'NED', 'BEL', 'POR', 'USA', 'CAN', 'ECU', 'VEN', 'PAN', 'CRC', 'HON', 'URU', 'SWE', 'GER', 'SUI', 'MAR', 'ALG', 'TUN', 'EGY', 'KSA', 'QAT', 'IRN', 'TUR']);
+function pcLook(p) {
+  const h = hashStr(String(p.id) + (p.n || ''));
+  let si;
+  if (PC_DARK.has(p.nat)) si = 3 + (h % 3);
+  else if (PC_MIXED.has(p.nat)) si = [0, 1, 1, 2, 2, 3, 4, 5][h % 8];
+  else if (['JPN', 'KOR', 'CHN', 'AUS'].includes(p.nat)) si = 1 + (h % 2);
+  else si = [0, 0, 1, 1, 2][h % 5];
+  const dark = si >= 4;
+  const hs = dark ? [0, 2, 4, 4, 5, 1, 3][(h >> 5) % 7] : [0, 1, 2, 3, 5, 6, 0, 3][(h >> 5) % 8];
+  const hair = PC_HAIRS[(p.age || 25) >= 34 && (h >> 9) % 4 === 0 ? 6 : dark ? (h >> 7) % 2 ? 5 : 0 : [0, 1, 2, 2, 3, 4, 1, 0][(h >> 7) % 8]];
+  return { skin: PC_SKINS[si], hair, hs, beard: (h >> 11) % 5 === 0 ? 2 : (h >> 11) % 5 === 1 ? 1 : 0, brow: 1 + ((h >> 13) % 3) * 0.4, jaw: (h >> 15) % 3 };
+}
+function pcShade(hex, k) { // k < 0 darker, > 0 lighter
+  const n = parseInt(String(hex || '#777').replace('#', '').padEnd(6, '0').slice(0, 6), 16) || 0x777777;
+  const c = [n >> 16 & 255, n >> 8 & 255, n & 255].map((v) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+const PHOTOS = (() => { try { return JSON.parse(localStorage.getItem('um-photos') || '{}') || {}; } catch (e) { return {}; } })();
+const photoKey = (p) => strip(p.n || '') + '|' + (p.nat || '');
+function savePhotos() { try { localStorage.setItem('um-photos', JSON.stringify(PHOTOS)); return true; } catch (e) { return false; } }
+function portraitSvg(p, o = {}) {
+  const ph = PHOTOS[photoKey(p)];
+  if (ph) return `<img class="portrait photo" src="${ph}" alt="" draggable="false">`;
+  const L = o.look || pcLook(p), t = S.teams[p.t] || null, kit = o.kit || (t ? t.c1 : '#5b6b72'), kit2 = o.kit2 || (t ? t.c2 : '#e6edf0');
+  const id = 'pt' + p.id + (o.tag || ''), sk = L.skin, skD = pcShade(sk, -0.22), skL = pcShade(sk, 0.18), hr = L.hair, hrL = pcShade(hr, 0.25);
+  const jw = [0, 2, -1.5][L.jaw];
+  const face = `M33 40 C33 24 67 24 67 40 C67 52 64 ${60 + jw} 56 ${65 + jw} C53 ${67 + jw} 47 ${67 + jw} 44 ${65 + jw} C36 ${60 + jw} 33 52 33 40Z`;
+  const hairs = [
+    `<path d="M32 41 C29 18 71 18 68 41 C67 33 64 28 58 27 C52 30 42 30 36 28 C34 31 33 35 32 41Z" fill="${hr}"/>`,
+    `<path d="M32 40 C30 15 70 15 68 40 C66 30 63 26 50 26 C38 26 34 30 32 40Z" fill="${hr}"/><path d="M40 20 C46 12 60 12 64 22 C58 19 48 19 40 20Z" fill="${hrL}"/>`,
+    `<path d="M33 40 C33 26 67 26 67 40 C66 33 62 30 50 30 C38 30 34 33 33 40Z" fill="${hr}" opacity="0.92"/>`,
+    `<path d="M30 46 C26 12 74 12 70 46 L69 58 C67 44 67 34 60 30 C53 33 45 33 40 30 C33 34 33 44 31 58Z" fill="${hr}"/>`,
+    `<g fill="${hr}">${[[50, 19, 15], [37, 25, 10], [63, 25, 10], [31, 35, 7], [69, 35, 7], [43, 18, 10], [57, 18, 10]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}"/>`).join('')}</g><path d="M33 40 C33 30 67 30 67 40 C64 33 36 33 33 40Z" fill="${hr}"/>`,
+    `<path d="M33 38 C33 25 67 25 67 38 C65 32 60 30 50 30 C40 30 35 32 33 38Z" fill="${hr}" opacity="0.85"/><path d="M33 38 C32.5 41 33 44 33.6 46 M67 38 C67.5 41 67 44 66.4 46" stroke="${hr}" stroke-width="1.4" opacity="0.6"/>`,
+    `<path d="M32 40 C30 20 70 20 68 40 C66 34 60 30 50 32 C44 33 38 31 35 29 C33 32 32 36 32 40Z" fill="${hr}"/><path d="M36 29 C42 24 56 22 66 30" stroke="${hrL}" stroke-width="2" fill="none"/>`,
+  ][L.hs] || '';
+  const beard = L.beard === 2 ? `<path d="M34 46 C35 ${66 + jw} 65 ${66 + jw} 66 46 C63 56 58 ${59 + jw} 50 ${59 + jw} C42 ${59 + jw} 37 56 34 46Z" fill="${hr}" opacity="0.92"/><path d="M44 56 Q50 54 56 56 Q50 58 44 56Z" fill="${hr}"/>`
+    : L.beard === 1 ? `<path d="M35 48 C36 ${64 + jw} 64 ${64 + jw} 65 48 C62 57 57 ${61 + jw} 50 ${61 + jw} C43 ${61 + jw} 38 57 35 48Z" fill="${hr}" opacity="0.32"/>` : '';
+  const bw = L.brow;
+  return `<svg class="portrait" viewBox="${o.crop ? '11 13 78 87' : '0 0 100 100'}" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><defs>
+      <linearGradient id="${id}s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pcShade(kit, 0.12)}"/><stop offset="1" stop-color="${pcShade(kit, -0.35)}"/></linearGradient>
+      <radialGradient id="${id}f" cx="0.42" cy="0.38" r="0.7"><stop offset="0" stop-color="${skL}"/><stop offset="0.7" stop-color="${sk}"/><stop offset="1" stop-color="${skD}"/></radialGradient></defs>
+    <path d="M6 100 C8 80 22 72 38 70 L62 70 C78 72 92 80 94 100Z" fill="url(#${id}s)"/>
+    <path d="M38 70 L50 84 L62 70 L58 68 L50 77 L42 68Z" fill="${kit2}"/>
+    <path d="M22 78 C26 86 27 94 26 100 M78 78 C74 86 73 94 74 100" stroke="${kit2}" stroke-width="2" fill="none" opacity="0.7"/>
+    <path d="M42 56 L42 70 C46 74 54 74 58 70 L58 56Z" fill="${skD}"/>
+    <ellipse cx="32.5" cy="45" rx="3.6" ry="6" fill="${skD}"/><ellipse cx="67.5" cy="45" rx="3.6" ry="6" fill="${skD}"/>
+    <path d="${face}" fill="url(#${id}f)"/>
+    ${beard}
+    <path d="M39 ${39 - bw} Q43.5 ${36.5 - bw} 47.5 ${38.5}" stroke="${hr}" stroke-width="${1.6 + bw * 0.7}" stroke-linecap="round" fill="none"/><path d="M52.5 38.5 Q56.5 ${36.5 - bw} 61 ${39 - bw}" stroke="${hr}" stroke-width="${1.6 + bw * 0.7}" stroke-linecap="round" fill="none"/>
+    <ellipse cx="43.5" cy="43.8" rx="3.4" ry="2.2" fill="#f4f1ec"/><ellipse cx="56.5" cy="43.8" rx="3.4" ry="2.2" fill="#f4f1ec"/>
+    <circle cx="43.9" cy="43.9" r="1.75" fill="#2a1c12"/><circle cx="56.9" cy="43.9" r="1.75" fill="#2a1c12"/><circle cx="44.4" cy="43.3" r="0.5" fill="#fff"/><circle cx="57.4" cy="43.3" r="0.5" fill="#fff"/>
+    <path d="M40 41.6 Q43.5 40.6 47 41.6 M53 41.6 Q56.5 40.6 60 41.6" stroke="${skD}" stroke-width="0.8" fill="none" opacity="0.7"/>
+    <path d="M48 51.2 Q50 52.6 52 51.2" stroke="${pcShade(sk, -0.35)}" stroke-width="1.2" fill="none" stroke-linecap="round"/><ellipse cx="50" cy="49" rx="2.2" ry="3.2" fill="${skL}" opacity="0.35"/>
+    <path d="M45 ${57 + jw * 0.4} Q50 ${59 + jw * 0.4} 55 ${57 + jw * 0.4}" stroke="${pcShade(sk, -0.45)}" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    ${hairs}</svg>`;
+}
+// card tier from the overall, as in the card games: bronze, silver, gold, special
+const cardTier = (o) => (o >= 85 ? 'sp' : o >= 75 ? 'au' : o >= 65 ? 'ag' : 'cu');
+function fifaCard(p, o = {}) {
+  const pos = o.pos || p.p, ovr = o.ovr != null ? o.ovr : p.o, t = S.teams[p.t];
+  const nat = S.nations && S.nations[p.nat];
+  return `<div class="fc ${cardTier(ovr)} ${o.size || ''}">
+    <div class="fc-l"><b>${ovr}</b><span>${POS_PT[pos] || pos}</span>${t && !t.isNat ? `<i class="fc-cr">${crest(t, 14)}</i>` : ''}${nat ? `<i class="fc-nat" title="${esc(nat.n)}">${esc(p.nat)}</i>` : ''}</div>
+    <div class="fc-pt">${portraitSvg(p, { tag: o.size || '', crop: true })}</div>
+    <div class="fc-nm">${esc(p.s || p.n)}</div>
+    ${o.stats ? `<div class="fc-st">${(p.a || []).map((v, i) => `<span><b>${v}</b>${(p.p === 'GK' ? ['MER', 'MAN', 'CHU', 'REF', 'VEL', 'POS'] : ['RIT', 'FIN', 'PAS', 'DRI', 'DEF', 'FÍS'])[i]}</span>`).join('')}</div>` : ''}
+  </div>`;
+}
+// overall by line (attack / midfield / defence), as on the squad screen of the card games
+const LINE_OF = { GK: 'd', RB: 'd', CB: 'd', LB: 'd', RWB: 'd', LWB: 'd', CDM: 'm', CM: 'm', CAM: 'm', RM: 'm', LM: 'm', RW: 'a', LW: 'a', ST: 'a', CF: 'a' };
+function lineRatings(t) {
+  const slots = FORMATIONS[t.form] || [], g = { a: [], m: [], d: [] };
+  slots.forEach((s, i) => { const p = S.players[t.xi[i]]; if (p) (g[LINE_OF[s[0]] || 'm']).push(Math.round(p.o * Math.min(1, posFit(p, s[0])))); });
+  const av = (l) => (l.length ? Math.round(l.reduce((x, y) => x + y, 0) / l.length) : 0);
+  return { a: av(g.a), m: av(g.m), d: av(g.d) };
+}
+
 // ------------------------------------------------------------------ lineup editor
 function ensureLineup(t) {
   const players = t.isNat ? nationSquad(t.code) : squadOf(t.id);
@@ -8857,14 +8941,13 @@ function pitchLines() {
     <path d="M27 17 A8 8 0 0 0 41 17"/><path d="M27 83 A8 8 0 0 1 41 83"/></g><circle cx="34" cy="50" r="0.6" fill="#fff"/></svg>`;
 }
 function slotCard(p, pos, i, sel) {
-  if (!p) return `<div class="pslot empty ${sel ? 'sel' : ''}" data-a="slotClick" data-k="xi" data-i="${i}"><div class="card"><div class="o">–</div><div class="p">${POS_PT[pos]}</div></div><div class="nm">Vazio</div></div>`;
+  if (!p) return `<div class="pslot fcs empty ${sel ? 'sel' : ''}" data-a="slotClick" data-k="xi" data-i="${i}"><div class="fc sm none"><div class="fc-l"><b>–</b><span>${POS_PT[pos]}</span></div><div class="fc-pt"><span class="fc-plus">+</span></div><div class="fc-nm">Vazio</div></div></div>`;
   const fit = Math.round(fitnessNow(p));
   const col = fit >= 85 ? 'var(--win)' : fit >= 70 ? '#c9d84a' : fit >= 55 ? 'var(--warn)' : 'var(--loss)';
   const pf = posFit(p, pos);
   const warn = !available(p) ? '<span class="warn flag-inj">✚</span>' : pf < 0.9 ? '<span class="warn" style="color:var(--warn)" title="Fora de posição">!</span>' : '';
-  return `<div class="pslot ${sel ? 'sel' : ''}" data-a="slotClick" data-k="xi" data-i="${i}" data-pid="${p.id}">
-    ${warn}<div class="card"><div class="o">${Math.round(p.o * (pf < 1 ? pf : 1))}</div><div class="p">${POS_PT[pos]}</div></div>
-    <div class="nm">${esc(p.s || p.n)}</div><div class="fitbar"><i style="width:${fit}%;background:${col}"></i></div></div>`;
+  return `<div class="pslot fcs ${sel ? 'sel' : ''} ${pf < 0.9 ? 'oop' : ''}" data-a="slotClick" data-k="xi" data-i="${i}" data-pid="${p.id}">
+    ${warn}${fifaCard(p, { pos, ovr: Math.round(p.o * (pf < 1 ? pf : 1)), size: 'sm' })}<div class="fitbar"><i style="width:${fit}%;background:${col}"></i></div></div>`;
 }
 function viewLineup() {
   const t = S.teams[S.user.team];
@@ -8879,8 +8962,11 @@ function viewLineup() {
   const xiSet = new Set(t.xi);
   const benchSet = new Set(t.bench);
   const reserves = players.filter((p) => !xiSet.has(p.id) && !benchSet.has(p.id)).sort(by((p) => p.o, -1));
-  const row = (p, k, i) => `<div class="bp ${sel && sel.k === k && sel.i === i ? 'sel' : ''}" data-a="slotClick" data-k="${k}" data-i="${i}" data-pid="${p.id}">
+  const asCards = UIPREF.luList !== true;
+  const row = (p, k, i) => asCards ? `<div class="bp bc ${sel && sel.k === k && sel.i === i ? 'sel' : ''}" data-a="slotClick" data-k="${k}" data-i="${i}" data-pid="${p.id}">${fifaCard(p, { size: 'xs' })}<span class="bc-f">${statusFlags(p)}${formTag(p)}</span>${fitBar(p)}</div>`
+    : `<div class="bp ${sel && sel.k === k && sel.i === i ? 'sel' : ''}" data-a="slotClick" data-k="${k}" data-i="${i}" data-pid="${p.id}">
       ${posBadge(p.p)} ${ovrBadge(p.o)}${formTag(p)}<span class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.n)}${statusFlags(p)}</span>${fitBar(p)}</div>`;
+  const lr = lineRatings(t), viewTg = `<div class="seg sm-seg"><button class="${asCards ? 'on' : ''}" data-a="luView" data-v="0">Cartas</button><button class="${asCards ? '' : 'on'}" data-a="luView" data-v="1">Lista</button></div>`;
   const avgXI = avg(t.xi.map((id) => S.players[id]).filter(Boolean), (p) => p.o);
   return `<div class="lineup-wrap">
     <div class="col">
@@ -8889,7 +8975,7 @@ function viewLineup() {
         <div class="field"><label>Mentalidade</label><div class="seg wrapseg">${MENTS.map(([v, l]) => `<button class="${(t.ment || 0) === v ? 'on' : ''}" data-a="setMent" data-v="${v}">${l}</button>`).join('')}</div></div>
         <div class="field" style="min-width:150px"><label for="sty-sel">Estilo de jogo</label><select id="sty-sel" class="input" data-a="setStyle" title="${esc(STYLES[t.sty || 'bal'].d)}">${STYLE_KEYS.map((q) => `<option value="${q}" ${(t.sty || 'bal') === q ? 'selected' : ''}>${STYLES[q].n}</option>`).join('')}</select></div>
         <span class="grow"></span>
-        <div class="stat-tile" style="padding:8px 12px"><div class="k">Média do XI</div><div class="v" style="font-size:22px">${avgXI.toFixed(1)}</div></div>
+        <div class="lr-tiles"><div class="lr"><span>ATA</span><b class="${cardTier(lr.a)}">${lr.a || '–'}</b></div><div class="lr"><span>MEI</span><b class="${cardTier(lr.m)}">${lr.m || '–'}</b></div><div class="lr"><span>DEF</span><b class="${cardTier(lr.d)}">${lr.d || '–'}</b></div><div class="lr big"><span>Geral</span><b class="${cardTier(avgXI)}">${avgXI.toFixed(1)}</b></div></div>
         <button class="btn sm" data-a="autoXI">Escalação automática</button>
       </div>
       ${tacticsPanel(t)}
@@ -8898,8 +8984,8 @@ function viewLineup() {
       <p class="muted center" style="font-size:13px;margin:0">Toque em um jogador e depois em outro para trocar de lugar. Arraste no computador.</p>
     </div>
     <div class="col">
-      <div class="panel"><h3>Banco <span class="sub">${t.bench.length}/12</span></h3><div class="bench-list">${t.bench.map((id, i) => row(S.players[id], 'bench', i)).join('') || '<div class="muted">Vazio</div>'}</div></div>
-      <div class="panel"><h3>Reservas <span class="sub">${reserves.length}</span></h3><div class="bench-list">${reserves.map((p) => row(p, 'res', p.id)).join('') || '<div class="muted">Ninguém</div>'}</div></div>
+      <div class="panel"><h3>Banco <span class="sub">${t.bench.length}/12</span><span class="grow"></span>${viewTg}</h3><div class="bench-list ${asCards ? 'cards' : ''}">${t.bench.map((id, i) => row(S.players[id], 'bench', i)).join('') || '<div class="muted">Vazio</div>'}</div></div>
+      <div class="panel"><h3>Reservas <span class="sub">${reserves.length}</span></h3><div class="bench-list ${asCards ? 'cards' : ''}">${reserves.map((p) => row(p, 'res', p.id)).join('') || '<div class="muted">Ninguém</div>'}</div></div>
     </div></div>`;
 }
 act('setFormation', (el) => {
@@ -8915,6 +9001,29 @@ act('setFormation', (el) => {
   });
   render();
 });
+act('pPhoto', (el) => {
+  const p = S.players[+el.dataset.id]; if (!p) return;
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      // cover-crop to a 3:4 portrait, top-weighted (faces sit high in a photo)
+      const W = 180, H = 240, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'), s = Math.max(W / img.width, H / img.height), w = img.width * s, h = img.height * s;
+      g.drawImage(img, (W - w) / 2, Math.min(0, (H - h) * 0.25), w, h);
+      URL.revokeObjectURL(url);
+      PHOTOS[photoKey(p)] = c.toDataURL('image/jpeg', 0.82);
+      if (!savePhotos()) { delete PHOTOS[photoKey(p)]; toast('Sem espaço para guardar mais fotos neste aparelho.', true); return; }
+      toast('Foto salva neste aparelho.'); refreshModal(); render();
+    };
+    img.onerror = () => toast('Não deu para abrir essa imagem.', true);
+    img.src = url;
+  };
+  inp.click();
+});
+act('pPhotoDel', (el) => { const p = S.players[+el.dataset.id]; if (!p) return; delete PHOTOS[photoKey(p)]; savePhotos(); refreshModal(); render(); });
+act('luView', (el) => { UIPREF.luList = el.dataset.v === '1'; saveUIPref(); render(); });
 act('setMent', (el) => { S.teams[S.user.team].ment = +el.dataset.v; render(); });
 act('autoXI', () => {
   const t = S.teams[S.user.team];
@@ -9139,22 +9248,7 @@ act('setRole', (el) => { const t = S.teams[S.user.team]; t.pi = Object.assign({}
 
 /* ===================== player modal & negotiations ===================== */
 function playerAvatar(p, size = 84) {
-  const t = S.teams[p.t] || null;
-  const kit = t ? t.c1 : '#5b6b72', kit2 = t ? t.c2 : '#cfd8dc';
-  const h = hashStr(p.n);
-  const skins = ['#f1c9a5', '#e0ac85', '#c68b62', '#a8683f', '#7d4a2a', '#5a3420'];
-  const groupDark = ['NGA', 'GHA', 'CIV', 'SEN', 'CMR', 'MLI', 'COD', 'BFA', 'GUI', 'GAB', 'ANG', 'ZAM', 'TOG', 'BEN', 'JAM', 'HAI', 'CUW', 'RSA', 'CPV', 'GAM', 'GNB', 'EQG', 'KEN', 'UGA', 'MOZ', 'ZIM', 'TRI', 'SUR'];
-  let si = h % 4;
-  if (groupDark.includes(p.nat)) si = 3 + (h % 3);
-  if (p.nat === 'BRA' || p.nat === 'COL') si = (h % 6);
-  const skin = skins[si];
-  const hair = ['#1b1410', '#2b1d14', '#4a3020', '#7a5230', '#c8a060', '#111'][(h >> 4) % 6];
-  const style = (h >> 7) % 4;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" fill="rgba(255,255,255,0.06)"/>
-    <path d="M14 100 C16 76 30 68 50 68 C70 68 84 76 86 100Z" fill="${kit}"/><path d="M40 68 L50 80 L60 68" fill="${kit2}"/>
-    <rect x="43" y="56" width="14" height="14" rx="5" fill="${skin}"/><ellipse cx="50" cy="42" rx="17" ry="20" fill="${skin}"/>
-    ${style === 0 ? `<path d="M33 38 C33 22 67 22 67 38 C64 30 36 30 33 38Z" fill="${hair}"/>` : style === 1 ? `<path d="M32 40 C30 18 70 18 68 40 C66 26 34 26 32 40Z" fill="${hair}"/><path d="M33 36 L31 46 L35 44Z" fill="${hair}"/><path d="M67 36 L69 46 L65 44Z" fill="${hair}"/>` : style === 2 ? `<ellipse cx="50" cy="26" rx="16" ry="7" fill="${hair}"/>` : `<path d="M34 34 C36 22 64 22 66 34 L66 30 C60 24 40 24 34 30Z" fill="${hair}"/>`}
-    <circle cx="44" cy="44" r="1.8" fill="#1a1a1a"/><circle cx="56" cy="44" r="1.8" fill="#1a1a1a"/><path d="M45 53 Q50 56 55 53" stroke="#5a3a2a" stroke-width="1.5" fill="none"/></svg>`;
+  return `<span class="pav" style="width:${size}px;height:${size}px">${portraitSvg(p, { tag: 'a' + size })}</span>`;
 }
 function attrBars(p) {
   const labels = p.p === 'GK' ? ['MER', 'MAN', 'CHU', 'REF', 'VEL', 'POS'] : ['RIT', 'FIN', 'PAS', 'DRI', 'DEF', 'FÍS'];
@@ -9212,7 +9306,8 @@ function openPlayerModal(pid) {
     const career = p.car || [0, 0, 0];
     return modalShell(esc(p.n), `
       <div class="row wrap" style="gap:18px;align-items:flex-start">
-        ${playerAvatar(p, 104)}
+        <div class="col" style="gap:8px;align-items:center">${S.pl && S.pl.look && p.id === S.pl.pid ? playerAvatar(p, 104) : fifaCard(p, { size: 'lg', stats: true })}
+          <div class="row" style="gap:6px;justify-content:center"><button class="btn sm" data-a="pPhoto" data-id="${p.id}">📷 ${PHOTOS[photoKey(p)] ? 'Trocar foto' : 'Pôr foto'}</button>${PHOTOS[photoKey(p)] ? `<button class="btn sm" data-a="pPhotoDel" data-id="${p.id}" aria-label="Remover foto">✕</button>` : ''}</div></div>
         <div class="grow" style="min-width:220px">
           <div class="row wrap">${ovrBadge(p.o)}${formTag(p, true)} ${posBadge(p.p)} ${p.alt ? `<span class="muted" style="font-size:13px">também ${p.alt.split(',').map((x) => POS_PT[x] || x).join(', ')}</span>` : ''}</div>
           <div class="kv" style="margin-top:10px">
@@ -9232,7 +9327,7 @@ function openPlayerModal(pid) {
       </div>
       <div class="grid g2" style="margin-top:16px">
         <div><h3 style="font-size:18px;margin-bottom:6px">Temporada</h3>${playerSeasonRows(p) ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Competição</th><th class="n">J</th><th class="n">G</th><th class="n">A</th><th class="n">Nota</th></tr></thead><tbody>${playerSeasonRows(p)}</tbody></table></div>` : '<div class="muted">Sem jogos nesta temporada.</div>'}</div>
-        <div><h3 style="font-size:18px;margin-bottom:6px">Carreira no jogo</h3><div class="grid g3"><div class="stat-tile"><div class="k">Jogos</div><div class="v">${career[0]}</div></div><div class="stat-tile"><div class="k">Gols</div><div class="v">${career[1]}</div></div><div class="stat-tile"><div class="k">Assist.</div><div class="v">${career[2]}</div></div></div></div>
+        <div><h3 style="font-size:18px;margin-bottom:6px">Carreira no jogo</h3><div class="grid g3"><div class="stat-tile"><div class="k">Jogos</div><div class="v">${career[0]}</div></div><div class="stat-tile"><div class="k">Gols</div><div class="v">${career[1]}</div></div><div class="stat-tile"><div class="k">Assist.</div><div class="v">${career[2]}</div></div></div>
           ${p.ns && p.ns[0] ? `<div class="muted" style="margin-top:8px;font-size:13px">${natFlag(p.nat, 14)} Seleção (datas FIFA no jogo): <b style="color:var(--text)">${p.ns[0]} jogos, ${p.ns[1]} gols</b></div>` : ''}
           ${p.hon && p.hon.length ? `<h3 style="font-size:16px;margin:12px 0 6px">Prêmios individuais</h3><div class="row wrap" style="gap:6px">${p.hon.slice().reverse().slice(0, 14).map((h) => `<span class="chip" style="${/Bola de Ouro|Kopa|Chuteira/.test(h) ? 'background:#ffd21f;color:#1b1b1b' : ''}">🏅 ${esc(h)}</span>`).join('')}</div>` : ''}</div>
       </div>`, actions ? `<div class="row wrap" style="gap:8px;justify-content:flex-end">${actions}</div>` : '', '');

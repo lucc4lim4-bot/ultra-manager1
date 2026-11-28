@@ -944,6 +944,89 @@ html[data-uinav="bottom"] .topbar { -webkit-backdrop-filter: none !important; ba
 }
 @media (max-width: 640px) { .hh-team .form-row { display: none; } .hh-nm { font-size: 17px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; } }
 @media (max-width: 720px) { .hub2 .grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .hub2 .stat-tile .v { font-size: 22px; } }
+
+/* ===================== V76: FIFA-style player cards ===================== */
+.fc { --c1: #e9c46a; --c2: #b8862b; --ink: #2b1d05; --edge: rgba(255,240,200,0.75);
+  position: relative; width: 84px; aspect-ratio: 0.74; border-radius: 12px 12px 14px 14px; color: var(--ink); overflow: hidden; flex: none;
+  background: radial-gradient(120% 70% at 50% 0%, rgba(255,255,255,0.55), transparent 55%), linear-gradient(160deg, var(--c1), var(--c2));
+  box-shadow: 0 0 0 1px var(--edge) inset, 0 0 0 1px rgba(0,0,0,0.35), 0 8px 18px -6px rgba(0,0,0,0.6); }
+.fc::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.28) 50%, transparent 60%); background-size: 260% 100%; background-position: 120% 0; transition: background-position .7s ease; }
+.pslot:hover .fc::after, .bc:hover .fc::after, .fc.lg::after { background-position: -20% 0; }
+.fc.ag { --c1: #e8edf1; --c2: #9aa6b0; --ink: #1d262c; --edge: rgba(255,255,255,0.8); }
+.fc.cu { --c1: #e0a777; --c2: #8c5531; --ink: #2a1407; --edge: rgba(255,220,190,0.6); }
+.fc.au { --c1: #f6dc85; --c2: #c39530; --ink: #2b1d05; }
+.fc.sp { --c1: #1b1f3a; --c2: #0a0c1c; --ink: #f6e08e; --edge: rgba(246,224,142,0.85); background: radial-gradient(120% 70% at 50% 0%, rgba(120,140,255,0.45), transparent 60%), linear-gradient(160deg, #262c5a, #0a0c1c); }
+.fc.none { --c1: rgba(255,255,255,0.12); --c2: rgba(255,255,255,0.04); --ink: var(--text); --edge: rgba(255,255,255,0.35); border: 1px dashed rgba(255,255,255,0.45); box-shadow: none; }
+.fc-l { position: absolute; left: 6%; top: 6%; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1; }
+.fc-l b { font-family: var(--f-display); font-weight: 800; font-size: 1.5em; letter-spacing: -0.02em; }
+.fc-l span { font-family: var(--f-display); font-weight: 700; font-size: 0.72em; letter-spacing: .04em; }
+.fc-l i { font-style: normal; display: block; margin-top: 2px; }
+.fc-l .fc-nat { font-size: 0.55em; font-weight: 800; opacity: .75; }
+.fc-pt { position: absolute; left: 14%; right: -4%; top: 3%; bottom: 24%; display: flex; align-items: flex-end; justify-content: center; }
+.fc-pt .portrait { width: 100%; height: 100%; display: block; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.3)); }
+.fc-plus { font-size: 2em; font-weight: 300; opacity: .6; align-self: center; margin-right: 18%; }
+.fc-nm { position: absolute; left: 0; right: 0; bottom: 0; height: 24%; display: grid; place-items: center; padding: 0 5%; font-family: var(--f-display); font-weight: 800; font-size: 0.78em; text-transform: uppercase; letter-spacing: .01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: linear-gradient(180deg, rgba(0,0,0,0.04), rgba(0,0,0,0.16)); border-top: 1px solid rgba(0,0,0,0.12); }
+.fc.sp .fc-nm { background: linear-gradient(180deg, rgba(246,224,142,0.1), rgba(246,224,142,0.2)); border-top-color: rgba(246,224,142,0.3); }
+.fc { font-size: 13px; }
+.fc.sm { width: 74px; font-size: 12px; }
+.fc.xs { width: 66px; font-size: 11px; }
+.fc.lg { width: 150px; font-size: 20px; aspect-ratio: 0.66; border-radius: 18px 18px 22px 22px; }
+.fc.lg .fc-pt { bottom: 40%; }
+.fc.lg .fc-nm { bottom: 23%; height: 15%; font-size: 0.8em; }
+.fc-st { position: absolute; left: 6%; right: 6%; bottom: 4%; height: 18%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 4px; font-size: 0.5em; font-weight: 700; align-content: center; }
+.fc-st span { display: flex; gap: 4px; justify-content: center; align-items: baseline; }
+.fc-st b { font-family: var(--f-display); font-size: 1.35em; }
+
+/* pitch with cards */
+.pitch { max-width: 720px; background: radial-gradient(70% 50% at 50% 50%, rgba(255,255,255,0.06), transparent 70%), repeating-linear-gradient(180deg, var(--pitch1) 0 8.33%, var(--pitch2) 8.33% 16.66%); box-shadow: inset 0 0 90px rgba(0,0,0,0.45), 0 20px 50px -24px rgba(0,0,0,0.7); }
+.pslot.fcs { width: 84px; gap: 4px; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+.pslot.fcs .fc { transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s; }
+.pslot.fcs:hover .fc { transform: scale(1.07); }
+.pslot.fcs:hover { z-index: 3; }
+.pslot.fcs .fitbar { width: 56px; height: 4px; }
+.pslot.fcs.sel .fc { box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--gold), 0 0 26px rgba(255,210,80,0.7); }
+.pslot.fcs.oop .fc-l span { color: #c0392b; }
+.pslot.fcs.drop .fc { box-shadow: 0 0 0 3px var(--accent-hi), 0 0 24px var(--accent-glow); }
+.pslot.fcs .warn { top: -6px; right: 4px; z-index: 4; background: rgba(0,0,0,0.7); border-radius: 50%; width: 18px; height: 18px; display: grid; place-items: center; font-size: 12px; }
+.sp-tags { z-index: 4; }
+/* bench and reserves as cards */
+.bench-list.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px 8px; justify-items: center; }
+.bp.bc { flex-direction: column; gap: 4px; padding: 4px 2px; width: auto; position: relative; border-radius: 12px; }
+.bp.bc:hover { background: var(--panel2); }
+.bp.bc.sel { background: none; border-color: transparent; }
+.bp.bc.sel .fc { box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--gold), 0 0 22px rgba(255,210,80,0.6); }
+.bp.bc .fit { width: 54px; }
+.bc-f { position: absolute; top: 0; right: 0; display: flex; gap: 2px; font-size: 11px; z-index: 3; }
+.bc-f:empty { display: none; }
+.sm-seg button { padding: 4px 10px; font-size: 12px; }
+/* attack / midfield / defence ratings */
+.lr-tiles { display: flex; gap: 6px; align-items: stretch; }
+.lr { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 52px; padding: 6px 8px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); }
+.lr span { font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--muted); }
+.lr b { font-family: var(--f-display); font-size: 22px; line-height: 1; }
+.lr b.au { color: #f2c94c; } .lr b.sp { color: #a9b4ff; } .lr b.ag { color: #d6dde2; } .lr b.cu { color: #e0a777; }
+.lr.big { min-width: 64px; border-color: var(--line2); }
+html[data-ui="light"] .lr b.au { color: #b8860b; } html[data-ui="light"] .lr b.ag { color: #6b7780; } html[data-ui="light"] .lr b.cu { color: #a0582a; } html[data-ui="light"] .lr b.sp { color: #3b46c4; }
+/* round portraits elsewhere */
+.pav { display: inline-block; flex: none; border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.14), rgba(255,255,255,0.03)); box-shadow: 0 0 0 1px var(--line2) inset; }
+.pav .portrait { width: 100%; height: 100%; display: block; }
+@media (max-width: 640px) {
+  .pslot.fcs { width: 60px; }
+  .fc.sm { width: 58px; font-size: 9.5px; }
+  .pslot.fcs .fitbar { width: 44px; height: 3px; }
+  .lr-tiles { width: 100%; }
+  .lr { flex: 1; min-width: 0; }
+}
+@media (max-width: 900px) { .lineup-wrap > .col:last-child .bench-list.cards { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); } }
+html[data-ui="retro"] .fc { border-radius: 0 !important; }
+.portrait.photo { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; display: block; }
+.fc .fc-pt .portrait.photo { position: absolute; inset: 0; border-radius: 6px; -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
+.fc .fc-pt { left: 22%; right: 0; top: 2%; bottom: 23%; }
+.fc.lg .fc-pt { left: 20%; bottom: 38%; }
+.fc-st { font-size: 0.46em; }
+.fc:has(.portrait.photo) .fc-pt { left: 30%; right: 3%; top: 4%; }
+.fc:has(.portrait.photo) .fc-l { text-shadow: 0 1px 0 rgba(255,255,255,0.35); }
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>
