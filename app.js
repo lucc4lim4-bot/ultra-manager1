@@ -6052,7 +6052,7 @@ function sponsInit() {
   if (!S.spons) S.spons = { team: 0, std: null, shirt: null, kit: null, offers: { std: [], shirt: [], kit: [] }, offD: -999, total: 0, hist: [] };
   for (const k of SP_SLOTS) { if (S.spons[k] === undefined) S.spons[k] = null; if (!S.spons.offers[k]) S.spons.offers[k] = []; }
   const uid = S.user && S.user.team;
-  if (S.spons.team !== uid) Object.assign(S.spons, { team: uid || 0, std: null, shirt: null, sec1: null, sec2: null, kit: null, offers: { std: [], shirt: [], sec1: [], sec2: [], kit: [] }, offD: -999 }); // new club: new deals
+  if (S.spons.team !== uid) { Object.assign(S.spons, { team: uid || 0, std: null, shirt: null, sec1: null, sec2: null, kit: null, offers: { std: [], shirt: [], sec1: [], sec2: [], kit: [] }, offD: -999 }); if (uid && S.teams[uid] && !S.teams[uid].isNat) sponsPreload(S.spons, S.teams[uid]); } // new club: its current deals
   return S.spons;
 }
 function sponsAvailable() { return !!(S.user && S.user.team && !S.coach.unemployed && !S.pl && S.mode !== 'national' && S.teams[S.user.team] && !S.teams[S.user.team].isNat); }
@@ -6073,6 +6073,7 @@ function sponsBrandOf(teamId) {
   if (s && teamId === s.team) return s.shirt ? s.shirt.b : -1;
   const t = S.teams[teamId];
   if (!t || t.isNat) return -1;
+  { const d = CLUB_DEALS.get(t); if (d) return d.sp; } // its real front-of-shirt sponsor (-1: none right now)
   const h = hashStr('sp' + teamId + (t.n || ''));
   const real = spRealIdx();
   return (t.fin || 0) >= 2 || t.c === 'BRA' ? real[h % real.length] : h % SP_BRANDS.length; // bigger clubs carry real companies
@@ -6260,6 +6261,91 @@ const SP_SUPS = [
   { n: 'Penalty', pr: 1, ic: 'cup', sh: 1, c1: '#0a7a3c', c2: '#ffffff' }, { n: 'Topper', pr: 1, ic: 'play', sh: 0, c1: '#d6001c', c2: '#ffffff' },
   { n: 'Umbra Sport', pr: 1, ic: 'hex', sh: 5, c1: '#3b2a6b', c2: '#ffffff' }, { n: 'Rival Wear', pr: 1, ic: 'star', sh: 7, c1: '#1b6b4a', c2: '#ffffff' },
 ];
+// ---------- the clubs' real deals (2026 season): kit supplier and the brand on the front of the shirt.
+// Brands not yet in the game are added here (name, shirt tag, perk, colours). '-' = no front sponsor right now.
+const SP_REAL3 = [
+  ['Betano', 'BETANO', 'cash', '#ff5c00', '#ffffff'], ['Sportingbet', 'SPORTINGBET', 'cash', '#0a2f6b', '#ffffff'], ['Esportes da Sorte', 'ESPORTES DA SORTE', 'cash', '#0d7a3a', '#ffd400'],
+  ['Superbet', 'SUPERBET', 'cash', '#e30613', '#ffffff'], ['Vbet', 'VBET', 'cash', '#111111', '#ffcc00'], ['H2Bet', 'H2BET', 'cash', '#0b1f4d', '#00d1ff'],
+  ['Betnacional', 'BETNACIONAL', 'cash', '#00a651', '#ffffff'], ['Novibet', 'NOVIBET', 'cash', '#0b1b3a', '#33d17a'], ['FoxLux', 'FOXLUX', 'media', '#f39200', '#ffffff'],
+  ['Guaraná Poty', 'POTY', 'energy', '#c8102e', '#ffd200'], ['Vaidebet', 'VAIDEBET', 'cash', '#5b2d90', '#ffffff'], ['7K', '7K', 'cash', '#111111', '#ffcc00'],
+  ['ZeroUm', 'ZEROUM', 'cash', '#00a3e0', '#ffffff'], ['Pagol', 'PAGOL', 'cash', '#14a44d', '#ffffff'], ['Fatal Fans', 'FATAL FANS', 'media', '#111111', '#e30613'],
+  ['Riyadh Air', 'RIYADH AIR', 'bonus', '#3d1d6b', '#ffffff'], ['Snapdragon', 'SNAPDRAGON', 'media', '#d6001c', '#ffffff'], ['Etihad', 'ETIHAD', 'bonus', '#bd8b13', '#ffffff'],
+  ['Sela', 'SELA', 'bonus', '#00a19b', '#ffffff'], ['Telekom', 'T', 'media', '#e20074', '#ffffff'], ['Vodafone', 'VODAFONE', 'media', '#e60000', '#ffffff'],
+  ['CMA CGM', 'CMA CGM', 'bonus', '#0c2a5b', '#e30613'], ['Betsson', 'BETSSON', 'cash', '#ff6600', '#ffffff'], ['MSC', 'MSC', 'bonus', '#00205b', '#ffffff'],
+  ['Ziggo', 'ZIGGO', 'media', '#f48c00', '#ffffff'], ['Royal Caribbean', 'ROYAL CARIBBEAN', 'bonus', '#0a2f6b', '#ffffff'], ['Barmenia', 'BARMENIA', 'cash', '#00539b', '#ffffff'],
+];
+(function addRealBrands3() {
+  const have = new Map(SP_BRANDS.map((x, i) => [x[0], i]));
+  for (const [n, tag, perk, c1, c2] of SP_REAL3) {
+    if (have.has(n)) continue;
+    SP_BRANDS.push([n, tag, n, perk, { sh: (hashStr(n) >>> 9) % 9, c1, c2 }, 1]);
+  }
+})();
+SP_SUPS.push({ n: 'Volt', pr: 1, ic: 'bolt', sh: 3, c1: '#111111', c2: '#ffcc00' }, { n: 'Athleta', pr: 1, ic: 'leaf', sh: 2, c1: '#0b2a6f', c2: '#ffffff' }, { n: 'EA7', pr: 2, ic: 'star', sh: 5, c1: '#111111', c2: '#ffffff' });
+const CLUB_DEALS_SRC = `Flamengo|Adidas|Betano|2028
+Palmeiras|Puma|Sportingbet|2027
+Corinthians|Nike|Esportes da Sorte|2027
+São Paulo|New Balance|Superbet|2030
+Fluminense|Puma|Superbet|2030
+Botafogo|Mizuno|Vbet|2027
+Atlético Mineiro|Nike|H2Bet|2027
+Cruzeiro|Adidas|Betnacional|2026
+Vasco da Gama|Nike|Sportingbet|2027
+Santos|Umbro|Novibet|2027
+Grêmio|New Balance|-|
+Internacional|Adidas|-|
+Bahia|Puma|-|
+Athletico-PR|Umbro|-|
+Coritiba|Diadora|FoxLux|2026
+Red Bull Bragantino|Puma|Red Bull|2030
+Mirassol|Athleta|Guaraná Poty|2026
+Remo|Volt|Vaidebet|2026
+Vitória|Volt|7K|2027
+Chapecoense|Kappa|ZeroUm|2026
+Fortaleza|Volt|-|
+Juventude||-|
+Novorizontino||Pagol|2026
+Vila Nova||Fatal Fans|2026
+Real Madrid|Adidas|Emirates|2030
+Barcelona|Nike|Spotify|2030
+Atlético de Madrid|Nike|Riyadh Air|2027
+Manchester United|Adidas|Snapdragon|2027
+Manchester City|Puma|Etihad|2030
+Liverpool|Adidas|Standard Chartered|2027
+Arsenal|Adidas|Emirates|2028
+Tottenham|Nike|AIA|2027
+Newcastle|Adidas|Sela|2027
+Chelsea|Nike|-|
+Bayern de Munique|Adidas|Telekom|2027
+Borussia Dortmund|Puma|Vodafone|2027
+Bayer Leverkusen|New Balance|Barmenia|2027
+RB Leipzig|Puma|Red Bull|2030
+PSG|Nike|Qatar Airways|2028
+Olympique de Marseille|Puma|CMA CGM|2027
+Inter de Milão|Nike|Betsson|2027
+Milan|Puma|Emirates|2030
+Napoli|EA7|MSC|2027
+Benfica|Adidas|Emirates|2027
+Ajax|Adidas|Ziggo|2027
+Inter Miami|Adidas|Royal Caribbean|2027
+Boca Juniors|Adidas|Betsson|2027`;
+const CLUB_DEALS = (() => {
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const m = new Map();
+  for (const line of CLUB_DEALS_SRC.split('\n')) {
+    const [n, su, sp, end] = line.split('|');
+    const sup = su ? SP_SUPS.findIndex((x) => x.n === su) : -2, b = sp && sp !== '-' ? SP_BRANDS.findIndex((x) => x[0] === sp) : -1;
+    m.set(norm(n), { sup, sp: b, end: +end || 0 });
+  }
+  return { get: (t) => (t ? m.get(norm(t.n)) || null : null) };
+})();
+// the user's new club arrives with its real contracts already running (they can be ended and replaced as usual)
+function sponsPreload(s, t) {
+  const d = CLUB_DEALS.get(t); if (!d) return;
+  const y0 = yearOf(S.date), yrsTo = (end) => Math.max(1, (end || y0 + 2) - y0 + 1);
+  if (d.sp >= 0 && !s.shirt) { const yrs = yrsTo(d.end), per = roundMoney(sponsBase(t) * 0.16 * (SP_BRANDS[d.sp][3] === 'cash' ? 1.2 : 0.92)); s.shirt = { b: d.sp, yrs, perYear: per, start: S.date, end: S.date + Math.round(yrs * 365), signing: 0, winBonus: roundMoney(per * 0.012), real: 1 }; }
+  if (d.sup >= 0 && !s.kit) { const yrs = yrsTo(d.end), pr = SP_SUPS[d.sup].pr, per = roundMoney(sponsBase(t) * 0.14 * [0, 0.8, 1.1, 1.5][pr]); s.kit = { b: d.sup, yrs, perYear: per, start: S.date, end: S.date + Math.round(yrs * 365), signing: 0, real: 1 }; }
+}
 const SP_SUP_PERK = { 3: 'Marca de ponta: +2 de moral para o elenco todo mês.', 2: 'Linha profissional: contrato estável e luvas altas.', 1: 'Marca modesta: paga menos, mas aceita contratos longos.' };
 // "logo models": how a sponsor / supplier mark is laid out on the shirt
 const SP_LOGO_MODELS = [
@@ -6292,6 +6378,7 @@ function supplierOf(teamId) {
   if (s && teamId === s.team) return s.kit ? s.kit.b : -1;
   const t = S.teams[teamId];
   if (!t || t.isNat) return -1;
+  { const d = CLUB_DEALS.get(t); if (d && d.sup >= 0) return d.sup; }
   const h = hashStr('su' + teamId + (t.n || ''));
   if ((t.fin || 0) >= 3 || ((t.c === 'BRA' || t.c === 'ARG') && (t.fin || 0) >= 2)) return h % 4; // big clubs wear the big brands
   return h % SP_SUPS.length;
@@ -19539,7 +19626,7 @@ function kitEffective(t, role) { return Object.assign({}, KIT_LOGO_DEF, kitBase(
 // which marks the club wears right now (for the preview): the shirt sponsor and the kit supplier of the user's contracts
 function kitLogoOpts(t) {
   const s = typeof sponsActive === 'function' ? sponsActive() : null;
-  if (!s || s.team !== t.id) return { sp: null, sup: -1, cr: t.id };
+  if (!s || s.team !== t.id) { const b = sponsBrandOf(t.id), su = supplierOf(t.id); return { sp: b >= 0 ? { b, tag: SP_BRANDS[b][1] } : null, sup: su, cr: t.id }; } // the other clubs: their own (real) deals
   const sec = (k) => (s[k] ? { b: s[k].b, tag: SP_BRANDS[s[k].b][1] } : null);
   return { sp: sec('shirt'), s1: sec('sec1'), s2: sec('sec2'), sup: s.kit ? s.kit.b : -1, cr: t.id };
 }
