@@ -1064,8 +1064,8 @@ function sideRatings(side, day) {
     const p = S.players[pid];
     if (!p) return;
     const pos = side.slotsOn[i];
-    const r = effRating(p, pos, day);
-    const g = POS_GROUP[pos];
+    const g = POS_GROUP[pos] || 'MID', pb = psLineBonus(p);
+    const r = effRating(p, pos, day) + (g === 'GK' ? pb.GK : g === 'DEF' ? pb.D + pb.M * 0.25 : g === 'MID' ? pb.M + (pb.A + pb.D) * 0.3 : pb.A + pb.M * 0.3);
     if (g === 'GK') gk = r;
     else if (g === 'DEF') { def += r; defW++; if (pos !== 'CB') { mid += r * 0.3; midW += 0.3; } }
     else if (g === 'MID') { mid += r; midW++; if (pos === 'CAM' || pos === 'RM' || pos === 'LM') { att += r * 0.6; attW += 0.6; } else { def += r * 0.4; defW += 0.4; } }
@@ -1123,12 +1123,12 @@ const SCORE_W = { ST: 5, LW: 3.2, RW: 3.2, CAM: 2.6, LM: 1.8, RM: 1.8, CM: 1.15,
 const ASSIST_W = { CAM: 3, LW: 2.8, RW: 2.8, LM: 2.4, RM: 2.4, CM: 2, ST: 1.6, LB: 1.4, RB: 1.4, CDM: 1, CB: 0.4, GK: 0.05 };
 function pickScorer(side) {
   const opts = side.on.map((pid, i) => ({ pid, pos: side.slotsOn[i] })).filter((x) => x.pid);
-  return weighted(opts, (x) => { const p = S.players[x.pid]; const sh = p.a ? p.a[1] : p.o; return SCORE_W[x.pos] * Math.pow(Math.max(20, x.pos === 'GK' ? 20 : sh) / 70, 2.2); }).pid;
+  return weighted(opts, (x) => { const p = S.players[x.pid]; const sh = p.a ? p.a[1] : p.o; return SCORE_W[x.pos] * Math.pow(Math.max(20, x.pos === 'GK' ? 20 : sh) / 70, 2.2) * psHas(p, 'fin'); }).pid;
 }
 function pickAssister(side, scorer) {
   const opts = side.on.map((pid, i) => ({ pid, pos: side.slotsOn[i] })).filter((x) => x.pid && x.pid !== scorer);
   if (!opts.length) return 0;
-  return weighted(opts, (x) => { const p = S.players[x.pid]; const pa = p.a ? p.a[2] : p.o; return ASSIST_W[x.pos] * Math.pow(Math.max(20, pa) / 70, 2); }).pid;
+  return weighted(opts, (x) => { const p = S.players[x.pid]; const pa = p.a ? p.a[2] : p.o; return ASSIST_W[x.pos] * Math.pow(Math.max(20, pa) / 70, 2) * psHas(p, 'pas'); }).pid;
 }
 function pickAny(side, excludeGK = true) {
   const opts = side.on.map((pid, i) => ({ pid, pos: side.slotsOn[i] })).filter((x) => x.pid && (!excludeGK || x.pos !== 'GK'));
@@ -8845,6 +8845,106 @@ act('rnAll', () => {
 });
 act('subtab', (el) => { UI.sub[el.dataset.g] = el.dataset.k; UI.sel = null; render(); });
 
+// ------------------------------------------------------------------ PlayStyles and PlayStyles+ (as in EA FC 26)
+// Every player gets them from his attributes, position, height and overall (same result every time, nothing to save):
+// silver PlayStyles for what he does well, gold PlayStyles+ only for those who stand out in that skill at his position.
+// In the simulation each one adds a little to the line it helps and to the chance of scoring or assisting.
+// attrs: outfield [pac, sho, pas, dri, def, phy], keepers [div, han, kick, ref, spd, pos]
+const PS_CATS = { fin: 'Finalização', pas: 'Passe', bc: 'Controle de bola', def: 'Defesa', phy: 'Físico', gk: 'Goleiro' };
+const ATT_P = ['ST', 'CF'], WIDE = ['RW', 'LW', 'RM', 'LM'], FB = ['RB', 'LB', 'RWB', 'LWB'], CMS = ['CM', 'CDM', 'CAM'];
+const inP = (pos, ...lists) => lists.some((l) => l.includes(pos));
+// [key, name, cat, line it helps (A/M/D/GK), base effect, plus effect, suitability(p, a, pos) -> 0..100 or 0 if not his thing, glyph]
+const PLAYSTYLES = [
+  ['finesse', 'Chute colocado', 'fin', 'A', 'Chutes colocados com mais curva e precisão.', 'Chutes colocados com curva e precisão máximas.', (p, a, s) => inP(s, ATT_P, WIDE, ['CAM']) && a[1] * 0.55 + a[3] * 0.45, 'M5 18c3-10 9-12 14-12m0 0-4-1m4 1-1 4'],
+  ['power', 'Chute potente', 'fin', 'A', 'Chutes fortes saem mais rápidos e precisos.', 'Chutes fortes com velocidade e precisão máximas.', (p, a, s) => inP(s, ATT_P, CMS, WIDE) && a[1] * 0.6 + a[5] * 0.4, 'M13 3 6 13h5l-1 8 7-10h-5z'],
+  ['lowdriven', 'Chute rasteiro', 'fin', 'A', 'Chutes rasteiros e fortes, difíceis para o goleiro.', 'Chutes rasteiros com força e precisão máximas.', (p, a, s) => inP(s, ATT_P, WIDE) && a[1] * 0.7 + a[0] * 0.3, 'M3 17h15m0 0-4-4m4 4-4 4M3 21h18'],
+  ['chip', 'Cavadinha', 'fin', 'A', 'Cavadinhas mais precisas por cima do goleiro.', 'Cavadinhas com precisão máxima.', (p, a, s) => inP(s, ATT_P, ['CAM']) && a[1] * 0.5 + a[3] * 0.5 - 2, 'M4 19c4-14 12-14 16 0M18 15l2 4 2-3'],
+  ['deadball', 'Bola parada', 'fin', 'A', 'Faltas, escanteios e pênaltis com mais efeito e precisão.', 'Bolas paradas com efeito e precisão máximos.', (p, a, s) => s !== 'GK' && !inP(s, ['CB']) && a[2] * 0.6 + a[1] * 0.4 - 4, 'M12 15a3 3 0 1 0 0 .1M5 20h14M6 6c4-3 9-3 12 2'],
+  ['header', 'Cabeceio preciso', 'fin', 'A', 'Cabeçadas mais precisas no ataque.', 'Cabeçadas com precisão máxima.', (p, a, s) => inP(s, ATT_P, ['CB']) && a[5] * 0.55 + a[1] * 0.25 + ((p.h || 180) - 180) * 0.9 + 12, 'M9 9a3 3 0 1 0 0 .1M9 12v8m10-14a2 2 0 1 0 0 .1M12 9l5-2'],
+  ['gamechanger', 'Decisivo', 'fin', 'A', 'Chutes de efeito, trivela e de letra com mais precisão.', 'Chutes de efeito com precisão máxima.', (p, a, s) => inP(s, ATT_P, WIDE, ['CAM']) && a[3] * 0.6 + a[1] * 0.4 - 3, 'M12 3l2.6 5.6 6 .7-4.5 4 1.3 6L12 16.3 6.6 19.3l1.3-6-4.5-4 6-.7z'],
+  ['acrobatic', 'Acrobático', 'fin', 'A', 'Voleios e bicicletas mais precisos.', 'Acrobacias com precisão máxima.', (p, a, s) => inP(s, ATT_P) && a[3] * 0.45 + a[1] * 0.35 + a[0] * 0.2 - 3, 'M5 15c2-6 8-9 14-6M8 20l3-5 4 3M17 6a2 2 0 1 0 0 .1'],
+  ['incisive', 'Passe incisivo', 'pas', 'M', 'Passes em profundidade mais precisos.', 'Passes em profundidade com precisão máxima.', (p, a, s) => inP(s, CMS, WIDE, ATT_P) && a[2] * 0.7 + a[3] * 0.3, 'M3 12h14m0 0-5-5m5 5-5 5M20 5v14'],
+  ['pinged', 'Passe veloz', 'pas', 'M', 'Passes rasteiros mais rápidos e precisos.', 'Passes rasteiros com velocidade máxima.', (p, a, s) => s !== 'GK' && !inP(s, ATT_P) && a[2] * 0.75 + a[5] * 0.25 - 1, 'M3 9h12M3 15h16m0 0-4-4m4 4-4 4'],
+  ['longball', 'Lançamento longo', 'pas', 'M', 'Lançamentos longos mais precisos.', 'Lançamentos longos com precisão máxima.', (p, a, s) => inP(s, CMS, ['CB'], FB) && a[2] * 0.7 + a[5] * 0.3 - 1, 'M3 19C6 7 16 5 21 9m0 0-5 0m5 0-2 4'],
+  ['tikitaka', 'Tiki-taka', 'pas', 'M', 'Toques de primeira curtos e precisos.', 'Toques de primeira com precisão máxima.', (p, a, s) => inP(s, CMS) && a[2] * 0.5 + a[3] * 0.5, 'M6 8a2 2 0 1 0 0 .1M18 8a2 2 0 1 0 0 .1M12 18a2 2 0 1 0 0 .1M8 9l3 7m5-7-3 7M8 8h8'],
+  ['whipped', 'Cruzamento', 'pas', 'M', 'Cruzamentos mais rápidos, curvos e precisos.', 'Cruzamentos com curva e precisão máximas.', (p, a, s) => inP(s, FB, WIDE) && a[2] * 0.6 + a[0] * 0.4, 'M4 20c0-9 6-14 16-15m0 0-4-2m4 2-2 4'],
+  ['inventive', 'Criativo', 'pas', 'M', 'Passes de efeito, de calcanhar e de letra mais precisos.', 'Passes criativos com precisão máxima.', (p, a, s) => inP(s, ['CAM', 'CM']) && a[2] * 0.5 + a[3] * 0.5 - 2, 'M12 3v4M5 7l3 3M19 7l-3 3M8 15a4 4 0 1 0 8 0 4 4 0 1 0-8 0'],
+  ['firsttouch', 'Primeiro toque', 'bc', 'M', 'Domina a bola com mais facilidade sob pressão.', 'Domínio perfeito em qualquer situação.', (p, a, s) => s !== 'GK' && a[3] * 0.85 + a[2] * 0.15 - 2, 'M12 13a4 4 0 1 0 0 .1M4 6l4 3M20 6l-4 3'],
+  ['press', 'À prova de pressão', 'bc', 'M', 'Protege melhor a bola quando é pressionado.', 'Quase impossível de desarmar sob pressão.', (p, a, s) => inP(s, CMS, ['CB']) && a[3] * 0.5 + a[5] * 0.5, 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z'],
+  ['rapid', 'Arrancada', 'bc', 'A', 'Conduz a bola em velocidade com menos erros.', 'Conduz em velocidade máxima sem perder a bola.', (p, a, s) => inP(s, WIDE, ATT_P, FB) && a[0] * 0.7 + a[3] * 0.3, 'M3 8h7M2 12h9M3 16h7M14 6l6 6-6 6'],
+  ['trickster', 'Habilidoso', 'bc', 'A', 'Dribles e fintas mais rápidos e eficientes.', 'Dribles com velocidade e eficiência máximas.', (p, a, s) => inP(s, WIDE, ATT_P, ['CAM']) && a[3] * 0.85 + a[0] * 0.15 - 1, 'M4 18c4-1 4-7 8-7s4 6 8 6M8 6a2 2 0 1 0 0 .1'],
+  ['technical', 'Técnico', 'bc', 'A', 'Conduz com toques curtos, rápido e com controle.', 'Condução técnica com controle máximo.', (p, a, s) => inP(s, WIDE, ['CAM', 'CM'], ATT_P) && a[3] * 0.65 + a[0] * 0.35 - 1, 'M6 18c2-6 4-6 6 0s4 6 6 0M12 6a2 2 0 1 0 0 .1'],
+  ['block', 'Bloqueio', 'def', 'D', 'Alcança e bloqueia mais chutes e passes.', 'Bloqueia chutes e passes com alcance máximo.', (p, a, s) => inP(s, ['CB', 'CDM'], FB) && a[4] * 0.6 + a[5] * 0.4, 'M5 5h14v14H5zM5 12h14M12 5v14'],
+  ['bruiser', 'Trombador', 'def', 'D', 'Mais força nas disputas de corpo.', 'Força máxima nas disputas de corpo.', (p, a, s) => inP(s, ['CB', 'CDM'], ATT_P) && a[5] * 0.75 + a[4] * 0.25 + ((p.h || 180) - 182) * 0.3, 'M7 10V6a2 2 0 0 1 4 0v4m0-3a2 2 0 0 1 4 0v4m0-2a2 2 0 0 1 4 0v5c0 4-3 6-7 6s-7-3-7-7v-3'],
+  ['intercept', 'Interceptação', 'def', 'D', 'Antecipa e intercepta mais passes.', 'Interceptações com alcance e reação máximos.', (p, a, s) => inP(s, ['CB', 'CDM', 'CM'], FB) && a[4] * 0.7 + a[2] * 0.3, 'M3 12h18M12 3v18M7 7l10 10'],
+  ['jockey', 'Marcação', 'def', 'D', 'Acompanha melhor o atacante no mano a mano.', 'Marcação no mano a mano com eficiência máxima.', (p, a, s) => inP(s, ['CB'], FB, ['CDM']) && a[4] * 0.6 + a[0] * 0.4, 'M8 6a2 2 0 1 0 0 .1M16 6a2 2 0 1 0 0 .1M8 9v6l-2 5M16 9v6l2 5M8 12h8'],
+  ['slide', 'Carrinho', 'def', 'D', 'Carrinhos mais precisos, recuperando a bola.', 'Carrinhos com precisão e alcance máximos.', (p, a, s) => inP(s, ['CB', 'CDM'], FB) && a[4] * 0.75 + a[0] * 0.25 - 1, 'M3 18h10l6-6M6 14l4-6 4 2'],
+  ['anticipate', 'Antecipação', 'def', 'D', 'Desarmes em pé mais precisos e bem cronometrados.', 'Desarmes em pé com precisão máxima.', (p, a, s) => inP(s, ['CB', 'CDM']) && a[4] * 0.85 + a[5] * 0.15, 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 3'],
+  ['aerial', 'Fortaleza aérea', 'def', 'D', 'Ganha mais bolas pelo alto na defesa.', 'Domínio aéreo máximo na defesa.', (p, a, s) => inP(s, ['CB']) && a[5] * 0.5 + a[4] * 0.4 + ((p.h || 180) - 184) * 1.0 + 8, 'M4 20h16M7 20V9l5-5 5 5v11M10 20v-5h4v5'],
+  ['relentless', 'Incansável', 'phy', 'M', 'Cansa menos e recupera o fôlego mais rápido.', 'Fôlego quase infinito durante o jogo.', (p, a, s) => s !== 'GK' && !inP(s, ['CB']) && a[5] * 0.55 + a[0] * 0.25 + a[4] * 0.2, 'M12 21s-7-4-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 6-7 10-7 10z'],
+  ['quickstep', 'Explosão', 'phy', 'A', 'Acelera mais rápido nas arrancadas.', 'Aceleração explosiva máxima.', (p, a, s) => inP(s, WIDE, ATT_P, FB) && a[0] * 0.9 + a[3] * 0.1 - 1, 'M4 20l4-8h4l4-8M14 4h4v4'],
+  ['enforcer', 'Imponente', 'phy', 'A', 'Mais força ao proteger e disputar a bola com o adversário.', 'Força máxima nas disputas com a bola.', (p, a, s) => inP(s, ATT_P, ['CDM', 'CM']) && a[5] * 0.7 + a[3] * 0.3 - 2, 'M4 12l8-8 8 8-8 8zM12 8v8M8 12h8'],
+  ['longthrow', 'Lateral longo', 'phy', 'M', 'Arremessos laterais mais longos.', 'Arremessos laterais com distância máxima.', (p, a, s) => inP(s, FB) && a[5] * 0.8 + ((p.h || 180) - 180) * 0.5 - 6, 'M12 4v10M8 8l4-4 4 4M6 20h12'],
+  ['farthrow', 'Reposição longa', 'gk', 'GK', 'Reposições com as mãos mais longas e precisas.', 'Reposições com distância e precisão máximas.', (p, a, s) => s === 'GK' && a[2] * 0.7 + a[5] * 0.3 - 2, 'M5 18c3-8 9-11 15-11m0 0-4-2m4 2-2 4'],
+  ['footwork', 'Reflexo de pé', 'gk', 'GK', 'Defende mais chutes com os pés e reflexos rápidos.', 'Reflexos e defesas com os pés no máximo.', (p, a, s) => s === 'GK' && a[3] * 0.7 + a[0] * 0.3, 'M6 18h8l4-4M8 6a2 2 0 1 0 0 .1M8 9v9'],
+  ['crossclaimer', 'Saída do gol', 'gk', 'GK', 'Agarra mais cruzamentos com segurança.', 'Domínio total das bolas cruzadas.', (p, a, s) => s === 'GK' && a[1] * 0.5 + a[5] * 0.3 + ((p.h || 188) - 188) * 0.8 + 6, 'M6 10a6 6 0 0 1 12 0v4H6zM12 4V2'],
+  ['rushout', 'Goleiro-líbero', 'gk', 'GK', 'Sai do gol mais rápido para cortar lançamentos.', 'Saídas do gol rápidas ao máximo.', (p, a, s) => s === 'GK' && a[4] * 0.6 + a[5] * 0.4 + 4, 'M4 12h12m0 0-4-4m4 4-4 4M20 5v14'],
+  ['farreach', 'Alcance', 'gk', 'GK', 'Alcança mais longe nas pontes.', 'Alcance máximo nas pontes.', (p, a, s) => s === 'GK' && a[0] * 0.75 + a[3] * 0.25, 'M3 15c4-6 14-6 18 0M3 15l2-4M21 15l-2-4'],
+  ['deflector', 'Espalmada', 'gk', 'GK', 'Espalma mais chutes para longe do perigo.', 'Espalmadas seguras ao máximo.', (p, a, s) => s === 'GK' && a[3] * 0.5 + a[1] * 0.5 - 1, 'M5 19l7-14 7 14M8 13h8'],
+];
+const PS_BY = Object.fromEntries(PLAYSTYLES.map((x) => [x[0], x]));
+const PS_CACHE = new Map();
+function psOf(p) {
+  if (!p || !p.a) return { plus: [], base: [] };
+  const key = p.id + '|' + p.o + '|' + p.p + '|' + p.a.join(',');
+  let r = PS_CACHE.get(p.id);
+  if (r && r.key === key) return r;
+  const h = hashStr('ps' + p.id + (p.n || '')) >>> 0;
+  const sc = [];
+  PLAYSTYLES.forEach((d, i) => {
+    let v = d[6](p, p.a, p.p);
+    if (v === false || !v) return;
+    v += ((h >>> (i % 24)) % 7) - 3; // a little personal variety
+    sc.push([d[0], v]);
+  });
+  sc.sort((x, y) => y[1] - x[1]);
+  const o = p.o;
+  // gold: the very best at something; the better the player, the more he can have (as in the game: stars have 2-3)
+  const maxPlus = o >= 90 ? 3 : o >= 85 ? 2 : o >= 77 ? 1 : 0;
+  const plus = [];
+  for (const [k, v] of sc) { if (plus.length >= maxPlus) break; if (v >= 86 - Math.max(0, o - 86) * 0.5) plus.push(k); }
+  const nBase = o >= 85 ? 5 : o >= 78 ? 4 : o >= 70 ? 3 : o >= 62 ? 2 : o >= 55 ? 1 : 0;
+  const base = [];
+  for (const [k, v] of sc) { if (base.length >= nBase) break; if (plus.includes(k)) continue; if (v >= 60 + (o < 65 ? 4 : 0)) base.push(k); }
+  r = { key, plus, base };
+  PS_CACHE.set(p.id, r);
+  return r;
+}
+// match: each silver one helps its line a little, each gold one more (weighted inside sideRatings)
+function psLineBonus(p) {
+  const r = psOf(p), b = { A: 0, M: 0, D: 0, GK: 0 };
+  for (const k of r.plus) b[PS_BY[k][3]] += 0.9;
+  for (const k of r.base) b[PS_BY[k][3]] += 0.3;
+  return b;
+}
+function psHas(p, cat) { const r = psOf(p); let w = 1; for (const k of r.plus) if (PS_BY[k][2] === cat) w += 0.28; for (const k of r.base) if (PS_BY[k][2] === cat) w += 0.08; return w; }
+// badge: FIFA-like rounded shape, gold for PlayStyle+, silver for PlayStyle
+function psIcon(k, plus, size = 30) {
+  const d = PS_BY[k]; if (!d) return '';
+  return `<svg class="psi ${plus ? 'pl' : 'sv'}" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><path class="psi-b" d="M16 1.5 28.5 8.7v14.6L16 30.5 3.5 23.3V8.7z"/><g transform="translate(4 4)" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d[7]}"/></g></svg>`;
+}
+function psStrip(p, size = 26, max = 6) {
+  const r = psOf(p), all = r.plus.map((k) => [k, 1]).concat(r.base.map((k) => [k, 0])).slice(0, max);
+  return all.length ? `<div class="ps-strip">${all.map(([k, pl]) => `<span title="${esc(PS_BY[k][1])}${pl ? '+' : ''}">${psIcon(k, pl, size)}</span>`).join('')}</div>` : '';
+}
+function psPanel(p) {
+  const r = psOf(p);
+  if (!r.plus.length && !r.base.length) return '<div class="ps-panel"><div class="ps-h">PlayStyles</div><div class="muted" style="font-size:13px">Nenhum PlayStyle.</div></div>';
+  const row = (k, pl) => { const d = PS_BY[k]; return `<div class="ps-it ${pl ? 'pl' : ''}">${psIcon(k, pl, 34)}<div><b>${esc(d[1])}${pl ? '<sup>+</sup>' : ''}</b><small>${esc(pl ? d[5] : d[4])}</small><i>${PS_CATS[d[2]]}</i></div></div>`; };
+  return `<div class="ps-panel"><div class="ps-h">PlayStyles <span>${r.plus.length ? `${r.plus.length} PlayStyle+ · ` : ''}${r.base.length} PlayStyle${r.base.length === 1 ? '' : 's'}</span></div>
+    <div class="ps-list">${r.plus.map((k) => row(k, 1)).join('')}${r.base.map((k) => row(k, 0)).join('')}</div></div>`;
+}
+
 // ------------------------------------------------------------------ FIFA-style player cards (lineup, bench, player window)
 // portrait: head and shoulders in the club's shirt, drawn from the player's id (same look every time)
 const PC_SKINS = ['#f3d2b6', '#e9c09c', '#d6a179', '#b98256', '#8f5b37', '#653c22'];
@@ -8912,7 +9012,7 @@ function portraitSvg(p, o = {}) {
 // card tier from the overall, as in the card games: bronze, silver, gold, special
 const cardTier = (o) => (o >= 85 ? 'sp' : o >= 75 ? 'au' : o >= 65 ? 'ag' : 'cu');
 // look of the players in the lineup: 'fig' = the little player with the rating beside and the name below, 'card' = FIFA-style card, 'list' = rows
-if (/debug=1/.test(location.search)) window.__umc = { get S() { return S; }, pcLook: (p) => pcLook(p), fifaCard: (p, o) => fifaCard(p, o), PC_SKINS };
+if (/debug=1/.test(location.search)) window.__umc = { get S() { return S; }, pcLook: (p) => pcLook(p), psOf: (p) => psOf(p), fifaCard: (p, o) => fifaCard(p, o), PC_SKINS };
 const luStyle = () => (UIPREF.luStyle === 'card' || UIPREF.luStyle === 'list' ? UIPREF.luStyle : UIPREF.luList === true ? 'list' : 'fig');
 function fifaCard(p, o = {}) {
   const pos = o.pos || p.p, ovr = o.ovr != null ? o.ovr : p.o, t = S.teams[p.t];
@@ -8920,6 +9020,8 @@ function fifaCard(p, o = {}) {
     <div class="pf-pt">${portraitSvg(p, { tag: 'f' + (o.size || ''), crop: true })}</div>
     <div class="pf-o"><b>${ovr}</b><span>${POS_PT[pos] || pos}</span></div>
     <div class="pf-nm">${esc(p.s || p.n)}</div>
+    ${!o.stats && psOf(p).plus.length ? `<span class="pf-ps" title="${esc(PS_BY[psOf(p).plus[0]][1])}+">${psIcon(psOf(p).plus[0], 1, 20)}${psOf(p).plus.length > 1 ? `<b>${psOf(p).plus.length}</b>` : ''}</span>` : ''}
+    ${o.stats ? psStrip(p, 24) : ''}
     ${o.stats ? `<div class="pf-st">${(p.a || []).map((v, i) => `<span><b>${v}</b>${(p.p === 'GK' ? ['MER', 'MAN', 'CHU', 'REF', 'VEL', 'POS'] : ['RIT', 'FIN', 'PAS', 'DRI', 'DEF', 'FÍS'])[i]}</span>`).join('')}</div>` : ''}
   </div>`;
   const nat = S.nations && S.nations[p.nat];
@@ -8927,6 +9029,7 @@ function fifaCard(p, o = {}) {
     <div class="fc-l"><b>${ovr}</b><span>${POS_PT[pos] || pos}</span>${t && !t.isNat ? `<i class="fc-cr">${crest(t, 14)}</i>` : ''}${nat ? `<i class="fc-nat" title="${esc(nat.n)}">${esc(p.nat)}</i>` : ''}</div>
     <div class="fc-pt">${portraitSvg(p, { tag: o.size || '', crop: true })}</div>
     <div class="fc-nm">${esc(p.s || p.n)}</div>
+    ${!o.stats && psOf(p).plus.length ? `<span class="pf-ps fc-ps">${psIcon(psOf(p).plus[0], 1, 18)}</span>` : ''}
     ${o.stats ? `<div class="fc-st">${(p.a || []).map((v, i) => `<span><b>${v}</b>${(p.p === 'GK' ? ['MER', 'MAN', 'CHU', 'REF', 'VEL', 'POS'] : ['RIT', 'FIN', 'PAS', 'DRI', 'DEF', 'FÍS'])[i]}</span>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -9338,7 +9441,7 @@ function openPlayerModal(pid) {
             ${mine ? `<span class="k">Moral</span><span>${Math.round(p.mor || 70)}/100${p.cnp ? ` · ${p.cnp} jogos sem atuar` : ''}</span>` : ''}
           </div>
         </div>
-        <div style="min-width:220px;flex:1">${attrBars(p)}</div>
+        <div style="min-width:220px;flex:1">${attrBars(p)}${psPanel(p)}</div>
       </div>
       <div class="grid g2" style="margin-top:16px">
         <div><h3 style="font-size:18px;margin-bottom:6px">Temporada</h3>${playerSeasonRows(p) ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Competição</th><th class="n">J</th><th class="n">G</th><th class="n">A</th><th class="n">Nota</th></tr></thead><tbody>${playerSeasonRows(p)}</tbody></table></div>` : '<div class="muted">Sem jogos nesta temporada.</div>'}</div>
