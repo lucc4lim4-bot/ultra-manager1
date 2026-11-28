@@ -2388,6 +2388,7 @@ function youthIntakeAI(t) {
       age: rint(17, 19), ovr: clamp(Math.round(lvl - rint(12, 20)), 45, 72), potBoost: Math.round(4 + 18 * rnd() ** 1.8) });
     movePlayer(p, t.id, { ct: yearOf(S.date) + 3 });
     p.w = Math.round(wageDemand(p, t) * 0.6);
+    psInnate(p);
   }
 }
 function enforceSquadSize(t) {
@@ -3642,6 +3643,7 @@ function scoutingWeek() {
       const potHi = clamp(Math.round(58 + talent * 3.6 + sc.lvl * 2.2 + gauss() * 6), ovrV + 6, 94);
       const p = generatePlayer({ nat: sc.country, age, ovr: ovrV, potBoost: potHi - ovrV });
       p.yth = -1; // scouted, not signed
+      psInnate(p);
       p.t = 0;
       const err = (6 - sc.lvl) * 2;
       const rep = { id: nextId('rep'), pid: p.id, sc: sc.id, scN: sc.n, d: S.date, potLo: clamp(p.pot - rint(0, err), p.o, 99), potHi: clamp(p.pot + rint(0, err), p.o, 99) };
@@ -3724,6 +3726,7 @@ function academyIntake(lvl, t) {
     const potHi = clamp(Math.round(56 + lvl * 4.2 + talent * 2.2 + gauss() * 7), ovrV + 8, 93);
     const p = generatePlayer({ nat, age, ovr: ovrV, potBoost: potHi - ovrV });
     p.yth = t.id; p.t = 0; p.ct = yearOf(S.date) + 3; p.w = 300; p.yNew = S.date;
+    psInnate(p);
     S.youth.squad.push(p.id);
     out.push(p);
   }
@@ -8896,10 +8899,26 @@ const PS_BY = Object.fromEntries(PLAYSTYLES.map((x) => [x[0], x]));
 const PS_CACHE = new Map();
 function psOf(p) {
   if (!p || !p.a) return { plus: [], base: [] };
-  const key = p.id + '|' + p.o + '|' + p.p + '|' + p.a.join(',');
+  const key = p.id + '|' + p.o + '|' + p.p + '|' + p.a.join(',') + '|' + (p.psy || []).join(',');
   let r = PS_CACHE.get(p.id);
   if (r && r.key === key) return r;
-  const h = hashStr('ps' + p.id + (p.n || '')) >>> 0;
+  const sc = psScores(p, hashStr('ps' + p.id + (p.n || '')) >>> 0);
+  const o = p.o, inn = (p.psy || []).filter((k) => PS_BY[k]);
+  // gold: the very best at something; the better the player, the more he can have (as in the game: stars have 2-3)
+  const maxPlus = o >= 90 ? 3 : o >= 85 ? 2 : o >= 77 ? 1 : 0;
+  // 90+ overall: at least one of his PlayStyles turns gold; 93+ two, 96+ three (his own innate ones first)
+  const minPlus = o >= 96 ? 3 : o >= 93 ? 2 : o >= 90 ? 1 : 0;
+  const plus = [];
+  for (const [k, v] of sc) { if (plus.length >= maxPlus) break; if (v >= 86 - Math.max(0, o - 86) * 0.5) plus.push(k); }
+  for (const k of inn.concat(sc.map((x) => x[0]))) { if (plus.length >= minPlus) break; if (!plus.includes(k)) plus.push(k); }
+  const nBase = Math.max(o >= 85 ? 5 : o >= 78 ? 4 : o >= 70 ? 3 : o >= 62 ? 2 : o >= 55 ? 1 : 0, inn.length);
+  const base = inn.filter((k) => !plus.includes(k));
+  for (const [k, v] of sc) { if (base.length >= nBase) break; if (plus.includes(k) || base.includes(k)) continue; if (v >= 60 + (o < 65 ? 4 : 0)) base.push(k); }
+  r = { key, plus, base };
+  PS_CACHE.set(p.id, r);
+  return r;
+}
+function psScores(p, h) {
   const sc = [];
   PLAYSTYLES.forEach((d, i) => {
     let v = d[6](p, p.a, p.p);
@@ -8907,19 +8926,20 @@ function psOf(p) {
     v += ((h >>> (i % 24)) % 7) - 3; // a little personal variety
     sc.push([d[0], v]);
   });
-  sc.sort((x, y) => y[1] - x[1]);
-  const o = p.o;
-  // gold: the very best at something; the better the player, the more he can have (as in the game: stars have 2-3)
-  const maxPlus = o >= 90 ? 3 : o >= 85 ? 2 : o >= 77 ? 1 : 0;
-  const plus = [];
-  for (const [k, v] of sc) { if (plus.length >= maxPlus) break; if (v >= 86 - Math.max(0, o - 86) * 0.5) plus.push(k); }
-  const nBase = o >= 85 ? 5 : o >= 78 ? 4 : o >= 70 ? 3 : o >= 62 ? 2 : o >= 55 ? 1 : 0;
-  const base = [];
-  for (const [k, v] of sc) { if (base.length >= nBase) break; if (plus.includes(k)) continue; if (v >= 60 + (o < 65 ? 4 : 0)) base.push(k); }
-  r = { key, plus, base };
-  PS_CACHE.set(p.id, r);
-  return r;
+  return sc.sort((x, y) => y[1] - x[1]);
 }
+// a youngster can come out of the academy with one or two silver PlayStyles of his own: random, from what fits his game,
+// so every intake is different (they stay with him; at 90+ one of them turns gold)
+function psInnate(p) {
+  if (!p || !p.a || p.age > 19) return;
+  const r = rnd(), n = r < 0.42 ? 0 : r < 0.86 ? 1 : 2;
+  if (!n) return;
+  const pool = psScores(p, (rnd() * 4294967295) >>> 0).slice(0, 8).map((x) => x[0]);
+  const out = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(rnd() * Math.min(pool.length, 5)), 1)[0]);
+  if (out.length) p.psy = out;
+}
+const psMap = (p) => { const r = psOf(p), m = {}; for (const k of r.base) m[k] = 1; for (const k of r.plus) m[k] = 2; return m; };
 // match: each silver one helps its line a little, each gold one more (weighted inside sideRatings)
 function psLineBonus(p) {
   const r = psOf(p), b = { A: 0, M: 0, D: 0, GK: 0 };
@@ -8940,9 +8960,10 @@ function psStrip(p, size = 26, max = 6) {
 function psPanel(p) {
   const r = psOf(p);
   if (!r.plus.length && !r.base.length) return '<div class="ps-panel"><div class="ps-h">PlayStyles</div><div class="muted" style="font-size:13px">Nenhum PlayStyle.</div></div>';
-  const row = (k, pl) => { const d = PS_BY[k]; return `<div class="ps-it ${pl ? 'pl' : ''}">${psIcon(k, pl, 34)}<div><b>${esc(d[1])}${pl ? '<sup>+</sup>' : ''}</b><small>${esc(pl ? d[5] : d[4])}</small><i>${PS_CATS[d[2]]}</i></div></div>`; };
+  const row = (k, pl) => { const d = PS_BY[k]; return `<div class="ps-it ${pl ? 'pl' : ''}">${psIcon(k, pl, 34)}<div><b>${esc(d[1])}${pl ? '<sup>+</sup>' : ''}${(p.psy || []).includes(k) ? '<span class="ps-inn" title="Nasceu com ele na base">BASE</span>' : ''}</b><small>${esc(pl ? d[5] : d[4])}</small><i>${PS_CATS[d[2]]}</i></div></div>`; };
   return `<div class="ps-panel"><div class="ps-h">PlayStyles <span>${r.plus.length ? `${r.plus.length} PlayStyle+ · ` : ''}${r.base.length} PlayStyle${r.base.length === 1 ? '' : 's'}</span></div>
-    <div class="ps-list">${r.plus.map((k) => row(k, 1)).join('')}${r.base.map((k) => row(k, 0)).join('')}</div></div>`;
+    <div class="ps-list">${r.plus.map((k) => row(k, 1)).join('')}${r.base.map((k) => row(k, 0)).join('')}</div>
+    ${p.o < 90 && r.base.length ? `<div class="muted" style="font-size:11.5px;margin-top:6px">Ao chegar a 90 de geral, um PlayStyle vira PlayStyle+ (93: dois, 96: três).</div>` : ''}</div>`;
 }
 
 // ------------------------------------------------------------------ FIFA-style player cards (lineup, bench, player window)
@@ -12476,6 +12497,79 @@ const Game2D = (() => {
     const c = opts.find((o) => cdist(o, kits[0].shirt) > 120 && cdist(o, kits[1].shirt) > 120) || opts[0];
     return { shirt: c, trim: '#1b1b1b', shorts: '#1b1b1b', socks: c };
   }
+  // ---------- PlayStyles in action (silver: a small edge; gold PlayStyle+: a big one, with a badge on screen)
+  const psB = (l, s, pl) => (l === 2 ? pl : l === 1 ? s : 0);
+  const psLv = (sp, k) => (sp && sp.ps ? sp.ps[k] || 0 : 0);
+  function psBest(sp, keys) { let bk = null, bl = 0; for (const k of keys) { const l = psLv(sp, k); if (l > bl) { bl = l; bk = k; } } return [bk, bl]; }
+  function withStat(sp, stat, add, f) { if (!add || !sp) return f(); const v0 = sp[stat]; sp[stat] = v0 + add; try { return f(); } finally { sp[stat] = v0; } }
+  const psFxT = {};
+  function psFx(sp, k, l) {
+    if (l !== 2 || !sp || !root || !G || G.auto || !PS_BY[k]) return;
+    if (G.dbg) G.dbg.psfx = (G.dbg.psfx || 0) + 1;
+    const key = sp.pid + k; if (psFxT[key] != null && Math.abs(G.time - psFxT[key]) < 5) return; psFxT[key] = G.time;
+    let box = root.querySelector('.psfx-box'); if (!box) { box = document.createElement('div'); box.className = 'psfx-box'; root.appendChild(box); }
+    const el = document.createElement('div'); el.className = 'psfx ' + (sp.team === 0 ? 'me' : 'op');
+    el.innerHTML = `<span class="psfx-ic">${psIcon(k, 1, 38)}</span><div class="psfx-t"><b>${esc(PS_BY[k][1])}<sup>+</sup></b><small>${esc(sp.label || '')}</small></div>`;
+    box.appendChild(el);
+    while (box.children.length > 3) box.firstChild.remove();
+    setTimeout(() => el.classList.add('out'), 2000); setTimeout(() => el.remove(), 2500);
+  }
+  function shoot(p, ax, power, sup, placed) {
+    const b = G.ball, fk = !!(G.fk && G.fk.taker === p), far = Math.hypot(PW / 2 - b.x, (p.team === 0 ? 0 : PL) - b.y) > 18;
+    const keys = fk ? ['deadball', 'finesse'] : b.z > 0.9 ? ['acrobatic', 'power'] : placed ? ['finesse', 'gamechanger'] : power >= 0.75 ? ['power', 'lowdriven', 'gamechanger'] : far ? ['gamechanger', 'finesse', 'power'] : ['finesse', 'lowdriven', 'power'];
+    const [k, l] = psBest(p, keys);
+    if (!l) return shoot0(p, ax, power, sup, placed);
+    const f0 = G.flight, r = withStat(p, 'sho', psB(l, 4, 13), () => shoot0(p, ax, power, sup, placed));
+    if (G.flight !== f0) {
+      if (l === 2 && (k === 'power' || k === 'gamechanger' || k === 'acrobatic')) { b.vx *= 1.07; b.vy *= 1.07; }
+      if (l === 2 && k === 'lowdriven' && b.vz > 0) b.vz *= 0.6;
+      psFx(p, k, l);
+    }
+    return r;
+  }
+  function passTo(p, q, dir, lofted, through) {
+    const b = G.ball, d = q ? Math.hypot(q.x - b.x, q.y - b.y) : lofted ? 26 : 15;
+    const keys = through ? ['incisive', 'inventive'] : lofted ? ['longball', 'inventive'] : d < 14 ? ['tikitaka', 'inventive'] : ['pinged', 'incisive'];
+    const [k, l] = psBest(p, keys);
+    if (!l) return passTo0(p, q, dir, lofted, through);
+    const f0 = G.flight, r = withStat(p, 'pas', psB(l, 4, 13), () => passTo0(p, q, dir, lofted, through));
+    if (G.flight !== f0) { if (l === 2 && k === 'pinged') { b.vx *= 1.06; b.vy *= 1.06; } psFx(p, k, l); }
+    return r;
+  }
+  function cross(p) { const l = psLv(p, 'whipped'), f0 = G.flight, r = withStat(p, 'pas', psB(l, 5, 15), () => cross0(p)); if (l && G.flight !== f0) psFx(p, 'whipped', l); return r; }
+  function chip(p) { const l = psLv(p, 'chip'), f0 = G.flight, r = withStat(p, 'sho', psB(l, 5, 15), () => chip0(p)); if (l && G.flight !== f0) psFx(p, 'chip', l); return r; }
+  function header(p) {
+    const own = p.team === 0 ? p.y > PL * 0.55 : p.y < PL * 0.45, k = own ? 'aerial' : 'header', l = psLv(p, k), add = psB(l, 5, 14);
+    const f0 = G.flight, r = withStat(p, 'sho', add, () => withStat(p, 'phy', add, () => header0(p)));
+    if (l && G.flight !== f0) psFx(p, k, l);
+    return r;
+  }
+  function tryTackle(d, c, bonus) {
+    const [kd, ld] = psBest(d, ['anticipate', 'jockey', 'bruiser']), [kc, lc] = psBest(c, ['press', 'trickster', 'technical', 'enforcer']);
+    const r = tryTackle0(d, c, (bonus || 0) + psB(ld, 0.05, 0.16) - psB(lc, 0.04, 0.13));
+    if (r && ld) psFx(d, kd, ld); else if (!r && lc) psFx(c, kc, lc);
+    return r;
+  }
+  function slideContact(p) {
+    const l = psLv(p, 'slide'), o = G.ball.owner, was = p.slideDone;
+    const r = withStat(p, 'def', psB(l, 5, 16), () => slideContact0(p));
+    if (l && !was && p.slideDone && o && o.team !== p.team && G.ball.owner !== o) psFx(p, 'slide', l);
+    return r;
+  }
+  function gkSave(gk, r) {
+    const [k, l] = psBest(gk, G.ball.z > 1.8 ? ['crossclaimer', 'deflector', 'farreach'] : ['footwork', 'deflector', 'farreach']);
+    const out = withStat(gk, 'gkHan', psB(l, 3, 10), () => gkSave0(gk, r));
+    if (l && out !== false) psFx(gk, k, l);
+    return out;
+  }
+  function takeKick(power, aim, F) {
+    const t = G.pk && G.pk.taker, l = F ? 0 : psLv(t, 'deadball');
+    const r = withStat(t, 'sho', psB(l, 5, 15), () => takeKick0(power, aim, F));
+    if (l) psFx(t, 'deadball', l);
+    return r;
+  }
+  function throwTo(c) { const l = psLv(c, 'longthrow'), r = withStat(c, 'pas', psB(l, 6, 18), () => throwTo0(c)); if (l) psFx(c, 'longthrow', l); return r; }
+
   function applyPlayer(sp, p) {
     const h = hashStr(p.n + '|' + p.id);
     const si = DARK.has(p.nat) ? 3 + (h % 3) : MIXED.has(p.nat) ? h % 6 : h % 3;
@@ -12493,6 +12587,15 @@ const Game2D = (() => {
       skin: SKINS[si], hair: HAIRS[(h >> 6) % HAIRS.length], hs: (h >> 11) % 5, num: p.num || sp.slot + 1,
       label: p.s || p.n, sta: 1,
     });
+    // PlayStyles on the pitch: always-on edges (pace, strength, defending, keeping); the rest act on the action itself
+    sp.ps = psMap(p);
+    const B = (k, s, pl) => psB(sp.ps[k] || 0, s, pl);
+    sp.speed *= 1 + B('quickstep', 0.02, 0.055) + B('rapid', 0.012, 0.035) + (sp.gk ? B('rushout', 0.03, 0.08) : 0);
+    sp.phy += B('bruiser', 3, 9) + B('enforcer', 2, 7);
+    sp.def += B('intercept', 2, 6) + B('block', 2, 5) + B('jockey', 1, 3);
+    sp.dri += B('firsttouch', 2, 5) + B('technical', 1, 4) + B('trickster', 2, 5) + B('press', 1, 4) + B('rapid', 1, 3);
+    sp.gkRef += B('footwork', 3, 9); sp.gkDiv += B('farreach', 3, 9); sp.gkHan += B('deflector', 2, 6) + B('crossclaimer', 2, 6); sp.gkKic += B('farthrow', 3, 9);
+    sp.staF = 1 + B('relentless', 0.15, 0.45);
     const lk = S.pl && S.pl.look && p.id === S.pl.pid ? S.pl.look : null; // the player-career look chosen by the user
     if (lk) Object.assign(sp, { skin: SKINS[lk.skin] || sp.skin, hair: HAIRS[lk.hair] || sp.hair, hs: lk.hs != null ? lk.hs : sp.hs, beard: !!lk.beard, boots: lk.boots || null, num: lk.num || sp.num });
     sp.stars = sp.gk ? 1 : skillStars(sp.dri);
@@ -12963,7 +13066,7 @@ const Game2D = (() => {
   }
   // decide and launch a penalty kick; aim in [-1, 1] across the goal mouth from the taker's view (null = computer)
   function kickNo() { const so = G.shootout; return so ? so.kicks[0].length + so.kicks[1].length : 0; }
-  function takeKick(power, aim, F) {
+  function takeKick0(power, aim, F) {
     const k = G.pk, b = G.ball;
     const taker = k.taker, gk = k.gk;
     let diveSide, outcome, over, wide, h;
@@ -13658,7 +13761,7 @@ const Game2D = (() => {
     const autoRun = G2PREF.autoRun !== false;
     const wantSprint = pressing || autoRun ? (pressing || (mag > 0.6 && !KEYS.shift) || (G2PREF.ctl === 'fm' && !!I.sprint && mag > 0.05)) : (!!I.sprint && mag > 0.05); // automatic sprint when the stick is pushed (Shift jogs), or only while the run button is held
     // sprint stamina: roughly 7 seconds of flat-out running, recovers while jogging
-    if (wantSprint && (w.x || w.y) && c.sta > 0.02) { c.sta = Math.max(0, c.sta - dt / ((6 + c.phy / 40) * (G.spPerk === 'energy' ? 1.2 : 1) * (1 + (G.fanSup || 0) * 0.08))); c.sprint = c.sta > 0.1; }
+    if (wantSprint && (w.x || w.y) && c.sta > 0.02) { c.sta = Math.max(0, c.sta - dt / ((6 + c.phy / 40) * (c.staF || 1) * (G.spPerk === 'energy' ? 1.2 : 1) * (1 + (G.fanSup || 0) * 0.08))); c.sprint = c.sta > 0.1; }
     else { c.sprint = false; c.sta = Math.min(1, c.sta + dt * 0.11); }
     for (const p of G.players) if (p !== c && p.team === 0 && p.sta < 1) p.sta = Math.min(1, p.sta + dt * 0.12);
     if (I.shootDown) I.hold = Math.min(1, I.hold + dt / 0.85);
@@ -13899,7 +14002,7 @@ const Game2D = (() => {
     t.q = null; let bd = 6;
     for (const q of G.players) { if (q.out || q.team !== 0 || q === c || q.gk) continue; const d = Math.hypot(q.x - t.tx, q.y - t.ty); if (d < bd) { bd = d; t.q = q; } }
   }
-  function throwTo(c) {
+  function throwTo0(c) {
     const b = G.ball, t = G.thr;
     const tx = t.tx, ty = t.ty, q = t.q;
     const dx = tx - b.x, dy = ty - b.y, d = clamp(Math.hypot(dx, dy), 2, THROW_MAX);
@@ -13994,7 +14097,7 @@ const Game2D = (() => {
     if (n.x || n.y) { p.dx = n.x; p.dy = n.y; }
     sfx('kick', clamp(Math.hypot(vx, vy) / 28, 0.2, 1));
   }
-  function passTo(p, q, dir, lofted, through) {
+  function passTo0(p, q, dir, lofted, through) {
     const b = G.ball;
     let tx, ty;
     const fwd = p.team === 0 ? -1 : 1;
@@ -14033,7 +14136,7 @@ const Game2D = (() => {
     if (!(n.x || n.y) || !(f.x || f.y)) return 0;
     return Math.acos(clamp(n.x * f.x + n.y * f.y, -1, 1));
   }
-  function shoot(p, ax, power, sup, placed) {
+  function shoot0(p, ax, power, sup, placed) {
     const b = G.ball, st = G.st;
     const up = p.team === 0;
     const gy = up ? 0 : PL;
@@ -14092,7 +14195,7 @@ const Game2D = (() => {
     if (sup != null) say(`${nameOf(p)} solta uma bomba!`, 1);
     else say(d > 22 ? `${nameOf(p)} arrisca de longe!` : curve ? `${nameOf(p)} bate colocado!` : `Chute de ${nameOf(p)}!`, 1);
   }
-  function chip(p) {
+  function chip0(p) {
     const b = G.ball;
     const gy = p.team === 0 ? 0 : PL;
     const tx = PW / 2 + (Math.random() - 0.5) * 3;
@@ -14107,7 +14210,7 @@ const Game2D = (() => {
     say(`Cavadinha de ${nameOf(p)}!`, 1);
   }
   // cross from the wing: driven into the space in front of a team-mate, coming down at head height
-  function cross(p) {
+  function cross0(p) {
     const b = G.ball;
     const gy = p.team === 0 ? 0 : PL, inward = gy === 0 ? 1 : -1;
     const blocker = G.players.find((o) => !o.out && !o.gk && o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < 1.9 && ((PW / 2 - p.x) * (o.x - p.x) + (gy + inward * 8 - p.y) * (o.y - p.y)) > 0);
@@ -14189,7 +14292,7 @@ const Game2D = (() => {
     Object.assign(p, { slide: 0.45, sx: n.x, sy: n.y, slideDone: false, dx: n.x, dy: n.y });
     burst(p.x, p.y, 5, '#6fa83a');
   }
-  function tryTackle(d, c, bonus) {
+  function tryTackle0(d, c, bonus) {
     if (c.gk) return false;
     const feint = (c.feintT > 0 ? 0.12 : 0) + (c.sk ? (c.sk.kind === 'spin' ? 0.3 : 0.2) * clamp(c.dri / 80, 0.7, 1.25) : 0);
     const mine = !G.auto && d === G.ctrl; // the tackle of the player you control works more often
@@ -14208,7 +14311,7 @@ const Game2D = (() => {
     if (c.team === 0 && c.feintT > 0) say(`${nameOf(c)} passa pela marcação!`, 0);
     return false;
   }
-  function slideContact(p) {
+  function slideContact0(p) {
     const b = G.ball;
     if (p.slideDone) return;
     const o = b.owner;
@@ -15097,7 +15200,7 @@ const Game2D = (() => {
     Object.assign(b, { owner: null, vx: n.x * sp, vy: n.y * sp, vz, last: p, lastTeam: p.team, shot, passer: hd.k === 'pass' ? p : null, target: null, curve: 0, cross: null });
     banner(hd.k === 'shoot' ? 'Cabeçada!' : 'Cabeceio!', 0.6); say(msg, 1); sfx('kick', 0.5);
   }
-  function header(p) {
+  function header0(p) {
     const b = G.ball;
     if (b.offs && b.passer && p.team === b.passer.team && p !== b.passer && b.offs.has(p.pid) && !G.tr) { callOffside(p); return; }
     const gy = p.team === 0 ? 0 : PL, fwd = p.team === 0 ? -1 : 1;
@@ -15130,7 +15233,7 @@ const Game2D = (() => {
     sfx('kick', 0.4);
   }
   // the ball meets the keeper: held, pushed wide, tipped over, blocked into the box, or (rarely) it squirms in
-  function gkSave(gk, r) {
+  function gkSave0(gk, r) {
     const b = G.ball, st = G.st, pk = G.pk;
     const k = sideOf(1 - gk.team);
     const shooter = b.shot && b.shot.by;

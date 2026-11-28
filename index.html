@@ -1108,6 +1108,32 @@ html[data-ui="light"] .pf-nm { background: rgba(20,20,24,0.85); }
 .fc.lg .ps-strip, .pf.lg .ps-strip { margin-top: 6px; }
 .fc.lg { height: auto; }
 @media (max-width: 640px) { .pf.sm .pf-ps svg { width: 15px; height: 15px; } .pf.sm .pf-ps { right: -6px; top: 0; } }
+
+/* ===================== V80: PlayStyle+ in the match */
+.psfx-box{position:absolute;left:12px;top:30%;z-index:40;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.psfx{display:flex;align-items:center;gap:10px;padding:7px 16px 7px 8px;border-radius:999px;
+  background:linear-gradient(100deg,rgba(18,14,4,.92),rgba(40,30,6,.86));border:1px solid rgba(255,214,102,.55);
+  box-shadow:0 6px 22px rgba(0,0,0,.45),0 0 18px rgba(255,196,60,.28);color:#fff;font-family:var(--ui-font,inherit);
+  transform:translateX(-120%);opacity:0;animation:psfxIn .42s cubic-bezier(.2,1.3,.4,1) forwards;position:relative;overflow:hidden}
+.psfx::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#34d399}
+.psfx.op::before{background:#f87171}
+.psfx::after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-50%;background:linear-gradient(90deg,transparent,rgba(255,240,190,.45),transparent);
+  transform:skewX(-20deg);animation:psfxShine 1s .35s ease-out forwards}
+.psfx-ic{display:grid;place-items:center;animation:psfxPop .5s .2s ease-out both}
+.psfx-ic .psi{filter:drop-shadow(0 0 8px rgba(255,200,70,.75))}
+.psfx-t{display:flex;flex-direction:column;line-height:1.1}
+.psfx-t b{font-size:15px;font-weight:800;letter-spacing:.01em;color:#ffe08a}
+.psfx-t b sup{font-size:11px;margin-left:1px;color:#ffd24d}
+.psfx-t small{font-size:11.5px;opacity:.85;text-transform:uppercase;letter-spacing:.06em}
+.psfx.out{animation:psfxOut .45s ease-in forwards}
+@keyframes psfxIn{to{transform:none;opacity:1}}
+@keyframes psfxOut{from{transform:none;opacity:1}to{transform:translateX(-30px);opacity:0}}
+@keyframes psfxShine{to{left:130%}}
+@keyframes psfxPop{0%{transform:scale(.4) rotate(-25deg)}70%{transform:scale(1.18) rotate(4deg)}100%{transform:none}}
+@media (max-width:700px){.psfx-box{top:22%;left:6px}.psfx{padding:5px 12px 5px 6px}.psfx-t b{font-size:13px}}
+html[data-uimotion="off"] .psfx,html[data-uimotion="off"] .psfx-ic,html[data-uimotion="off"] .psfx::after{animation:none;transform:none;opacity:1}
+/* academy: innate PlayStyle tag */
+.ps-inn{font-size:10px;padding:1px 6px;border-radius:6px;background:rgba(52,211,153,.16);color:#34d399;margin-left:6px;font-weight:700;letter-spacing:.04em}
 </style>
 <div id="app" class="app"><div class="boot"><div class="boot-logo">ULTRA<span>MANAGER</span></div><div class="boot-sub">Carregando…</div></div></div>
 <div id="modals"></div>
