@@ -8852,16 +8852,16 @@ const PC_HAIRS = ['#16100c', '#2b1d14', '#4b3121', '#7a5230', '#c9a061', '#0d0d0
 const PC_DARK = new Set(['NGA', 'GHA', 'CIV', 'SEN', 'CMR', 'MLI', 'COD', 'BFA', 'GUI', 'GAB', 'ANG', 'ZAM', 'TOG', 'BEN', 'JAM', 'HAI', 'CUW', 'RSA', 'CPV', 'GAM', 'GNB', 'EQG', 'KEN', 'UGA', 'MOZ', 'ZIM', 'TRI', 'SUR', 'CGO', 'SLE', 'LBR', 'TAN', 'ETH', 'SUD', 'BDI', 'RWA', 'MTN', 'NIG', 'CTA', 'CHA']);
 const PC_MIXED = new Set(['BRA', 'COL', 'FRA', 'ENG', 'NED', 'BEL', 'POR', 'USA', 'CAN', 'ECU', 'VEN', 'PAN', 'CRC', 'HON', 'URU', 'SWE', 'GER', 'SUI', 'MAR', 'ALG', 'TUN', 'EGY', 'KSA', 'QAT', 'IRN', 'TUR']);
 function pcLook(p) {
-  const h = hashStr(String(p.id) + (p.n || ''));
+  const h = hashStr(String(p.id) + (p.n || '')) >>> 0; // unsigned: a negative hash gave negative indexes (no hair, broken face)
   let si;
   if (PC_DARK.has(p.nat)) si = 3 + (h % 3);
   else if (PC_MIXED.has(p.nat)) si = [0, 1, 1, 2, 2, 3, 4, 5][h % 8];
   else if (['JPN', 'KOR', 'CHN', 'AUS'].includes(p.nat)) si = 1 + (h % 2);
   else si = [0, 0, 1, 1, 2][h % 5];
   const dark = si >= 4;
-  const hs = dark ? [0, 2, 4, 4, 5, 1, 3][(h >> 5) % 7] : [0, 1, 2, 3, 5, 6, 0, 3][(h >> 5) % 8];
-  const hair = PC_HAIRS[(p.age || 25) >= 34 && (h >> 9) % 4 === 0 ? 6 : dark ? (h >> 7) % 2 ? 5 : 0 : [0, 1, 2, 2, 3, 4, 1, 0][(h >> 7) % 8]];
-  return { skin: PC_SKINS[si], hair, hs, beard: (h >> 11) % 5 === 0 ? 2 : (h >> 11) % 5 === 1 ? 1 : 0, brow: 1 + ((h >> 13) % 3) * 0.4, jaw: (h >> 15) % 3 };
+  const hs = dark ? [0, 2, 4, 4, 5, 1, 3][(h >>> 5) % 7] : [0, 1, 2, 3, 5, 6, 0, 3][(h >>> 5) % 8];
+  const hair = PC_HAIRS[(p.age || 25) >= 34 && (h >>> 9) % 4 === 0 ? 6 : dark ? (h >>> 7) % 2 ? 5 : 0 : [0, 1, 2, 2, 3, 4, 1, 0][(h >>> 7) % 8]];
+  return { skin: PC_SKINS[si], hair, hs, beard: (h >>> 11) % 5 === 0 ? 2 : (h >>> 11) % 5 === 1 ? 1 : 0, brow: 1 + ((h >>> 13) % 3) * 0.4, jaw: (h >>> 15) % 3 };
 }
 function pcShade(hex, k) { // k < 0 darker, > 0 lighter
   const n = parseInt(String(hex || '#777').replace('#', '').padEnd(6, '0').slice(0, 6), 16) || 0x777777;
@@ -8871,12 +8871,13 @@ function pcShade(hex, k) { // k < 0 darker, > 0 lighter
 const PHOTOS = (() => { try { return JSON.parse(localStorage.getItem('um-photos') || '{}') || {}; } catch (e) { return {}; } })();
 const photoKey = (p) => strip(p.n || '') + '|' + (p.nat || '');
 function savePhotos() { try { localStorage.setItem('um-photos', JSON.stringify(PHOTOS)); return true; } catch (e) { return false; } }
+const hairs0 = (hr) => `<path d="M32 41 C29 18 71 18 68 41 C67 33 64 28 58 27 C52 30 42 30 36 28 C34 31 33 35 32 41Z" fill="${hr}"/>`;
 function portraitSvg(p, o = {}) {
   const ph = PHOTOS[photoKey(p)];
   if (ph) return `<img class="portrait photo" src="${ph}" alt="" draggable="false">`;
   const L = o.look || pcLook(p), t = S.teams[p.t] || null, kit = o.kit || (t ? t.c1 : '#5b6b72'), kit2 = o.kit2 || (t ? t.c2 : '#e6edf0');
   const id = 'pt' + p.id + (o.tag || ''), sk = L.skin, skD = pcShade(sk, -0.22), skL = pcShade(sk, 0.18), hr = L.hair, hrL = pcShade(hr, 0.25);
-  const jw = [0, 2, -1.5][L.jaw];
+  const jw = [0, 2, -1.5][L.jaw] || 0;
   const face = `M33 40 C33 24 67 24 67 40 C67 52 64 ${60 + jw} 56 ${65 + jw} C53 ${67 + jw} 47 ${67 + jw} 44 ${65 + jw} C36 ${60 + jw} 33 52 33 40Z`;
   const hairs = [
     `<path d="M32 41 C29 18 71 18 68 41 C67 33 64 28 58 27 C52 30 42 30 36 28 C34 31 33 35 32 41Z" fill="${hr}"/>`,
@@ -8886,11 +8887,11 @@ function portraitSvg(p, o = {}) {
     `<g fill="${hr}">${[[50, 19, 15], [37, 25, 10], [63, 25, 10], [31, 35, 7], [69, 35, 7], [43, 18, 10], [57, 18, 10]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}"/>`).join('')}</g><path d="M33 40 C33 30 67 30 67 40 C64 33 36 33 33 40Z" fill="${hr}"/>`,
     `<path d="M33 38 C33 25 67 25 67 38 C65 32 60 30 50 30 C40 30 35 32 33 38Z" fill="${hr}" opacity="0.85"/><path d="M33 38 C32.5 41 33 44 33.6 46 M67 38 C67.5 41 67 44 66.4 46" stroke="${hr}" stroke-width="1.4" opacity="0.6" fill="none"/>`,
     `<path d="M32 40 C30 20 70 20 68 40 C66 34 60 30 50 32 C44 33 38 31 35 29 C33 32 32 36 32 40Z" fill="${hr}"/><path d="M36 29 C42 24 56 22 66 30" stroke="${hrL}" stroke-width="2" fill="none"/>`,
-  ][L.hs] || '';
+  ][L.hs] || hairs0(hr);
   const beard = L.beard === 2 ? `<path d="M34 46 C35 ${66 + jw} 65 ${66 + jw} 66 46 C63 56 58 ${59 + jw} 50 ${59 + jw} C42 ${59 + jw} 37 56 34 46Z" fill="${hr}" opacity="0.92"/><path d="M44 56 Q50 54 56 56 Q50 58 44 56Z" fill="${hr}"/>`
     : L.beard === 1 ? `<path d="M35 48 C36 ${64 + jw} 64 ${64 + jw} 65 48 C62 57 57 ${61 + jw} 50 ${61 + jw} C43 ${61 + jw} 38 57 35 48Z" fill="${hr}" opacity="0.32"/>` : '';
   const bw = L.brow;
-  return `<svg class="portrait" viewBox="${o.crop ? '11 13 78 87' : '0 0 100 100'}" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><defs>
+  return `<svg class="portrait" viewBox="${o.crop ? '10 3 80 97' : '0 0 100 100'}" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><defs>
       <linearGradient id="${id}s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pcShade(kit, 0.12)}"/><stop offset="1" stop-color="${pcShade(kit, -0.35)}"/></linearGradient>
       <radialGradient id="${id}f" cx="0.42" cy="0.38" r="0.7"><stop offset="0" stop-color="${skL}"/><stop offset="0.7" stop-color="${sk}"/><stop offset="1" stop-color="${skD}"/></radialGradient></defs>
     <path d="M6 100 C8 80 22 72 38 70 L62 70 C78 72 92 80 94 100Z" fill="url(#${id}s)"/>
@@ -8911,6 +8912,7 @@ function portraitSvg(p, o = {}) {
 // card tier from the overall, as in the card games: bronze, silver, gold, special
 const cardTier = (o) => (o >= 85 ? 'sp' : o >= 75 ? 'au' : o >= 65 ? 'ag' : 'cu');
 // look of the players in the lineup: 'fig' = the little player with the rating beside and the name below, 'card' = FIFA-style card, 'list' = rows
+if (/debug=1/.test(location.search)) window.__umc = { get S() { return S; }, pcLook: (p) => pcLook(p), fifaCard: (p, o) => fifaCard(p, o), PC_SKINS };
 const luStyle = () => (UIPREF.luStyle === 'card' || UIPREF.luStyle === 'list' ? UIPREF.luStyle : UIPREF.luList === true ? 'list' : 'fig');
 function fifaCard(p, o = {}) {
   const pos = o.pos || p.p, ovr = o.ovr != null ? o.ovr : p.o, t = S.teams[p.t];
